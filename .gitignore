@@ -1,0 +1,27 @@
+# Binaries
+*.bin
+restore_aboot_sector
+test_aboot_write
+
+# Build artifacts
+tmp/
+src/fhprg.c
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Editor/IDE
+.vibe/
+*.swp
+*~
+
+# Claude Code
+.claude/
+MEMORY.md
+
+# Other project dirs
+client/
