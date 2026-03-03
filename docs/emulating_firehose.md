@@ -251,6 +251,33 @@ return 0;
 
 There's also a secondary restriction in `FUN_08027328` during device initialization: a loop that populates per-partition handler pointers explicitly skips slot 3 (`do { i++; if (7 < i) break; } while (i == 3);`), leaving a null function pointer that would cause a crash even if the first gate were bypassed.
 
+## The patch
+
+With the restriction identified down to specific instructions, patching is trivial. Two `beq` instructions become `nop`:
+
+| Gate | File offset | VA | Original | Patched | Effect |
+|------|------------|-----|----------|---------|--------|
+| 1 | `0x35214` | `0x08038214` | `d0 08` (`beq 0x8038228`) | `00 bf` (`nop`) | Remove `partition != 3` reject |
+| 2 | `0x24334` | `0x08027334` | `d0 1f` (`beq 0x8027376`) | `00 bf` (`nop`) | Populate handler table slot 3 |
+
+Gate 1 is the `cmp r4, #3; beq reject` in `FUN_08038206`. NOPing the branch means the partition selector no longer treats 3 as special — it falls through to the same validation path as partitions 0-2 and 4-7.
+
+Gate 2 is the `cmp r4, #3; beq skip` in the handler table init loop. NOPing it means slot 3 gets a real function pointer instead of NULL, so the write wrapper won't dereference a null handler if Gate 1 is also patched.
+
+Four bytes. The emulator confirms:
+
+```
+$ python3 tools/fhprg_emu.py --compare --elf fhprg_unsafe.bin --native-partition-sel
+
+Partition 0 (normal):
+    Writes: 1, ACKs: 2, NAKs: 0
+
+Partition 3 (aboot):
+    Writes: 1, ACKs: 2, NAKs: 0
+```
+
+Both partitions now write identically. The `--native-partition-sel` flag tells the harness to skip the Python-side partition hook and let the patched native code run through Unicorn — so this is the actual Thumb2 instructions executing, not a simulation of the logic.
+
 ## Reflections
 
 Building this harness took about as much time debugging the emulator as it would have taken to just stare at the Ghidra output and guess. But the emulator gave certainty. We didn't just *think* partition 3 was blocked — we watched the native code reject it, traced the exact instruction, and saw the NAK response get built.

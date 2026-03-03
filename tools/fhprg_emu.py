@@ -138,8 +138,9 @@ class TraceLog:
 # ---------------------------------------------------------------------------
 
 class FHProgramEmulator:
-    def __init__(self, elf_path=ELF_PATH, verbose=False):
+    def __init__(self, elf_path=ELF_PATH, verbose=False, native_partition_sel=False):
         self.elf_path = os.path.abspath(elf_path)
+        self.native_partition_sel = native_partition_sel
         self.verbose = verbose
         self.trace = TraceLog(verbose)
         self.uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
@@ -284,7 +285,7 @@ class FHProgramEmulator:
         if addr == FN_GET_PART_INFO:
             self._hook_get_part_info(uc)
             return
-        if addr == FN_PARTITION_SEL:
+        if addr == FN_PARTITION_SEL and not self.native_partition_sel:
             self._hook_partition_sel(uc)
             return
         if addr == FN_PARSE_SECTOR:
@@ -1125,6 +1126,10 @@ def main():
                         help='Verbose trace output')
     parser.add_argument('--compare', action='store_true',
                         help='Compare splash vs aboot writes')
+    parser.add_argument('--elf', type=str, default=None,
+                        help='Path to ELF binary (default: fhprg_peek.bin)')
+    parser.add_argument('--native-partition-sel', action='store_true',
+                        help='Let native FUN_08038206 run (for testing patched binaries)')
     args = parser.parse_args()
 
     if args.compare:
@@ -1133,14 +1138,17 @@ def main():
         print("COMPARISON: partition 0 (allowed) vs partition 3 (aboot, restricted)")
         print("=" * 70)
 
-        emu = FHProgramEmulator(verbose=args.verbose)
+        elf = args.elf or ELF_PATH
+        emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
+                                native_partition_sel=args.native_partition_sel)
 
         # Partition 0: should succeed
         p0_trace = emu.run_program_test(
             start_sector=2663442, num_sectors=2048, partition=0)
 
         # Re-create emulator for clean state
-        emu = FHProgramEmulator(verbose=args.verbose)
+        emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
+                                native_partition_sel=args.native_partition_sel)
 
         # Partition 3: should be blocked by FUN_08038206
         p3_trace = emu.run_program_test(
@@ -1180,7 +1188,9 @@ def main():
         else:
             print(f"\n  Unexpected result. Check harness setup.")
     else:
-        emu = FHProgramEmulator(verbose=args.verbose)
+        elf = args.elf or ELF_PATH
+        emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
+                                native_partition_sel=args.native_partition_sel)
         emu.run_program_test(
             start_sector=args.start_sector,
             num_sectors=args.num_sectors,
