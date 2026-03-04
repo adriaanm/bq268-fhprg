@@ -186,6 +186,31 @@ fhprg-report: $(FHPRG_ELF)
 fhprg-regen:
 	python3 tools/preprocess_fhprg.py
 
+# ── minimal (stripped-down firehose for analysis) ────────────────────────────
+MINIMAL_CC     = clang
+MINIMAL_CFLAGS = --target=arm-none-eabi -mthumb -march=armv7-a -mfloat-abi=soft \
+                 -mno-movt -Oz -fomit-frame-pointer -std=gnu89 -Wno-everything \
+                 -ffreestanding -ffunction-sections -fdata-sections \
+                 -I src_minimal
+MINIMAL_SRC = $(wildcard src_minimal/*.c)
+MINIMAL_OBJ = $(patsubst src_minimal/%.c,tmp/minimal_%.o,$(MINIMAL_SRC))
+
+.PHONY: minimal minimal-clean
+
+tmp/minimal_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
+	@mkdir -p tmp
+	$(MINIMAL_CC) $(MINIMAL_CFLAGS) -c $< -o $@
+
+minimal: $(MINIMAL_OBJ)
+	@echo "[*] Minimal build: $(words $(MINIMAL_OBJ)) objects compiled"
+	@echo "[*] Checking undefined symbols..."
+	@arm-none-eabi-nm -u $(MINIMAL_OBJ) | sort -u | head -40
+	@echo "[*] Function count:"
+	@grep -rc 'orig: 0x' src_minimal/*.c || true
+
+minimal-clean:
+	rm -f tmp/minimal_*.o
+
 # ── clean ────────────────────────────────────────────────────────────────────
 clean:
 	rm -f $(OBJ) $(ORIG_ASM) $(RECOMP_ASM) $(DIFF_JSON)
