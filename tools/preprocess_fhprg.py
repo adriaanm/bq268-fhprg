@@ -256,7 +256,7 @@ def transform_source(c_source: str) -> str:
         if not stripped:
             return True
         last_char = stripped[-1]
-        if last_char in '([{}=,;!~^|&<>+-*/':
+        if last_char in '([{}=,;:!~^|&<>+-*/':
             return True
         if last_char == ')':
             if re.search(r'\([\w][\w\s\*]*\)\s*$', stripped):
@@ -306,12 +306,18 @@ def transform_source(c_source: str) -> str:
     # 9. LAB_xxx_1 → LAB_xxx
     c_source = re.sub(r'\bLAB_([0-9a-f]+)_\d+\b', r'LAB_\1', c_source)
 
+    # 10. Ensure Ghidra WARNING comments don't merge with the next function def
+    c_source = re.sub(r'(\*/)\s*((?:void|int|uint|undefined[0-9]*|char|byte|bool|short|ushort|longlong|ulonglong)\b)',
+                      r'\1\n\2', c_source)
+
     return c_source
 
 
 def to_knr_definition(c_source: str, func_name: str) -> str:
     """Convert ANSI-style function definition to K&R (old-style) definition."""
-    pat = (r'([\w\s\*]+?)\s+' + re.escape(func_name) +
+    # Match the function definition line, allowing leading comments on prior lines.
+    # Capture only the return type (not comments) by requiring it to start at line begin.
+    pat = (r'^((?:unsigned\s+)?[\w][\w\s\*]*?)\s+' + re.escape(func_name) +
            r'\s*\(([^{]*?)\)\s*\{')
     m = re.search(pat, c_source, re.MULTILINE | re.DOTALL)
     if not m:
@@ -477,7 +483,12 @@ def main():
         ret, _ = parse_func_signature(name, src)
         if name in upgrade_to_u4:
             ret = "undefined4"
-        proto_decls.append(f"{ret} {name}();")
+        # Fix "processEntry entry" → "processEntry_entry"
+        proto_name = name
+        if "processEntry" in ret and name == "entry":
+            ret = ret.replace("processEntry", "").strip() or "void"
+            proto_name = "processEntry_entry"
+        proto_decls.append(f"{ret} {proto_name}();")
 
     # Collect LAB_ references
     lab_addr_refs = set()

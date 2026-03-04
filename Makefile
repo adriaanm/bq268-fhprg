@@ -36,8 +36,23 @@ VENV_DIR = tmp/pyghidra_venv
 VENV_PY = $(VENV_DIR)/bin/python3
 GHIDRA_INSTALL = /opt/homebrew/Cellar/ghidra/12.0.3/libexec
 
+# ── fhprg (firehose programmer) ──────────────────────────────────────────────
+FHPRG_CC     = clang
+FHPRG_CFLAGS = --target=arm-none-eabi -mthumb -march=armv7-a -mfloat-abi=soft \
+               -mno-movt -Oz -fomit-frame-pointer -std=gnu89 -Wno-everything \
+               -ffreestanding -ffunction-sections -fdata-sections
+FHPRG_SPLIT_SRC = $(wildcard src/fhprg/*.c)
+FHPRG_SPLIT_OBJ = $(patsubst src/fhprg/%.c,tmp/fhprg_%.o,$(FHPRG_SPLIT_SRC))
+FHPRG_ELF    = tmp/fhprg_linked.elf
+FHPRG_ORIG   = fhprg_peek.bin
+FHPRG_FUNCS  = tmp/fhprg_syms.txt
+FHPRG_PROV   = tmp/fhprg_provides.ld
+FHPRG_LD     = src/fhprg.ld
+FHPRG_MAP    = tmp/fhprg_linked.map
+
 .PHONY: all clean preprocess analyze diff-asm match-symbols extract-code \
-        disasm-orig disasm-recomp venv strings extract-data link hybrid-diff
+        disasm-orig disasm-recomp venv strings extract-data link hybrid-diff \
+        fhprg fhprg-diff fhprg-regen fhprg-provides
 
 all: $(OBJ)
 
@@ -130,9 +145,54 @@ extract-code:
 hybrid-diff: $(LINKED_ELF)
 	python3 tools/hybrid_diff.py --orig $(BINARY) --recomp $(LINKED_ELF) --funcs $(FUNCS_JSON)
 
+# ── fhprg targets ────────────────────────────────────────────────────────────
+
+# Compile each split module → object file
+tmp/fhprg_%.o: src/fhprg/%.c src/fhprg/globals.h $(TYPES)
+	$(FHPRG_CC) $(FHPRG_CFLAGS) -I src -I src/fhprg -c $< -o $@
+
+# Generate PROVIDE() symbols + per-function section placements
+fhprg-provides: $(FHPRG_SPLIT_OBJ) $(FHPRG_FUNCS)
+	python3 tools/gen_fhprg_provides.py
+
+# Split monolithic fhprg.c into per-module files
+fhprg-split:
+	python3 tools/split_fhprg.py
+
+# Link with per-function placement
+FHPRG_LIBGCC = $(shell arm-none-eabi-gcc -mthumb -march=armv7-a -mfloat-abi=soft --print-libgcc-file-name)
+
+$(FHPRG_ELF): $(FHPRG_SPLIT_OBJ) $(FHPRG_LD) $(FHPRG_PROV)
+	$(LD) -T $(FHPRG_LD) -L . -o $@ $(FHPRG_SPLIT_OBJ) $(FHPRG_LIBGCC) -Map $(FHPRG_MAP) \
+	    --noinhibit-exec 2>&1 | grep -v 'overlaps section' || true
+	@echo "[*] fhprg linked: $@ (overlaps expected for oversized functions)"
+
+# Note: flat binary not useful for fhprg (per-function sections span wide address range)
+# Use fhprg-diff or fhprg-report for comparison instead
+
+# Compile + link
+fhprg: $(FHPRG_ELF)
+
+# Per-function hybrid diff against original
+fhprg-diff: $(FHPRG_ELF)
+	python3 tools/hybrid_diff.py --orig $(FHPRG_ORIG) --recomp $(FHPRG_ELF) \
+	    --funcs $(FHPRG_FUNCS) --thumb
+
+# Match report dashboard (JSON + summary)
+fhprg-report: $(FHPRG_ELF)
+	python3 tools/fhprg_match_report.py
+
+# Re-run Ghidra + preprocess for fhprg
+fhprg-regen:
+	python3 tools/preprocess_fhprg.py
+
+# ── clean ────────────────────────────────────────────────────────────────────
 clean:
 	rm -f $(OBJ) $(ORIG_ASM) $(RECOMP_ASM) $(DIFF_JSON)
 	rm -f $(DATA_OBJ) $(LINKED_ELF) $(LINKED_BIN) tmp/aboot_linked.map
 	rm -f src/aboot.c
 	# Keep tmp/ (contains Ghidra analysis and generated blobs)
 	# Keep src/strings.c (tracked in git)
+
+fhprg-clean:
+	rm -f tmp/fhprg_*.o $(FHPRG_ELF) $(FHPRG_MAP)

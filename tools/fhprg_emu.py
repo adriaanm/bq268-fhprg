@@ -95,6 +95,8 @@ FN_TRANSPORT_ERR     = 0x0801b85c  # FUN_0801b85c - transport error handler
 FN_EMMC_SWITCH_PART  = 0x08034fb0  # FUN_08034fb0 - eMMC partition switch
 FN_EMMC_WRITE_CMD    = 0x08033656  # FUN_08033656 - eMMC SDCC write command
 FN_EMMC_WRITE_CHECK  = 0x08034228  # FUN_08034228 - eMMC write with WP check
+FN_CMD6_SWITCH       = 0x08034a40  # FUN_08034a40 - CMD6 SWITCH (EXT_CSD write)
+FN_SDCC_CMD          = 0x08032b94  # FUN_08032b94 - low-level SDCC command
 
 # Fake data locations in scratch RAM
 FAKE_CARD_INFO       = 0x80100000
@@ -335,6 +337,10 @@ class FHProgramEmulator:
             return  # let it run natively through WP check
         elif addr == FN_EMMC_SWITCH_PART and self.native_write:
             self._hook_emmc_switch_part(uc)
+        elif addr == FN_CMD6_SWITCH:
+            self._hook_cmd6_switch(uc)
+        elif addr == FN_SDCC_CMD:
+            self._hook_sdcc_cmd(uc)
         elif addr == FN_EMMC_WRITE_CMD and self.native_write:
             self._hook_emmc_write_cmd(uc)
         elif addr == FN_READ_WRAPPER:
@@ -522,6 +528,49 @@ class FHProgramEmulator:
         r3 = uc.reg_read(UC_ARM_REG_R3)
         self.trace.log("EMMC_WRITE", f"SDCC write cmd: param_1=0x{r0:08x}, "
                        f"buf=0x{r2:08x}, nsect={r3}")
+        self._do_return(uc, 0)
+
+    def _hook_cmd6_switch(self, uc):
+        """FUN_08034a40 - CMD6 SWITCH command (EXT_CSD write).
+        param_1 (r0) = device struct pointer
+        param_2 (r1) = CMD6 argument (access<<24 | index<<16 | value<<8)
+        Returns 0 on success."""
+        r0 = uc.reg_read(UC_ARM_REG_R0)
+        r1 = uc.reg_read(UC_ARM_REG_R1)
+        access = (r1 >> 24) & 0xff
+        index = (r1 >> 16) & 0xff
+        value = (r1 >> 8) & 0xff
+        self.trace.log("CMD6", f"SWITCH dev=0x{r0:08x} arg=0x{r1:08x} "
+                       f"(access={access}, EXT_CSD[{index}]={value})")
+        # If clearing USER_WP (EXT_CSD[171]=0), update the cached value
+        if index == 171:
+            # Find EXT_CSD pointer from device struct
+            try:
+                ext_csd_ptr = self._read_u32(r0 + 0x90)
+                if ext_csd_ptr != 0:
+                    old_val = struct.unpack('B', bytes(uc.mem_read(ext_csd_ptr + 0xAB, 1)))[0]
+                    self._write_u8(ext_csd_ptr + 0xAB, value)
+                    self.trace.log("CMD6", f"EXT_CSD[171] updated: 0x{old_val:02x} → 0x{value:02x}")
+            except UcError:
+                pass
+        self._do_return(uc, 0)  # success
+
+    def _hook_sdcc_cmd(self, uc):
+        """FUN_08032b94 - low-level SDCC command.
+        param_1 (r0) = device struct pointer
+        param_2 (r1) = pointer to command struct (10 words)
+        """
+        r0 = uc.reg_read(UC_ARM_REG_R0)
+        r1 = uc.reg_read(UC_ARM_REG_R1)
+        try:
+            cmd_data = bytes(uc.mem_read(r1, 40))
+            cmd_num = struct.unpack_from('<I', cmd_data, 0)[0]
+            cmd_arg = struct.unpack_from('<I', cmd_data, 4)[0]
+            self.trace.log("SDCC", f"CMD{cmd_num} arg=0x{cmd_arg:08x} dev=0x{r0:08x}")
+            if cmd_num == 29:
+                self.trace.log("SDCC", f"CMD29 CLR_WRITE_PROT sector=0x{cmd_arg:08x} ({cmd_arg})")
+        except UcError:
+            self.trace.log("SDCC", f"cmd struct read failed at 0x{r1:08x}")
         self._do_return(uc, 0)
 
     def _hook_read_wrapper(self, uc):

@@ -220,3 +220,27 @@ static inline void coproc_moveto_Domain_Access_Control(unsigned int v) {
 /* Load-exclusive result check: 1 = exclusive access still valid.
  * Takes the address that was load-exclusive'd (ignored in our stub). */
 #define hasExclusiveAccess(addr)  (1)
+
+/* CP15 Translation Table Base Register 0 — read (MRC) */
+static inline unsigned int coproc_movefrom_Translation_table_base_0(void) {
+    unsigned int r; __asm__ volatile("mrc p15, 0, %0, c2, c0, 0" : "=r"(r)); return r; }
+
+/* CP15 Instruction Cache operations — variadic to handle extra Ghidra args */
+#define coproc_moveto_Instruction_cache(v, ...) \
+    do { unsigned int _v = (v); __asm__ volatile("mcr p15, 0, %0, c7, c5, 0" :: "r"(_v) : "memory"); } while(0)
+
+/* SVC (supervisor call) instruction — Ghidra emits as software_interrupt(imm) */
+static inline void software_interrupt(unsigned int svc_num) {
+    /* Cannot encode dynamic SVC in inline asm; use SVC #0 as placeholder */
+    (void)svc_num;
+    __asm__ volatile("svc #0" ::: "memory");
+}
+
+/* USAT (unsigned saturate) — Ghidra emits as UnsignedSaturate(val, sat_to)
+ * Variadic to handle varying arg counts across call sites. */
+#define UnsignedSaturate(val, bits, ...) \
+    ({ unsigned int _v = (unsigned int)(val), _m = (1u << (bits)) - 1; _v > _m ? _m : _v; })
+
+/* Ghidra local variable artifacts: sometimes Ghidra creates _local_N
+ * symbols for variables it couldn't map to the stack frame.
+ * These must NOT be 'static' since src/fhprg.c has 'extern' declarations. */
