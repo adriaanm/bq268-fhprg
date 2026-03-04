@@ -341,4 +341,39 @@ The write-protect check in `FUN_08034228` (line 18: `*(char*)(puVar3[0x24] + 0xa
 
 The restriction is at the eMMC hardware level. Qualcomm's secure boot chain (SBL1 or TZ) typically sets **power-on write protection** on eMMC write-protect groups covering critical partitions — aboot, sbl1, tz, rpm. The eMMC controller accepts the write command but silently discards data to protected groups. The programmer has no way to know the write was dropped.
 
-The fix requires clearing write-protect groups via eMMC CMD29 (CLR_WRITE_PROT) before attempting the write, or issuing a power cycle to clear power-on WP if the boot chain hasn't run (which it hasn't in EDL mode — but the WP may persist from the previous boot).
+## Postscript 3: The write-protect patch
+
+Since the restriction is in eMMC hardware, not programmer code, the partition 3 gate patches were reverted. Instead, the fix is to disable write-protect enforcement before each write by sending eMMC CMD6 (SWITCH) to set EXT_CSD byte 171 (USER_WP) to zero.
+
+The programmer already has infrastructure for CMD6 — `FUN_08034a40` sends a SWITCH command with an argument encoding the EXT_CSD index and value, then checks status via CMD13. The argument format is `0x03AB0000`: access mode 3 (write byte), index 0xAB (171 = USER_WP), value 0x00.
+
+The challenge is injecting the call. `FUN_080381d8` (the write wrapper) loads the device handle and calls `FUN_08034228` (the write function) in a tight 22-instruction sequence with no spare space. The solution: a 24-byte code cave in an unused zero-fill region at `0x0803dc8c`.
+
+The code cave in Thumb2:
+
+```
+0x0803dc8c: push.w  {r0, r1, r2, r3, lr}   ; save write args + return
+0x0803dc90: movw    r1, #0                  ; CMD6 arg = 0x03AB0000
+0x0803dc94: movt    r1, #0x3ab              ;   (EXT_CSD[171] = 0)
+0x0803dc98: bl      FUN_08034a40            ; send CMD6 SWITCH
+0x0803dc9c: pop.w   {r0, r1, r2, r3, lr}   ; restore write args
+0x0803dca0: b.w     FUN_08034228            ; tail-call original write
+```
+
+The `bl FUN_08034228` at `0x080381f4` is redirected to `bl 0x0803dc8c`. Before every eMMC write, the programmer now sends CMD6 to clear USER_WP, then proceeds with the normal write path. The partition 3 gates are left intact — they were never in the aboot write path to begin with.
+
+## Timeline
+
+1. **The NAK.** Attempting to flash aboot via EDL mode produces "Invalid physical partition 3." The programmer silently refuses.
+
+2. **The emulator.** Built a 1,200-line Unicorn Engine harness to run the programmer's Thumb2 code natively. Debugged ISA mode (ARM vs Thumb2), a zeroed ctype table that broke XML parsing, and a memory overlap between sector data and the ctype table.
+
+3. **The gate.** Emulator confirmed: `FUN_08038206` at `0x08038206` rejects `physical_partition_number=3` with a single `cmp r4, #3; beq reject`. A secondary gate in `FUN_08027328` skips handler table slot 3 during init. Patched both: `beq` → `nop`, 4 bytes total.
+
+4. **The hash.** Patched binary wouldn't load — Sahara transfer completed but PBL went silent. The MBN hash table stores per-segment SHA-256 hashes; our patch changed segment 4's hash without updating the table. Fixed with `tools/fix_hashes.py`. (The RSA signature was also invalidated, but secure boot fuses aren't blown on this device.)
+
+5. **The wrong partition.** Programmer loaded, `printgpt` worked. Wrote aboot — programmer ACKed, accepted all data, but readback showed old content. Realized: the aboot write uses `physical_partition_number=0` (user area), not 3. The gates we patched were for eMMC physical partitions, not GPT partitions. Our patch was never in the path.
+
+6. **The hardware.** Added `--compare-sectors` mode to the emulator: splash writes (sector 2663442) vs aboot writes (sector 2623488), both on partition 0, running the native write path through `FUN_080381d8` → `FUN_08034228` → `FUN_08033656`. Identical code paths. The software WP flag is clear. The restriction is eMMC hardware write-protect: the boot chain sets power-on WP on critical partition groups via CMD28, and the eMMC controller silently discards writes to protected groups.
+
+7. **The real patch.** Reverted the partition 3 gate patches. Instead, injected a 24-byte code cave at `0x0803dc8c` that sends CMD6 SWITCH (EXT_CSD[171]=0) to clear USER_WP before each write. Redirected `FUN_080381d8`'s call to `FUN_08034228` through the cave. The programmer now disables write-protect enforcement at the eMMC level before every write attempt.
