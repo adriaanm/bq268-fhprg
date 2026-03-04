@@ -312,3 +312,33 @@ The hash table is also covered by an RSA-2048 signature (256 bytes at file offse
 ```
 
 The lesson: binary patching a signed Qualcomm image requires updating three layers — the code, the hash table, and (if fuses are blown) the RSA signature. On a development or unfused device, you only need the first two. `tools/fix_hashes.py` automates the hash table update for any MBN ELF.
+
+## Postscript 2: The wrong partition
+
+The hash-fixed programmer loaded, accepted a `printgpt` command, and returned a full partition table. Success. Then we tried writing the aboot partition:
+
+```
+<program SECTOR_SIZE_IN_BYTES="512" num_partition_sectors="2048"
+         physical_partition_number="0" start_sector="2623488" />
+```
+
+The programmer ACKed the command, accepted all 1 MB of data, and... the aboot partition still had the old content. The write was silently dropped.
+
+The original emulator had compared writes to `physical_partition_number=0` (splash) vs `physical_partition_number=3` (the hardcoded restriction). But the real aboot write uses `physical_partition_number=0` — aboot is a GPT partition within the eMMC user area, not a separate eMMC physical partition. The two `beq → nop` patches had removed a gate that was never even in the path.
+
+A new `--compare-sectors` mode confirmed this. Running both writes through the native code path (`--native-write` lets `FUN_080381d8` and `FUN_08034228` execute as real Thumb2 instructions), the emulator showed identical behavior:
+
+```
+$ python3 tools/fhprg_emu.py --compare-sectors --native-write
+
+  Splash (sector 2663442): WP_byte=0x00, write allowed → EMMC_WRITE reached
+  Aboot (sector 2623488):  WP_byte=0x00, write allowed → EMMC_WRITE reached
+
+  RESULT: Both writes take identical code path.
+```
+
+The write-protect check in `FUN_08034228` (line 18: `*(char*)(puVar3[0x24] + 0xa0) == '\0'`) passes for both. Both reach `FUN_08033656` (the SDCC write command). There is no sector-range filtering anywhere in the programmer.
+
+The restriction is at the eMMC hardware level. Qualcomm's secure boot chain (SBL1 or TZ) typically sets **power-on write protection** on eMMC write-protect groups covering critical partitions — aboot, sbl1, tz, rpm. The eMMC controller accepts the write command but silently discards data to protected groups. The programmer has no way to know the write was dropped.
+
+The fix requires clearing write-protect groups via eMMC CMD29 (CLR_WRITE_PROT) before attempting the write, or issuing a power cycle to clear power-on WP if the boot chain hasn't run (which it hasn't in EDL mode — but the WP may persist from the previous boot).
