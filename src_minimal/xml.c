@@ -11,8 +11,8 @@
  * XML Parser
  *------------------------------------------------------------------------*/
 
-/* orig: 0x08038c24 FUN_08038c24 — send XML and wait for completion */
-uint FUN_08038c24(param_1, param_2, param_3)
+/* orig: 0x08038c24 xml_send_and_wait — send XML and wait for completion */
+uint xml_send_and_wait(param_1, param_2, param_3)
 uint param_1; uint param_2; uint param_3;
 {
     DAT_08055f99 = '\0';
@@ -26,8 +26,8 @@ uint param_1; uint param_2; uint param_3;
 /* Label reference — attr parser callback address */
 extern char LAB_08028888;
 
-/* orig: 0x08038cfa FUN_08038cfa — get attribute name from parser state */
-bool FUN_08038cfa(param_1, param_2, param_3, param_4)
+/* orig: 0x08038cfa xml_get_attr_name — get attribute name from parser state */
+bool xml_get_attr_name(param_1, param_2, param_3, param_4)
 int *param_1; int param_2; uint param_3; uint param_4;
 {
     uint uVar3 = param_1[0xe];
@@ -36,14 +36,14 @@ int *param_1; int param_2; uint param_3; uint param_4;
                  (uint)(0xfffffffe < uVar2);
     bool bVar4 = uVar1 < param_4 || param_4 - uVar1 < (uint)(uVar2 + 1 <= param_3);
     if (bVar4) {
-        FUN_08027bf8(param_2, param_3, *param_1 + uVar3, uVar2);
+        bounded_memcpy(param_2, param_3, *param_1 + uVar3, uVar2);
         *(undefined1 *)(param_2 + uVar2) = 0;
     }
     return bVar4;
 }
 
-/* orig: 0x08038d38 FUN_08038d38 — get attribute value from parser state */
-bool FUN_08038d38(param_1, param_2, param_3, param_4)
+/* orig: 0x08038d38 xml_get_attr_value — get attribute value from parser state */
+bool xml_get_attr_value(param_1, param_2, param_3, param_4)
 int *param_1; int param_2; uint param_3; uint param_4;
 {
     uint uVar3 = param_1[0x12];
@@ -52,7 +52,7 @@ int *param_1; int param_2; uint param_3; uint param_4;
                  (uint)(0xfffffffe < uVar2);
     bool bVar4 = uVar1 < param_4 || param_4 - uVar1 < (uint)(uVar2 + 1 <= param_3);
     if (bVar4) {
-        FUN_08027bf8(param_2, param_3, *param_1 + uVar3, uVar2);
+        bounded_memcpy(param_2, param_3, *param_1 + uVar3, uVar2);
         *(undefined1 *)(param_2 + uVar2) = 0;
     }
     return bVar4;
@@ -68,13 +68,13 @@ int *param_1; int param_2; uint param_3; uint param_4;
                  (uint)(0xfffffffe < uVar2);
     bool bVar4 = uVar1 < param_4 || param_4 - uVar1 < (uint)(uVar2 + 1 <= param_3);
     if (bVar4) {
-        FUN_08027bf8(param_2, param_3, *param_1 + uVar3, uVar2);
+        bounded_memcpy(param_2, param_3, *param_1 + uVar3, uVar2);
         *(undefined1 *)(param_2 + uVar2) = 0;
     }
     return bVar4;
 }
 
-/* orig: 0x08038db4 FUN_08038db4 — XML tokenizer state machine.
+/* orig: 0x08038db4 xml_advance — XML tokenizer state machine.
  *
  * Advances through the XML buffer one character at a time. Returns:
  *   0 = no token yet (or whitespace/error)
@@ -84,7 +84,7 @@ int *param_1; int param_2; uint param_3; uint param_4;
  *   4 = close tag found
  *   5 = comment end found
  */
-int FUN_08038db4(param_1)
+int xml_advance(param_1)
 int *param_1;
 {
     char cVar1;
@@ -321,13 +321,13 @@ LAB_08038ff4:
  * XML Attribute/Tag Matching
  *------------------------------------------------------------------------*/
 
-/* orig: 0x0803906c FUN_0803906c — match attribute name (case-insensitive) */
-uint FUN_0803906c(param_1, param_2)
+/* orig: 0x0803906c xml_attr_match — match attribute name (case-insensitive) */
+uint xml_attr_match(param_1, param_2)
 int *param_1; int param_2;
 {
     int iVar3 = param_1[0xe];
     int iVar2 = param_1[0x10];
-    int iVar1 = strncmp_fh((uint8_t *)param_2, (uint8_t *)(*param_1 + param_1[0xe]), 0);
+    int iVar1 = strncasecmp_fh((uint8_t *)param_2, (uint8_t *)(*param_1 + param_1[0xe]), 0);
     if ((iVar1 == 0) && (*(char *)(param_2 + (iVar2 - iVar3)) == '\0')) {
         return 1;
     }
@@ -340,7 +340,7 @@ int *param_1; int param_2;
 {
     int iVar3 = param_1[10];
     int iVar2 = param_1[0xc];
-    int iVar1 = strncmp_fh((uint8_t *)param_2, (uint8_t *)(*param_1 + param_1[10]), 0);
+    int iVar1 = strncasecmp_fh((uint8_t *)param_2, (uint8_t *)(*param_1 + param_1[10]), 0);
     if ((iVar1 == 0) && (*(char *)(param_2 + (iVar2 - iVar3)) == '\0')) {
         return 1;
     }
@@ -351,39 +351,39 @@ int *param_1; int param_2;
  * XML Writer
  *------------------------------------------------------------------------*/
 
-/* orig: 0x080390d8 FUN_080390d8 — write self-closing " />" */
-void FUN_080390d8(param_1)
+/* orig: 0x080390d8 xml_wr_close_self — write self-closing " />" */
+void xml_wr_close_self(param_1)
 uint param_1;
 {
-    FUN_08039110(param_1, (uint)&DAT_080390e0);
+    xml_wr_attr_start(param_1, (uint)&DAT_080390e0);
 }
 
-/* orig: 0x080390e4 FUN_080390e4 — write closing tag "</%s>" */
-void FUN_080390e4(param_1, param_2)
+/* orig: 0x080390e4 xml_wr_close_tag — write closing tag "</%s>" */
+void xml_wr_close_tag(param_1, param_2)
 uint param_1; uint param_2;
 {
-    FUN_08039110(param_1, (uint)"</%s>", param_2);
+    xml_wr_attr_start(param_1, (uint)"</%s>", param_2);
 }
 
-/* orig: 0x080390f4 FUN_080390f4 — write element name "<%s" */
-void FUN_080390f4(param_1, param_2)
+/* orig: 0x080390f4 xml_wr_tag_name — write element name "<%s" */
+void xml_wr_tag_name(param_1, param_2)
 uint param_1; uint param_2;
 {
-    FUN_08039110(param_1, (uint)&DAT_080390fc, param_2);
+    xml_wr_attr_start(param_1, (uint)&DAT_080390fc, param_2);
 }
 
-/* orig: 0x08039100 FUN_08039100 — write open tag "<%s " */
-void FUN_08039100(param_1, param_2)
+/* orig: 0x08039100 xml_wr_open_tag — write open tag "<%s " */
+void xml_wr_open_tag(param_1, param_2)
 uint param_1; uint param_2;
 {
-    FUN_08039110(param_1, (uint)&DAT_08039108, param_2);
+    xml_wr_attr_start(param_1, (uint)&DAT_08039108, param_2);
 }
 
-/* orig: 0x08039110 FUN_08039110 — variadic write to XML buffer.
+/* orig: 0x08039110 xml_wr_attr_start — variadic write to XML buffer.
  * In the original, this is a 4-arg function that stuffs args 3+4 into
- * a local array and calls FUN_08039122 with a va_list pointer.
+ * a local array and calls xml_wr_attr with a va_list pointer.
  * We implement it as a true variadic. */
-void FUN_08039110(param_1, param_2, param_3, param_4)
+void xml_wr_attr_start(param_1, param_2, param_3, param_4)
 uint param_1; uint param_2; uint param_3; uint param_4;
 {
     uint uStack_8;
@@ -391,11 +391,11 @@ uint param_1; uint param_2; uint param_3; uint param_4;
 
     uStack_8 = param_3;
     uStack_4 = param_4;
-    FUN_08039122((int *)param_1, param_2, (uint)&uStack_8);
+    xml_wr_attr((int *)param_1, param_2, (uint)&uStack_8);
 }
 
-/* orig: 0x08039122 FUN_08039122 — vsnprintf into XML writer buffer */
-uint FUN_08039122(param_1, param_2, param_3)
+/* orig: 0x08039122 xml_wr_attr — vsnprintf into XML writer buffer */
+uint xml_wr_attr(param_1, param_2, param_3)
 int *param_1; uint param_2; uint param_3;
 {
     uint uVar1;
@@ -418,15 +418,15 @@ int *param_1; uint param_2; uint param_3;
     return 0;
 }
 
-/* orig: 0x08039174 FUN_08039174 — write quoted attribute: ' name="value"' */
-void FUN_08039174(param_1, param_2, param_3)
+/* orig: 0x08039174 xml_wr_attr_quoted — write quoted attribute: ' name="value"' */
+void xml_wr_attr_quoted(param_1, param_2, param_3)
 uint param_1; uint param_2; uint param_3;
 {
-    FUN_08039110(param_1, (uint)" %s=\"%s\"", param_2, param_3);
+    xml_wr_attr_start(param_1, (uint)" %s=\"%s\"", param_2, param_3);
 }
 
-/* orig: 0x0803918c FUN_0803918c — write attribute with size check */
-bool FUN_0803918c(param_1, param_2, param_3, param_4, param_5, param_6)
+/* orig: 0x0803918c xml_wr_attr_value — write attribute with size check */
+bool xml_wr_attr_value(param_1, param_2, param_3, param_4, param_5, param_6)
 int param_1; uint param_2; uint param_3; uint param_4; uint param_5; int param_6;
 {
     uint uVar1;
@@ -440,15 +440,15 @@ int param_1; uint param_2; uint param_3; uint param_4; uint param_5; int param_6
     bVar3 = uVar1 < *(uint *)(param_1 + 0xc) ||
              *(uint *)(param_1 + 0xc) - uVar1 < (uint)(uVar2 + param_5 + 4 <= *(uint *)(param_1 + 8));
     if (bVar3) {
-        FUN_08039110(param_1, (uint)&DAT_080391e8, param_2);
-        FUN_080391f0((int *)(param_1), param_3, param_5, param_6);
-        FUN_08039110(param_1, (uint)&DAT_080391ec);
+        xml_wr_attr_start(param_1, (uint)&DAT_080391e8, param_2);
+        xml_wr_init((int *)(param_1), param_3, param_5, param_6);
+        xml_wr_attr_start(param_1, (uint)&DAT_080391ec);
     }
     return bVar3;
 }
 
-/* orig: 0x080391f0 FUN_080391f0 — append raw bytes to XML writer buffer */
-uint FUN_080391f0(param_1, param_2, param_3, param_4)
+/* orig: 0x080391f0 xml_wr_init — append raw bytes to XML writer buffer */
+uint xml_wr_init(param_1, param_2, param_3, param_4)
 int *param_1; uint param_2; uint param_3; int param_4;
 {
     uint uVar1;
@@ -458,15 +458,15 @@ int *param_1; uint param_2; uint param_3; int param_4;
         (uint)(param_1[4] + param_3 <= (uint)param_1[2]) <= param_1[3] - uVar1) {
         return 0;
     }
-    FUN_08027bf8(*param_1 + param_1[4], param_1[2], param_2, param_3);
+    bounded_memcpy(*param_1 + param_1[4], param_1[2], param_2, param_3);
     uVar1 = param_1[4];
     param_1[4] = uVar1 + param_3;
     param_1[5] = param_1[5] + param_4 + (uint)CARRY4(uVar1, param_3);
     return 1;
 }
 
-/* orig: 0x08039234 FUN_08039234 — reset XML writer state */
-void FUN_08039234(param_1)
+/* orig: 0x08039234 xml_wr_reset — reset XML writer state */
+void xml_wr_reset(param_1)
 int param_1;
 {
     *(uint *)(param_1 + 0x10) = 0;

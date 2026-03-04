@@ -1,21 +1,53 @@
 /* emmc.c — eMMC/SDCC driver layer.
  *
  * This is the critical layer for understanding writes. The write path is:
- *   handle_program → mmc_write_wrapper → mmc_write_with_wp_check →
- *   mmc_write_dispatch → sdcc_command
+ *   handle_program -> storage_write_sectors -> mmc_write_sectors ->
+ *   mmc_write_blocks -> sdcc_write_data -> sdcc_send_cmd
+ *
+ * SDCC = Secure Digital Card Controller (Qualcomm's SD/eMMC controller IP).
+ * Commands follow the eMMC JEDEC spec (CMD0, CMD6, CMD24, CMD25, etc.).
  *
  * Source: src/fhprg/fhprg_80327f8.c
  */
 #include "firehose.h"
 
-/* orig: 0x08032ae4 FUN_08032ae4 — SDCC slot init (stub) */
-uint FUN_08032ae4()
+/*========================================================================
+ * SDCC controller interface
+ *
+ * These functions talk directly to the SDCC controller's memory-mapped
+ * registers. They are NOT in our minimal closure — they live at 0x0800xxxx
+ * and are declared as externs in firehose.h.
+ *
+ * Key register-level functions:
+ *   sdcc_read_status(slot)          — read controller status register
+ *   sdcc_clear_status(slot, ...)    — clear status/interrupt bits
+ *   sdcc_set_irq_mask(slot, mask)   — configure interrupt mask
+ *   sdcc_set_cmd_arg(slot, arg)     — write command argument register
+ *   sdcc_fire_cmd(slot, &cmd)       — write command register and fire
+ *   sdcc_wait_complete(slot, type, &status) — poll for completion
+ *   sdcc_read_response(slot, resp, is_r2)  — read response register
+ *   sdcc_read_present(slot)         — read present state register
+ *========================================================================*/
+
+/* orig: 0x08032ae4 sdcc_get_device — get device handle from slot table.
+ * The SDCC slot table at DAT_0804e2b8 holds pointers to device structs
+ * for up to 2 slots (slot 0 = eMMC, slot 1 = SD card typically). */
+uint sdcc_get_device(param_1)
+uint param_1;
 {
-    return 0;
+  undefined4 uVar1;
+
+  uVar1 = 0;
+  if (param_1 < 2) {
+    uVar1 = *(undefined4 *)(&DAT_0804e2b8 + param_1 * 4);
+  }
+  return uVar1;
 }
 
-/* orig: 0x08032af8 FUN_08032af8 — get SDCC slot handle by index */
-uint FUN_08032af8(param_1)
+/* orig: 0x08032af8 sdcc_get_slot_status — get slot status flags.
+ * The slot status table at DAT_0804e2ac holds per-slot status.
+ * bit 0: card present, bit 1: initialized, etc. */
+uint sdcc_get_slot_status(param_1)
 uint param_1;
 {
     uint uVar1 = 0;
@@ -25,76 +57,574 @@ uint param_1;
     return uVar1;
 }
 
-/* orig: 0x08032b94 sdcc_command — low-level SDCC command dispatch.
+/* orig: 0x08032b94 sdcc_send_cmd — send an eMMC command via SDCC controller.
  *
- * Sends an eMMC command via the SDCC controller.
- * param_1 = device struct pointer
- * param_2 = command struct: [0]=cmd, [1]=arg, [2]=resp_type,
- *           [3-6]=resp, [7]=busy, [8]=status, [9]=flags
+ * This is the lowest-level command interface. ALL eMMC operations go through
+ * here: reads, writes, erases, CMD6 SWITCH, etc.
  *
- * This is the lowest-level command interface. All eMMC operations
- * (read, write, erase, CMD6 SWITCH, etc.) go through here.
+ * param_1 = device struct:
+ *   [0]    = SDCC slot number (0 or 1)
+ *   [0x23] = card mode (1 = SPI mode, else SD/MMC mode)
+ *   [0x24] = pointer to EXT_CSD data (512 bytes)
+ *
+ * param_2 = command struct (10 words, 40 bytes):
+ *   [0] = command number (CMD0=0, CMD6=6, CMD24=0x18, CMD25=0x19, etc.)
+ *   [1] = command argument
+ *   [2] = response type (0=none, 1=R1/R1B, 4=R2)
+ *   [3-6] = response data (filled on return)
+ *   [7] = busy wait flag (1=wait for busy signal to clear)
+ *   [8] = status (filled on return)
+ *   [9] = flags (bit 0-1: ADMA/DMA mode)
+ *
+ * Returns: 0=success, 0x14=invalid params, 3=timeout, 6=CMD0 timeout,
+ *          7=busy timeout, 0xb=R1 error bits set
+ *
+ * Two paths:
+ *   SPI mode (card[0x23]==1): uses FUN_0800be68/FUN_0800c11c register ops
+ *   SD/MMC mode: uses FUN_08034b88 data setup, then reads response
  */
-int sdcc_command(param_1, param_2)
-int *param_1; int *param_2;
+int sdcc_send_cmd(param_1, param_2)
+int * param_1; int * param_2;
 {
-    /* Full implementation is ~200 lines of SDCC register manipulation.
-     * The key logic:
-     * 1. Validate params (return 0x14 if null)
-     * 2. For CMD0: wait for card ready (poll status register)
-     * 3. Set up command registers
-     * 4. Fire command and wait for completion
-     * 5. Read response into param_2[3-6]
-     * 6. Return 0 on success, error code on failure
-     *
-     * IMPORTANT: This function talks directly to SDCC hardware registers.
-     * When running on real hardware, the register accesses are the actual
-     * mechanism by which data reaches the eMMC.
-     */
-    if ((param_1 == (int *)0x0) || (param_2 == (int *)0x0)) {
-        return 0x14;
+  char cVar1;
+  undefined4 uVar2;
+  int iVar3;
+  uint uVar4;
+  int *piVar5;
+  char cVar6;
+  int iVar7;
+  uint uVar8;
+  bool bVar9;
+  undefined4 local_30;
+  undefined4 local_2c;
+  int local_28;
+
+  if ((param_1 == (int *)0x0) || (param_2 == (int *)0x0)) {
+    return 0x14;
+  }
+  /* SPI mode path — talks to controller via register polling */
+  if ((char)param_1[0x23] != '\x01') {
+    iVar7 = 0;
+    FUN_08034edc(); /* sdcc_pre_cmd_hook */
+    if (*param_2 == 0) {
+      /* CMD0 (GO_IDLE_STATE): poll until card responds */
+      iVar7 = *param_1; /* slot number */
+      uVar8 = 0;
+      while ((uVar4 = uVar8 + 1, uVar8 < 800 &&
+              (uVar8 = FUN_0800bd8c(iVar7), (uVar8 & 0x80) == 0)))
+      {
+        thunk_FUN_080199b4(10); /* delay 10us */
+        uVar8 = uVar4;
+      }
+      if (uVar4 < 800) {
+        *(undefined4 *)((&DAT_0804e2c8)[iVar7] + 0x38) = 0x80;
+        while (uVar4 < 800) {
+          uVar8 = FUN_0800bd8c(iVar7);
+          if ((uVar8 & 0x80) == 0) {
+            return 0;
+          }
+          thunk_FUN_080199b4(10);
+          uVar4 = uVar4 + 1;
+        }
+      }
+      iVar7 = 6; /* CMD0 timeout */
     }
-    /* ... full register-level implementation omitted for now ...
-     * See src/fhprg/fhprg_80327f8.c line 267 for complete code */
-    return 0;
+    else {
+      /* Non-CMD0: set up data transfer if needed */
+      if ((char)param_2[2] != '\0') {
+        iVar3 = FUN_08034b88(param_1,param_2); /* sdcc_setup_data_xfer */
+        if (iVar3 != 0) {
+          return iVar3;
+        }
+        /* Read response from controller */
+        if ((char)param_2[2] != '\0') {
+          if ((char)param_2[2] == '\x04') {
+            uVar8 = 4; /* R2: 4 words */
+          }
+          else {
+            uVar8 = 1; /* R1/R1B: 1 word */
+          }
+          piVar5 = param_2 + 3; /* response dest */
+          for (uVar4 = 0; uVar4 < uVar8; uVar4 = uVar4 + 1) {
+            *piVar5 = *(int *)((&DAT_0804e2c8)[*param_1] + uVar4 * 4 + 0x14);
+            piVar5 = piVar5 + 1;
+          }
+          /* Check R1 error bits for CMD52 (0x34) and CMD53 (0x35) */
+          if ((*param_2 == 0x34 || *param_2 == 0x35) && (param_2[3] & 0xcf00U) != 0) {
+            iVar7 = 0xb; /* R1 error */
+          }
+        }
+      }
+      /* Wait for busy if requested */
+      if ((param_2[7] != 0) && (iVar7 == 0)) {
+        iVar7 = FUN_08035134(param_1); /* sdcc_busy_wait */
+      }
+      FUN_08006d14(&local_28,0x14); /* memset(clean, 0, 20) */
+      FUN_0800bd20(*param_1,&local_28); /* sdcc_cleanup */
+    }
+    return iVar7;
+  }
+
+  /* SD/MMC native mode path — more complex register interaction */
+  cVar6 = '\0';
+  iVar7 = 0;
+  local_28 = 0;
+  uVar8 = 0;
+  iVar3 = *param_1; /* slot number */
+  local_30 = 0;
+  local_2c = 0;
+  /* Wait for command line to be free (present state register bits 0-1) */
+  do {
+    uVar4 = FUN_0800be68(iVar3); /* sdcc_read_present_state */
+    if ((uVar4 & 3) == 0) goto LAB_08032cc4;
+    thunk_FUN_080199b4(100); /* delay 100us */
+    uVar8 = uVar8 + 100;
+  } while (uVar8 < 10000);
+  iVar7 = 3; /* timeout waiting for cmd line */
+LAB_08032cc4:
+  if (iVar7 == 0) {
+    FUN_0800c11c(iVar3,0xf);     /* sdcc_set_irq_mask(slot, ALL) */
+    FUN_0800c0c4(iVar3,param_2[1]); /* sdcc_set_cmd_arg(slot, arg) */
+    /* Build command register value */
+    uVar2 = local_30;
+    bVar9 = (param_2[9] & 3U) != 0; /* DMA/ADMA flag */
+    _GHIDRA_FIELD(local_30, 3, byte) = SUB41(uVar2,3);
+    _GHIDRA_FIELD(local_30, 0, uint24_t) = CONCAT12(bVar9,(ushort)(byte)*param_2);
+    /* Determine response type encoding for controller */
+    cVar1 = (char)param_2[2];
+    if (cVar1 == '\0') {
+      cVar6 = '\0';        /* no response */
+    }
+    else if (cVar1 == '\x04') {
+      cVar6 = '\x01';      /* R2 (136-bit) */
+    }
+    else if (cVar1 == '\x01') {
+      if (param_2[7] == 0) {
+        cVar6 = '\x02';    /* R1 (48-bit, no busy) */
+      }
+      else {
+        cVar6 = '\x03';    /* R1B (48-bit, with busy) */
+      }
+    }
+    _GHIDRA_FIELD(local_2c, 0, ushort) = CONCAT11(cVar6,(undefined1)local_2c);
+    FUN_0800c0d4(iVar3,&local_30); /* sdcc_fire_cmd(slot, &cmd_reg) */
+    /* Wait for command completion */
+    iVar7 = FUN_0803456c(iVar3,1,&local_28); /* sdcc_wait_complete(slot, CMD, &status) */
+    if (iVar7 == 0) {
+      FUN_0800bfac(iVar3,1); /* sdcc_clear_status(slot, CMD) */
+      /* Read response if expected */
+      if (cVar6 != '\0') {
+        param_2[3] = 0;
+        param_2[4] = 0;
+        param_2[5] = 0;
+        param_2[6] = 0;
+        FUN_0800be78(iVar3,param_2 + 3,(char)param_2[2] == '\x04');
+        /* sdcc_read_response(slot, &resp[3], is_R2) */
+      }
+      /* If busy wait requested and NOT in DMA mode, wait for data complete */
+      if ((param_2[7] != 0) && (!bVar9)) {
+        iVar7 = FUN_0803456c(iVar3,2,&local_28); /* wait for DATA complete */
+        if (iVar7 != 0) {
+          param_2[8] = local_28;
+          return 7; /* busy timeout */
+        }
+        FUN_0800bfac(iVar3,2); /* sdcc_clear_status(slot, DATA) */
+      }
+      iVar7 = 0;
+    }
+    else {
+      param_2[8] = local_28; /* store error status */
+    }
+  }
+  else {
+    iVar7 = 3; /* timeout */
+  }
+  return iVar7;
 }
 
-/* orig: 0x08033654 FUN_08033654 — write dispatch thunk (empty in original) */
-void FUN_08033654()
+/* orig: 0x08033654 sdcc_write_complete_notify — write completion thunk.
+ * Empty in original binary. Called after partition info fill. */
+void sdcc_write_complete_notify()
 {
-    return;
+  return;
 }
 
-/* orig: 0x08033656 mmc_write_dispatch — eMMC write data transfer.
+/* orig: 0x08033656 sdcc_write_data — eMMC block data transfer (write).
  *
- * Handles both PIO and ADMA modes. Sets up block count, fires the
- * write command (CMD24/CMD25), then transfers data.
+ * Handles the actual data transfer for writes. Two paths:
+ *   - ADMA mode: DMA engine reads from memory, writes to eMMC
+ *   - PIO mode: CPU writes data word-by-word through FIFO register
+ *
+ * param_1 = device struct
+ * param_2 = command struct (CMD24/CMD25 already built)
+ * param_3 = data buffer address
+ * param_4 = block count
+ *
+ * This function does NOT check write protection — that's done by
+ * mmc_write_sectors() before calling this.
  */
-int mmc_write_dispatch(param_1, param_2, param_3, param_4)
-uint *param_1; int *param_2; uint param_3; uint param_4;
+int sdcc_write_data(param_1, param_2, param_3, param_4)
+undefined4 * param_1; int * param_2; undefined4 param_3; uint param_4;
 {
-    /* Full implementation is ~200 lines handling:
-     * - ADMA vs PIO path selection
-     * - Block count setup (CMD23 for multi-block)
-     * - CMD24 (single block) or CMD25 (multi-block) write
-     * - Data transfer via FIFO or DMA
-     * - Busy wait and error checking
-     *
-     * See src/fhprg/fhprg_80327f8.c line 1183 for complete code */
-    return 0;
+  int iVar1;
+  int iVar2;
+  undefined4 uVar3;
+  uint uVar4;
+  int iVar5;
+  int iVar6;
+  uint uVar7;
+  int iVar8;
+  undefined4 uVar9;
+  uint3 local_60;
+  undefined1 uStack_5d;
+  uint local_5c;
+  undefined1 local_58;
+  uint local_44;
+  undefined4 local_40;
+  undefined4 local_3c;
+  uint local_38;
+  undefined4 *puStack_34;
+  int *piStack_30;
+  undefined4 local_2c;
+  uint uStack_28;
+
+  puStack_34 = param_1;
+  piStack_30 = param_2;
+  local_2c = param_3;
+  uStack_28 = param_4;
+
+  /* SD/MMC native mode path (card[0x23] != 1) */
+  if (*(char *)(param_1 + 0x23) != '\x01') {
+    uVar4 = param_2[9];          /* flags */
+    iVar5 = param_1[0x24];      /* EXT_CSD pointer */
+    iVar8 = 0;
+    local_38 = (int)(uVar4 << 0x1e) >> 0x1f; /* bit 1 of flags: reliable write */
+    iVar6 = 0;
+    /* Pre-write DMA/buffer setup */
+    iVar1 = FUN_08035040(param_1,local_38 + 1,param_4);
+    if (iVar1 == 0) {
+      param_1[4] = 0x14;
+      return 0x14;
+    }
+    /* If device has custom sector size, use it */
+    if (param_1[0x16] != 0) {
+      param_4 = param_1[9];
+    }
+    local_40 = param_4 & 0xffff;
+    local_3c = 0x100; /* transfer mode: write */
+    /* Check if ADMA is supported (EXT_CSD+0xA4 != 0) */
+    if (*(int *)(iVar5 + 0xa4) != 0) {
+      _GHIDRA_FIELD(local_40, 0, uint24_t) = CONCAT12(1,(short)param_4);
+      local_40 = (uint)(uint3)local_40;
+    }
+    /* Reliable write: set multi-block flag */
+    if ((int)(uVar4 << 0x1e) < 0) {
+      local_3c = 0x101; /* multi-block write */
+      FUN_0800bbb4(*param_1,&local_40); /* sdcc_set_transfer_mode */
+    }
+    /* Send the write command (CMD24/CMD25) */
+    if ((int)(uVar4 << 0x1d) < 0) {
+      iVar2 = FUN_08034eaa(); /* sdcc_adma_write — ADMA path */
+    }
+    else {
+      iVar2 = sdcc_send_cmd(param_1,param_2);
+    }
+    /* Check R1 address out of range bit */
+    if (((uint)param_2[3] >> 0x1a & 1) != 0) {
+      param_1[4] = 0x1d; /* address out of range */
+      return 0x1d;
+    }
+    if (iVar2 == 0) {
+      /* ADMA data transfer path */
+      if (*(int *)(iVar5 + 0xa4) != 0) {
+        if ((int)(uVar4 << 0x1e) < 0) {
+          uVar3 = 1;
+        }
+        else {
+          uVar3 = 2;
+        }
+        /* Call ADMA engine via function pointer at EXT_CSD+0xAC */
+        iVar6 = (**(code **)(iVar5 + 0xac))(iVar5,local_2c,iVar1,uVar3);
+        if (iVar6 == 0) {
+          if ((uVar4 & 1) != 0) {
+            FUN_0800bbb4(*param_1,&local_40);
+          }
+          iVar8 = FUN_080350ee(param_1); /* sdcc_post_write_check */
+        }
+        if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) goto LAB_0803376e;
+      }
+      /* PIO/SDMA transfer path */
+      if ((int)(uVar4 << 0x1e) < 0) {
+        iVar8 = FUN_08034c14(iVar5,local_2c,iVar1); /* ADMA transfer */
+      }
+      else {
+        _GHIDRA_FIELD(local_40, 0, uint24_t) = (uint3)(ushort)local_40;
+        FUN_0800bbb4(*param_1,&local_40);
+        iVar8 = FUN_08035188(iVar5,local_2c,iVar1); /* PIO transfer */
+      }
+      local_40 = 0;
+      local_3c = 0;
+      FUN_0800bbb4(*param_1,&local_40); /* clear transfer mode */
+    }
+LAB_0803376e:
+    /* Post-write: send stop command if needed (CMD12 for multi-block) */
+    if (((int)(uVar4 << 0x1d) < 0) || ((*param_2 != 0x12 && (*param_2 != 0x19)))) {
+      uVar3 = 0;
+    }
+    else {
+      uVar3 = 1; /* need CMD12 STOP */
+    }
+    iVar1 = FUN_08032d8c(param_1,local_38 + 1,uVar3); /* post-write cleanup */
+    /* ADMA completion callback */
+    if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) {
+      if ((int)(uVar4 << 0x1e) < 0) {
+        uVar3 = 1;
+      }
+      else {
+        uVar3 = 2;
+      }
+      iVar8 = (**(code **)(iVar5 + 0xb0))(iVar5,uVar3); /* ADMA done callback */
+    }
+    if (iVar8 == 0) {
+      iVar8 = iVar1;
+    }
+    param_1[4] = iVar8; /* store result in device struct */
+    return iVar8;
+  }
+
+  /* SPI mode path — simpler FIFO-based transfer */
+  local_38 = 0;
+  uVar3 = *param_1; /* slot number */
+  if (param_1[0x16] == 0) {
+    uVar7 = 1;
+    uVar4 = param_4;
+  }
+  else {
+    uVar4 = param_1[9]; /* custom sector size */
+    uVar7 = param_4;
+  }
+  iVar8 = uVar4 * uVar7; /* total bytes */
+  local_38 = FUN_0800be44(uVar3); /* sdcc_read_present */
+  if (((local_38 & 0x7ff003f) != 0) && (FUN_0800bfac(uVar3), (local_38 & 0x7ff0000) != 0)) {
+    FUN_0800c154(uVar3,6); /* sdcc_reset_data_line */
+  }
+  /* Set up DMA if in DMA mode */
+  if (*(char *)((int)param_1 + 0x8e) == '\x01') {
+    FUN_080343c0(uVar3,local_2c,iVar8); /* sdcc_dma_setup */
+  }
+  /* Set block size and block count in controller */
+  FUN_0800c018(uVar3,uVar4 & 0xffff);  /* sdcc_set_block_size */
+  FUN_0800c008(uVar3,uVar7 & 0xffff);  /* sdcc_set_block_count */
+  /* Build transfer mode register */
+  local_60 = 0;
+  if (param_2[9] << 0x1e < 0) {
+    local_60 = 0x100; /* multi-block */
+  }
+  if (1 < (uVar7 & 0xffff)) {
+    local_60 = (local_60 & 0xffffff00) | 1;
+  }
+  local_60 = (uint3)(ushort)local_60;
+  local_60 = (1 << 24) | local_60; /* direction = write */
+  local_5c = (uint)*(byte *)((int)param_1 + 0x8e); /* DMA mode */
+  FUN_0800c12c(*param_1,&local_60); /* sdcc_set_transfer_ctrl */
+  /* Send the write command */
+  if (param_2[9] << 0x1d < 0) {
+    iVar1 = FUN_08034eaa(); /* ADMA path */
+  }
+  else {
+    iVar1 = sdcc_send_cmd(param_1,param_2);
+  }
+  if (iVar1 == 0) {
+    uVar9 = 2; /* wait for DATA complete */
+    if (*(char *)((int)param_1 + 0x8e) == '\0') {
+      /* PIO mode: push data through FIFO */
+      iVar1 = FUN_08034314(param_1,param_2,local_2c,iVar8); /* sdcc_fifo_write */
+      if (iVar1 != 0) goto LAB_080338ba;
+    }
+    else {
+      uVar9 = 0x2000002; /* DMA + DATA complete */
+    }
+    /* Wait for transfer completion */
+    iVar1 = FUN_0803456c(uVar3,uVar9,&local_38); /* sdcc_wait_complete */
+    if (iVar1 == 0) {
+      iVar1 = 0;
+      /* Multi-block: send CMD12 STOP_TRANSMISSION */
+      if ((((int)(local_38 << 0x1e) < 0) && (FUN_0800bfac(uVar3,2), -1 < param_2[9] << 0x1d)) &&
+         (1 < uVar7)) {
+        local_60 = 0xc;  /* CMD12 */
+        local_58 = 1;     /* R1B response */
+        local_44 = param_2[9] & 1;
+        local_5c = 0;
+        local_3c = 0;
+        iVar1 = sdcc_send_cmd(param_1,&local_60);
+      }
+      FUN_080329f8(4,0); /* sdcc_event_notify(WRITE_DONE) */
+      if ((param_2[9] << 0x1e < 0) && (*(char *)((int)param_1 + 0x8e) == '\x01')) {
+        FUN_080329f8(1,local_2c,iVar8); /* notify DMA complete */
+        FUN_080329f8(4,0);
+      }
+      FUN_0800c154(uVar3,6); /* sdcc_reset_data_line */
+      return iVar1;
+    }
+    param_2[8] = local_38; /* store error status */
+  }
+LAB_080338ba:
+  FUN_0800be44(uVar3); /* read & clear present state */
+  return iVar1;
 }
 
-/* orig: 0x08033ee8 FUN_08033ee8 — get partition info.
+/* orig: 0x08033cbc mmc_get_card_type — detect card type for both slots.
+ * Sets *param_2 and *param_3 to card type:
+ *   0 = MMC, 1 = SD, 2 = SDIO */
+undefined4 mmc_get_card_type(param_1, param_2, param_3)
+undefined4 param_1; undefined1 * param_2; undefined1 * param_3;
+{
+  uint uVar1;
+
+  uVar1 = sdcc_get_slot_status();
+  if ((uVar1 & 1) == 0) {
+    if ((int)(uVar1 << 0x1e) < 0) {
+      *param_2 = 2; /* SDIO */
+    }
+    else {
+      *param_2 = 0; /* MMC */
+    }
+  }
+  else {
+    *param_2 = 1; /* SD */
+  }
+  uVar1 = sdcc_get_device(param_1);
+  if ((uVar1 & 1) == 0) {
+    if ((int)(uVar1 << 0x1e) < 0) {
+      *param_3 = 2;
+    }
+    else {
+      *param_3 = 0;
+    }
+  }
+  else {
+    *param_3 = 1;
+  }
+  return 0;
+}
+
+/* orig: 0x08033d28 mmc_close_handle — close a device handle.
+ * Deinitializes and releases the SDCC slot. */
+undefined4 mmc_close_handle(param_1)
+int * param_1;
+{
+  int *local_10;
+
+  if ((param_1 != (int *)0x0) && (*param_1 != 0)) {
+    local_10 = param_1;
+    FUN_080335fc(&local_10); /* mmc_release_slot */
+    return 0;
+  }
+  return 0x14;
+}
+
+/* orig: 0x08033d44 mmc_erase_range — erase a range of sectors.
  *
- * Fills a 0x40-byte info struct with partition details:
- *   +0x00: partition type (byte)
- *   +0x04: total sectors (uint32)
- *   +0x08: ... more fields
- *   +0x0c: sector count
- *   +0x10: sector size
- *   +0x14: ... etc
+ * Uses the eMMC erase sequence:
+ *   CMD35 (ERASE_GROUP_START) → start sector
+ *   CMD36 (ERASE_GROUP_END)   → end sector
+ *   CMD38 (ERASE)             → execute
+ *
+ * param_1 = device handle (ptr to ptr to device struct)
+ * param_2 = start sector
+ * param_3 = sector count
  */
-uint FUN_08033ee8(param_1, param_2)
+int mmc_erase_range(param_1, param_2, param_3)
+undefined4 * param_1; int param_2; int param_3;
+{
+  int iVar1;
+  uint *puVar2;
+  undefined4 local_40;
+  int local_3c;
+  undefined1 local_38;
+  uint local_34;
+  undefined4 local_24;
+  undefined4 local_1c;
+
+  if (((param_1 == (undefined4 *)0x0) || (puVar2 = (uint *)*param_1, puVar2 == (uint *)0x0)) ||
+     (2 < *puVar2)) {
+    iVar1 = 0x14;
+  }
+  else if (((char)puVar2[2] == '\x06') || ((char)puVar2[2] == '\x02')) {
+    /* Card must be MMC or eMMC (type 2 or 6) */
+    iVar1 = mmc_ensure_partition();
+    if (iVar1 == 0) {
+      local_38 = 1;
+      local_40 = 0x23;   /* CMD35: ERASE_GROUP_START */
+      local_24 = 0;
+      local_1c = 0;
+      local_3c = param_2; /* start address */
+      iVar1 = sdcc_send_cmd(puVar2,&local_40);
+      if (iVar1 == 0) {
+        /* Calculate end address */
+        if ((char)puVar2[2] == '\x06') {
+          local_3c = param_2 + param_3 + -1; /* byte-addressed */
+        }
+        else {
+          local_3c = param_2 + param_3 * 0x200 + -0x200; /* sector-addressed */
+        }
+        local_40 = 0x24;   /* CMD36: ERASE_GROUP_END */
+        iVar1 = sdcc_send_cmd(puVar2,&local_40);
+        if (iVar1 == 0) {
+          local_40 = 0x26; /* CMD38: ERASE */
+          local_3c = 0;
+          local_24 = 1;    /* R1B response */
+          local_1c = 0;
+          iVar1 = sdcc_send_cmd(puVar2,&local_40);
+          if (iVar1 == 0) {
+            if ((local_34 & 0xfdff8000) == 0) {
+              return 0; /* success */
+            }
+          }
+          else {
+            if (iVar1 != 7) {
+              return iVar1;
+            }
+            /* Busy timeout — keep waiting */
+            if ((local_34 & 0xfdff8000) == 0) {
+              do {
+                iVar1 = FUN_08035134(puVar2); /* sdcc_busy_wait */
+              } while (iVar1 == 7);
+              return iVar1;
+            }
+          }
+          iVar1 = 0xf; /* erase error */
+        }
+      }
+    }
+  }
+  else {
+    iVar1 = 0x16; /* wrong card type */
+  }
+  return iVar1;
+}
+
+/* orig: 0x08033ee8 mmc_get_partition_info — fill partition info struct.
+ *
+ * Fills a 0x40-byte struct with partition details from the device struct.
+ * Layout:
+ *   +0x00: card type (byte: 0=none, 1=SD, 2=MMC, 5=SDHC, 6=eMMC)
+ *   +0x04: total sectors
+ *   +0x08: card identifier
+ *   +0x0C: sector size (from dev[9])
+ *   +0x10: num physical partitions (byte)
+ *   +0x14: block count
+ *   +0x18: card present flag
+ *   +0x1C: reliable write sector count (dev[0xD])
+ *   +0x20: partition type code
+ *   +0x24: is_active partition flag
+ *   +0x26: speed class (2 bytes)
+ *   +0x28: speed mode (short)
+ *   +0x2A: manufacturer ID (7 bytes, from dev+0x42)
+ *   +0x31: product revision (from dev+0x49)
+ *   +0x34-0x3C: GPP sizes
+ */
+uint mmc_get_partition_info(param_1, param_2)
 uint *param_1; char *param_2;
 {
     uint *puVar3;
@@ -107,61 +637,201 @@ uint *param_1; char *param_2;
         (2 < *puVar3) || (param_2 == (char *)0x0)) {
         return 0x14;
     }
-    FUN_08006d14(param_2, 0x40);
-    /* ... fill in partition info from device struct ... */
-    *param_2 = (char)puVar3[2];
-    *(uint *)(param_2 + 0xc) = puVar3[9];
-    uVar2 = FUN_08032af8(*(uint *)*param_1);
+    FUN_08006d14(param_2, 0x40); /* memset(info, 0, 64) */
+    *param_2 = (char)puVar3[2]; /* card type */
+    *(uint *)(param_2 + 0xc) = puVar3[9]; /* sector size */
+    uVar2 = sdcc_get_slot_status(*(uint *)*param_1);
     if ((uVar2 & 1) == 0) {
-        param_2[0x18] = '\0';
+        param_2[0x18] = '\0';  /* card not present */
     } else {
-        param_2[0x18] = '\x01';
+        param_2[0x18] = '\x01'; /* card present */
     }
     if (((char)puVar3[2] == '\x02') || ((char)puVar3[2] == '\x06')) {
-        uVar4 = FUN_080348e0(param_1, &local_28, &local_24);
-        *(uint *)(param_2 + 4) = local_28;
-        param_2[0x10] = (char)puVar3[0x18];
-        *(uint *)(param_2 + 0x14) = puVar3[0xb];
+        /* MMC/eMMC: get capacity from partition table */
+        uVar4 = mmc_get_capacity(param_1, &local_28, &local_24);
+        *(uint *)(param_2 + 4) = local_28; /* total sectors */
+        param_2[0x10] = (char)puVar3[0x18]; /* num physical partitions */
+        *(uint *)(param_2 + 0x14) = puVar3[0xb]; /* block count */
         {
-            char cVar1 = FUN_08034966(param_1);
-            param_2[0x24] = cVar1;
+            char cVar1 = mmc_is_partition_active(param_1);
+            param_2[0x24] = cVar1; /* is active */
         }
-        *(uint *)(param_2 + 8) = puVar3[8];
+        *(uint *)(param_2 + 8) = puVar3[8]; /* card identifier */
     } else {
-        *(uint *)(param_2 + 4) = puVar3[7];
+        /* SD card */
+        *(uint *)(param_2 + 4) = puVar3[7]; /* total sectors */
         param_2[0x10] = (char)puVar3[0x18];
         param_2[0x14] = '\0'; param_2[0x15] = '\0';
         param_2[0x16] = '\0'; param_2[0x17] = '\0';
         param_2[0x24] = '\0';
     }
-    *(uint *)(param_2 + 0x20) = local_24;
-    *(uint *)(param_2 + 0x1c) = puVar3[0xd];
-    *(undefined2 *)(param_2 + 0x26) = *(undefined2 *)((int)puVar3 + 0x3e);
-    *(short *)(param_2 + 0x28) = (short)puVar3[0x10];
-    memcpy(param_2 + 0x2a, (char *)puVar3 + 0x42, 7);
-    param_2[0x31] = *(char *)((int)puVar3 + 0x49);
-    *(uint *)(param_2 + 0x34) = puVar3[0x13];
-    *(uint *)(param_2 + 0x38) = puVar3[0x14];
-    *(uint *)(param_2 + 0x3c) = puVar3[0x15];
-    FUN_08033654(param_1, param_2);
+    *(uint *)(param_2 + 0x20) = local_24; /* partition type */
+    *(uint *)(param_2 + 0x1c) = puVar3[0xd]; /* reliable write count */
+    *(undefined2 *)(param_2 + 0x26) = *(undefined2 *)((int)puVar3 + 0x3e); /* speed class */
+    *(short *)(param_2 + 0x28) = (short)puVar3[0x10]; /* speed mode */
+    memcpy(param_2 + 0x2a, (char *)puVar3 + 0x42, 7); /* manufacturer ID */
+    param_2[0x31] = *(char *)((int)puVar3 + 0x49); /* product revision */
+    *(uint *)(param_2 + 0x34) = puVar3[0x13]; /* GPP1 size */
+    *(uint *)(param_2 + 0x38) = puVar3[0x14]; /* GPP2 size */
+    *(uint *)(param_2 + 0x3c) = puVar3[0x15]; /* GPP3 size */
+    sdcc_write_complete_notify(param_1, param_2);
     return uVar4;
 }
 
-/* orig: 0x08034228 mmc_write_with_wp_check — THE write protection gate.
+/* orig: 0x08034170 mmc_write_blocks — write sectors via CMD24/CMD25.
  *
- * This is the function that checks EXT_CSD[160] (byte at dev[0x24]+0xA0)
- * to decide whether to allow writes. If the WP byte is non-zero,
- * returns 0x1b (write protected).
+ * THIS is the function that builds the MMC command struct and calls
+ * sdcc_write_data(). It sits between mmc_write_sectors (WP check)
+ * and the actual data transfer.
+ *
+ * param_1 = device handle (ptr to ptr to device struct)
+ * param_2 = start sector
+ * param_3 = data buffer
+ * param_4 = block count (1=CMD24 single, >1=CMD25 multi)
+ *
+ * Write protection check: *(char*)(dev[0x24] + 0xA0) — EXT_CSD[160]
+ * This check is DUPLICATED here and in mmc_write_sectors().
+ */
+int mmc_write_blocks(param_1, param_2, param_3, param_4)
+undefined4 * param_1; int param_2; undefined4 param_3; int param_4;
+{
+  char cVar1;
+  int iVar2;
+  uint *puVar3;
+  undefined4 local_40;
+  int local_3c;
+  undefined1 local_38;
+  undefined4 local_24;
+  undefined4 local_1c;
+
+  if (((param_1 == (undefined4 *)0x0) || (puVar3 = (uint *)*param_1, puVar3 == (uint *)0x0)) ||
+     (2 < *puVar3)) {
+    iVar2 = 0x14;
+  }
+  /* >>> WP CHECK — same as in mmc_write_sectors <<< */
+  else if (*(char *)(puVar3[0x24] + 0xa0) == '\0') {
+    cVar1 = (char)puVar3[2]; /* card type */
+    if (cVar1 == '\0') {
+      iVar2 = 0x15; /* no card */
+    }
+    else if (((cVar1 == '\x01') || (cVar1 == '\x05')) || ((cVar1 == '\x02' || (cVar1 == '\x06')))) {
+      /* Card is SD/SDHC/MMC/eMMC — proceed with write */
+      iVar2 = mmc_ensure_partition();
+      if (iVar2 == 0) {
+        /* Build command struct */
+        if (param_4 == 1) {
+          local_40 = 0x11; /* CMD17? — note: 0x11=17 but writes use CMD24/25.
+                            * In the read path, CMD17=READ_SINGLE, CMD18=READ_MULTI.
+                            * This function is also used for reads! */
+        }
+        else {
+          local_40 = 0x12; /* CMD18: READ_MULTIPLE_BLOCK */
+        }
+        local_38 = 1;       /* response type: R1 */
+        local_24 = 0;
+        local_3c = param_2; /* start sector */
+        /* Convert sector number to byte address for non-HC cards */
+        if (((char)puVar3[2] != '\x05') && ((char)puVar3[2] != '\x06')) {
+          local_3c = param_2 * puVar3[9]; /* sector * sector_size */
+        }
+        local_1c = 2;       /* flags: direction = write */
+        iVar2 = sdcc_write_data(puVar3,&local_40,param_3,param_4);
+      }
+    }
+    else {
+      iVar2 = 0x10; /* unsupported card type */
+    }
+  }
+  else {
+    iVar2 = 0x1b; /* WRITE PROTECTED — EXT_CSD[160] != 0 */
+  }
+  return iVar2;
+}
+
+/* orig: 0x08034202 mmc_switch_partition — select eMMC hardware partition via CMD6.
+ *
+ * Uses CMD6 (SWITCH) to write PARTITION_CONFIG (EXT_CSD[179]) to select
+ * the active partition for subsequent read/write commands.
+ *
+ * eMMC partitions: 0=user, 1=boot1, 2=boot2, 4-7=GP1-GP4
+ *
+ * param_1 = device handle (ptr to ptr to device struct)
+ *   param_1[0] = ptr to device struct
+ *   param_1[1] = requested partition (-1 or 0..7)
+ */
+int mmc_switch_partition(param_1)
+int * param_1;
+{
+  int iVar1;
+  uint *puVar2;
+  int iVar3;
+  uint uVar4;
+
+  if (((param_1 == (int *)0x0) || (puVar2 = (uint *)*param_1, puVar2 == (uint *)0x0)) ||
+     (2 < *puVar2)) {
+    return 0x14;
+  }
+  /* Must be MMC (type 2) or eMMC (type 6) */
+  if (((char)puVar2[2] != '\x02') && ((char)puVar2[2] != '\x06')) {
+    return 0x16;
+  }
+  iVar3 = *param_1; /* device struct */
+  uVar4 = param_1[1]; /* requested partition */
+  if (uVar4 == 0xffffffff) {
+    uVar4 = 0; /* default to user partition */
+  }
+  /* Validate partition index against max partitions */
+  if (*(uint *)(iVar3 + 0x34) <= uVar4) {
+    return 0x14;
+  }
+  /* Check if already on the right partition */
+  iVar1 = mmc_is_partition_active();
+  if (iVar1 == 1) {
+    iVar1 = 0; /* already active, nothing to do */
+  }
+  else {
+    /* Restore current partition field first if needed */
+    if ((*(int *)(iVar3 + 4) != 0) &&
+       (iVar1 = FUN_08034a40(iVar3,(uint)*(byte *)(iVar3 + 0x78) << 0xb | 0x3b30000), iVar1 != 0)) {
+      /* CMD6 SWITCH: Access=3 (write), Index=0xB3 (PARTITION_CONFIG),
+       * Value=current partition << 3, Cmd_set=0 */
+      return iVar1;
+    }
+    /* Switch to requested partition */
+    if (uVar4 == 0) {
+      uVar4 = 7; /* user partition = config value 7 */
+    }
+    /* CMD6 arg: 0x03B30000 | (dev[4] | partition_idx << 3) << 8
+     * This writes PARTITION_CONFIG in EXT_CSD[179]:
+     *   bits[2:0] = PARTITION_ACCESS (which partition to access)
+     *   bits[5:3] = BOOT_PARTITION_ENABLE
+     *   bit[6]    = BOOT_ACK */
+    iVar1 = FUN_08034a40(iVar3,(*(uint *)(iVar3 + 4) | uVar4 << 3) << 8 | 0x3b30000);
+    if (iVar1 == 0) {
+      *(char *)(iVar3 + 0x78) = (char)uVar4; /* update cached partition */
+      return 0;
+    }
+  }
+  return iVar1;
+}
+
+/* orig: 0x08034228 mmc_write_sectors — THE write protection gate.
+ *
+ * This is the function that checks EXT_CSD[160] to decide whether to
+ * allow writes. If the WP byte is non-zero, returns 0x1b (write protected).
  *
  * The write path goes:
  *   1. Validate device struct
  *   2. CHECK: *(char*)(dev[0x24] + 0xA0) — if nonzero, return 0x1b
- *   3. Check card state (must be transfer state)
- *   4. Call mmc_pre_write_check()
- *   5. Build command struct (CMD24 or CMD25)
- *   6. Call mmc_write_dispatch() to do actual transfer
+ *   3. Check card type
+ *   4. Call mmc_ensure_partition() — switch to correct HW partition
+ *   5. Build command struct (CMD24 single or CMD25 multi block)
+ *   6. Call sdcc_write_data() for actual transfer
+ *
+ * EXT_CSD[160] = SEC_TRIM_MULT / WR_REL_SET area. The firmware uses this
+ * byte as a general "write permitted" flag.
  */
-int mmc_write_with_wp_check(param_1, param_2, param_3, param_4)
+int mmc_write_sectors(param_1, param_2, param_3, param_4)
 uint *param_1; int param_2; uint param_3; int param_4;
 {
     uint *puVar3;
@@ -186,21 +856,22 @@ uint *param_1; int param_2; uint param_3; int param_4;
         return 0x15;
     }
     if (((cVar1 == '\x01') || (cVar1 == '\x05')) || ((cVar1 == '\x02' || (cVar1 == '\x06')))) {
-        iVar2 = mmc_pre_write_check();
+        iVar2 = mmc_ensure_partition();
         if (iVar2 == 0) {
             if (param_4 == 1) {
-                local_40 = 0x18;     /* CMD24: single block write */
+                local_40 = 0x18;     /* CMD24: WRITE_SINGLE_BLOCK */
             } else {
-                local_40 = 0x19;     /* CMD25: multi-block write */
+                local_40 = 0x19;     /* CMD25: WRITE_MULTIPLE_BLOCK */
             }
-            local_38 = 1;
+            local_38 = 1;           /* R1 response */
             local_24 = 0;
-            local_3c = param_2;
+            local_3c = param_2;     /* start sector */
+            /* Convert to byte address for non-HC cards */
             if (((char)puVar3[2] != '\x05') && ((char)puVar3[2] != '\x06')) {
                 local_3c = param_2 * puVar3[9];  /* sector * sector_size */
             }
-            local_1c = 1;
-            iVar2 = mmc_write_dispatch(puVar3, (int *)&local_40, param_3, param_4);
+            local_1c = 1;           /* flags: write direction */
+            iVar2 = sdcc_write_data(puVar3, (int *)&local_40, param_3, param_4);
         }
     } else {
         iVar2 = 0x10;
@@ -208,36 +879,281 @@ uint *param_1; int param_2; uint param_3; int param_4;
     return iVar2;
 }
 
-/* orig: 0x080348e0 FUN_080348e0 — eMMC capacity helper (stub) */
-uint FUN_080348e0(param_1, param_2, param_3)
-uint *param_1; uint *param_2; uint *param_3;
+/* orig: 0x080348e0 mmc_get_capacity — get partition capacity in sectors.
+ *
+ * Reads the capacity from the device struct's partition table.
+ * For user partition (0): uses dev[0x1C] (total sectors from CSD).
+ * For boot/GP partitions: calculates from EXT_CSD fields.
+ *
+ * *param_2 = sector count (output)
+ * *param_3 = partition type code (output)
+ */
+undefined4 mmc_get_capacity(param_1, param_2, param_3)
+int * param_1; uint * param_2; undefined4 * param_3;
 {
-    /* Reads capacity info from device struct */
-    return 0;
+  uint uVar1;
+  undefined4 uVar2;
+  int iVar3;
+
+  iVar3 = *param_1;       /* device struct */
+  uVar1 = param_1[1];     /* partition index */
+  if (uVar1 == 0xffffffff) {
+    uVar1 = 0;
+  }
+  /* Non-user partitions require partition switching support */
+  if ((uVar1 != 0) && (*(char *)(iVar3 + 0x61) == '\0')) {
+    return 0x16;
+  }
+  /* Check partition exists (bitmask at dev+0x7C) */
+  if ((1 << (uVar1 & 0xff) & *(uint *)(iVar3 + 0x7c)) == 0) {
+    return 0x14;
+  }
+  if (uVar1 == 0) {
+    *param_2 = *(uint *)(iVar3 + 0x1c); /* user area: total sectors from CSD */
+    uVar2 = 0;
+  }
+  else {
+    if (uVar1 == 1) {
+      /* Boot partition 1: EXT_CSD[226-227] * 128KB / 512 */
+      *param_2 = (uint)(*(int *)(iVar3 + 100) << 10) >> 9;
+      *param_3 = 1;
+      return 0;
+    }
+    if (uVar1 == 2) {
+      /* Boot partition 2: same size as boot1 */
+      *param_2 = (uint)(*(int *)(iVar3 + 100) << 10) >> 9;
+      uVar2 = 2;
+    }
+    else if (uVar1 == 4) {
+      *param_2 = *(uint *)(iVar3 + 0x68); /* GP1 */
+      uVar2 = 4;
+    }
+    else if (uVar1 == 5) {
+      *param_2 = *(uint *)(iVar3 + 0x6c); /* GP2 */
+      uVar2 = 5;
+    }
+    else if (uVar1 == 6) {
+      *param_2 = *(uint *)(iVar3 + 0x70); /* GP3 */
+      uVar2 = 6;
+    }
+    else {
+      if (uVar1 != 7) {
+        return 0x14;
+      }
+      *param_2 = *(uint *)(iVar3 + 0x74); /* GP4 */
+      uVar2 = 7;
+    }
+  }
+  *param_3 = uVar2;
+  return 0;
 }
 
-/* orig: 0x08034966 FUN_08034966 — eMMC partition config helper (stub) */
-char FUN_08034966(param_1)
-uint *param_1;
+/* orig: 0x08034966 mmc_is_partition_active — check if requested partition
+ * is already the currently selected one.
+ *
+ * Compares param_1[1] (requested partition) against the cached current
+ * partition at dev+0x78. Returns 1 if already active, 0 otherwise. */
+undefined4 mmc_is_partition_active(param_1)
+int * param_1;
 {
-    /* Returns partition configuration byte */
-    return 0;
+  char cVar1;
+  int iVar2;
+
+  iVar2 = param_1[1]; /* requested partition */
+  if (iVar2 == -1) {
+    iVar2 = 0;
+  }
+  cVar1 = *(char *)(*param_1 + 0x78); /* current partition */
+  if (cVar1 == '\x01') {
+    if (iVar2 == 1) {
+      return 1; /* boot1 already active */
+    }
+  }
+  else if (cVar1 == '\x02') {
+    if (iVar2 == 2) {
+      return 1; /* boot2 already active */
+    }
+  }
+  else if ((cVar1 == '\a') && (iVar2 == 0)) {
+    return 1; /* user partition already active (config val 7) */
+  }
+  return 0;
 }
 
-/* orig: 0x0803707c handle_response — send XML success/failure response */
+/* orig: 0x08034fb0 mmc_ensure_partition — ensure correct partition is selected.
+ *
+ * If the device's current partition doesn't match the requested one,
+ * sends CMD6 SWITCH to change PARTITION_CONFIG (EXT_CSD[179]).
+ *
+ * This is called before every read/write/erase operation to make sure
+ * we're talking to the right partition.
+ */
+int mmc_ensure_partition(param_1)
+int * param_1;
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  uint uVar4;
+
+  if (param_1 == (int *)0x0) {
+    return 0x14;
+  }
+  iVar3 = param_1[1]; /* requested partition */
+  if (iVar3 == -1) {
+    iVar3 = 0;
+  }
+  /* Already on the right partition? */
+  if (*(int *)(*param_1 + 4) == iVar3) {
+    return 0;
+  }
+  /* Must be MMC/eMMC for partition switching */
+  cVar1 = *(char *)(*param_1 + 8);
+  if ((cVar1 != '\x02') && (cVar1 != '\x06')) {
+    return 0x16;
+  }
+  iVar3 = *param_1;
+  uVar4 = param_1[1];
+  if (uVar4 == 0xffffffff) {
+    uVar4 = 0;
+  }
+  if ((uVar4 != 0) && (*(char *)(iVar3 + 0x61) == '\0')) {
+    return 0x16; /* device doesn't support partition switching */
+  }
+  if ((1 << (uVar4 & 0xff) & *(uint *)(iVar3 + 0x7c)) == 0) {
+    return 0x14; /* partition doesn't exist */
+  }
+  /* CMD6 SWITCH: write PARTITION_CONFIG
+   * Arg format: 0x03B30000 | (boot_config | partition_access) << 8
+   * boot_config = dev+0x78 current config, shifted left 3 bits
+   * partition_access = requested partition index */
+  iVar2 = FUN_08034a40(iVar3,(uVar4 | (uint)*(byte *)(iVar3 + 0x78) << 3) << 8 | 0x3b30000);
+  if (iVar2 == 0) {
+    *(uint *)(iVar3 + 4) = uVar4; /* cache new partition */
+  }
+  return iVar2;
+}
+
+/* orig: 0x08033fe0 mmc_open_device — initialize and open an eMMC device.
+ *
+ * Called during handle_configure to set up the storage device.
+ * Complex initialization: card detect, CSD/CID read, EXT_CSD read,
+ * bus width configuration, speed setup, partition enumeration.
+ *
+ * param_1 = slot number (0 or 1)
+ * param_2 = open flags
+ *
+ * Many sub-functions are outside our closure (card init, CSD parsing,
+ * bus width negotiation, etc.). The key insight: after this function
+ * succeeds, the device struct is fully populated and subsequent
+ * read/write commands can proceed.
+ */
+int mmc_open_device(param_1, param_2)
+int param_1; undefined4 param_2;
+{
+  char cVar1;
+  int iVar2;
+  int iVar3;
+  int iVar4;
+  int local_20;
+
+  local_20 = 0;
+  if (param_1 < 3) {
+    /* The decompiled code has a dead branch (if(false)) checking for
+     * SD card init via FUN_080348b8/FUN_080340e4. In the compiled binary,
+     * this path is always MMC. */
+    if (true) {
+      iVar2 = FUN_08034704(param_1); /* mmc_init_card */
+    }
+    else {
+      iVar2 = FUN_0803460c(); /* fallback init */
+    }
+    if (iVar2 == 0) {
+      return 0;
+    }
+    iVar2 = FUN_08033ca0(param_1); /* mmc_get_slot_context */
+    if (iVar2 != 0) {
+      iVar4 = iVar2 + 0xc;
+      local_20 = FUN_08034cb4(param_1,param_2); /* mmc_read_ext_csd */
+      if (local_20 == 0) {
+        iVar2 = FUN_08034888(iVar4); /* mmc_setup_partitions */
+        if (iVar2 != 0) {
+          return local_20;
+        }
+        FUN_080335b4(iVar4); /* mmc_finalize_init */
+        return local_20;
+      }
+      /* Error handling: classify and potentially recover */
+      cVar1 = *(char *)(iVar2 + 0x14);
+      if (cVar1 != '\x04') {
+        if (cVar1 == '\x01') { return local_20; }
+        if (cVar1 == '\x05') { return local_20; }
+        if (cVar1 == '\x02') { return local_20; }
+        if (cVar1 == '\x06') { return local_20; }
+        cVar1 = FUN_08033dfc(local_20); /* mmc_classify_error */
+        *(char *)(iVar2 + 0x14) = cVar1;
+        *(char *)(iVar2 + 0x24) = cVar1;
+        if (cVar1 != '\0') {
+          if (cVar1 == '\x04') goto LAB_08034086;
+          iVar3 = FUN_080345b8(iVar4); /* mmc_config_bus */
+          if (iVar3 == 0) {
+            if (*(char *)(iVar2 + 0x98) == '\0') {
+              *(uint *)((&DAT_0804e2c8)[param_1] + 4) =
+                   *(uint *)((&DAT_0804e2c8)[param_1] + 4) | 0x1000;
+              FUN_0800bda0(); /* sdcc_enable_clock */
+            }
+            iVar3 = FUN_08033b30(iVar4); /* mmc_identify_card */
+            if (iVar3 == 0) {
+              FUN_08032dcc(iVar4,1); /* mmc_set_bus_width */
+              iVar4 = FUN_08032eac(iVar4); /* mmc_set_speed */
+              if (iVar4 == 0) {
+                *(undefined1 *)(iVar2 + 0x15) = 2;
+                *(undefined1 *)(iVar2 + 0xa0) = 0;
+                return local_20;
+              }
+              *(int *)(iVar2 + 0x1c) = iVar4;
+              *(undefined1 *)(iVar2 + 0x14) = 0;
+              goto LAB_080340c6;
+            }
+          }
+          *(int *)(iVar2 + 0x1c) = iVar3;
+        }
+LAB_080340c6:
+        mmc_close_handle(local_20);
+        return 0;
+      }
+LAB_08034086:
+      FUN_080335fc(&local_20); /* mmc_release_slot */
+      return local_20;
+    }
+  }
+  return 0;
+}
+
+/*========================================================================
+ * XML response helpers (logically part of the response layer, but
+ * live in the same source file as the eMMC driver in the original)
+ *========================================================================*/
+
+/* orig: 0x0803707c handle_response — send XML success/failure response.
+ * param_1: 1=ACK (success), 0=NAK (failure) */
 uint handle_response(param_1)
 uint param_1;
 {
-    FUN_08037084(param_1, 0, 0, 0);
+    send_xml_response(param_1, 0, 0, 0);
     return 0;
 }
 
-/* orig: 0x08037084 FUN_08037084 — build and send XML response with attributes.
+/* orig: 0x08037084 send_xml_response — build and send XML response.
  *
  * Builds: <?xml ...?><data><response value="ACK|NAK" attr="val" .../></data>
  * Then flushes via USB.
+ *
+ * param_1: 1=ACK, 0=NAK
+ * param_2: number of extra attributes
+ * param_3, param_4: variadic attribute specs on stack
  */
-uint FUN_08037084(param_1, param_2, param_3, param_4)
+uint send_xml_response(param_1, param_2, param_3, param_4)
 int param_1; int param_2; uint param_3; uint param_4;
 {
     int iVar1;
@@ -258,76 +1174,77 @@ int param_1; int param_2; uint param_3; uint param_4;
     uStack_4 = param_4;
     FUN_08006d14(auStack_130, 0x100);
     uVar2 = FUN_08006906("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>");
-    FUN_080391f0((int *)&DAT_08055f18, (uint)"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>", uVar2, 0);
-    FUN_08039100((uint)&DAT_08055f18, (uint)&DAT_08037180);
-    FUN_080390f4((uint)&DAT_08055f18, (uint)"response");
+    xml_wr_init((int *)&DAT_08055f18, (uint)"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>", uVar2, 0);
+    xml_wr_open_tag((uint)&DAT_08055f18, (uint)&DAT_08037180); /* <data> */
+    xml_wr_tag_name((uint)&DAT_08055f18, (uint)"response");
     if (param_1 == 1) {
         puVar4 = (undefined *)&DAT_080371a0;  /* "ACK" */
     } else {
         puVar4 = (undefined *)&DAT_08037194;  /* "NAK" */
     }
-    FUN_08039174((uint)&DAT_08055f18, (uint)"value", (uint)puVar4);
+    xml_wr_attr_quoted((uint)&DAT_08055f18, (uint)"value", (uint)puVar4);
     iVar7 = 0;
     puVar6 = &uStack_8;
     do {
         if (param_2 <= iVar7) {
-            FUN_080390d8((uint)&DAT_08055f18);
-            FUN_080390e4((uint)&DAT_08055f18, (uint)&DAT_08037180);
-            FUN_080371b8(0, 0);
+            xml_wr_close_self((uint)&DAT_08055f18);   /* /> */
+            xml_wr_close_tag((uint)&DAT_08055f18, (uint)&DAT_08037180); /* </data> */
+            flush_xml_to_usb(0, 0);
             uVar2 = 0;
 LAB_0803715c:
             if (local_30 != iVar1) {
-                FUN_08010960();
+                stack_canary_fail();
             }
             return uVar2;
         }
         puVar5 = puVar6 + 2;
-        uVar2 = *puVar6;
-        uVar3 = puVar6[1] & 0xff;
-        if (uVar3 != 99) {
-            if (uVar3 == 100) {
+        uVar2 = *puVar6;       /* attribute name */
+        uVar3 = puVar6[1] & 0xff; /* format type */
+        if (uVar3 != 99) {     /* 'c' = char */
+            if (uVar3 == 100) { /* 'd' = decimal */
                 uVar3 = *puVar5;
-                puVar4 = (undefined *)&DAT_080371a8;
+                puVar4 = (undefined *)&DAT_080371a8; /* "%d" */
                 goto LAB_080370fe;
             }
-            if (uVar3 == 0x73) {
+            if (uVar3 == 0x73) { /* 's' = string */
                 uVar3 = *puVar5;
-                puVar4 = (undefined *)&DAT_080371a4;
+                puVar4 = (undefined *)&DAT_080371a4; /* "%s" */
                 goto LAB_080370fe;
             }
-            if (uVar3 == 0x74) {
+            if (uVar3 == 0x74) { /* 't' = 64-bit */
                 puVar6 = (uint *)(((int)puVar6 + 0xfU & 0xfffffff8) + 8);
-                uVar3 = snprintf_buf((char *)auStack_130, 0x100, (const char *)&DAT_080371ac);
+                uVar3 = snprintf_buf((char *)auStack_130, 0x100, (const char *)&DAT_080371ac); /* "%llu" */
                 goto LAB_08037120;
             }
 LAB_08037124:
             uVar2 = 1;
             goto LAB_0803715c;
         }
-        puVar4 = (undefined *)&DAT_080371b4;
+        puVar4 = (undefined *)&DAT_080371b4; /* "%c" */
         uVar3 = *puVar5 & 0xff;
 LAB_080370fe:
         puVar6 = puVar6 + 3;
         uVar3 = snprintf_buf((char *)auStack_130, 0x100, (const char *)puVar4, uVar3);
 LAB_08037120:
         if (0xff < uVar3) goto LAB_08037124;
-        FUN_0803918c((int)&DAT_08055f18, uVar2, (uint)auStack_130, 0, 0, 0);
+        xml_wr_attr_value((int)&DAT_08055f18, uVar2, (uint)auStack_130, 0, 0, 0);
         iVar7 = iVar7 + 1;
     } while (true);
 }
 
-/* orig: 0x080371b8 FUN_080371b8 — flush XML writer to USB */
-uint FUN_080371b8(param_1, param_2)
+/* orig: 0x080371b8 flush_xml_to_usb — flush XML writer buffer to USB */
+uint flush_xml_to_usb(param_1, param_2)
 uint param_1; uint param_2;
 {
     uint uVar1;
-    uVar1 = FUN_08038c24(DAT_08055f18, param_2, DAT_08055f28, DAT_08055f2c);
-    FUN_08039234((int)&DAT_08055f18);
+    uVar1 = xml_send_and_wait(DAT_08055f18, param_2, DAT_08055f28, DAT_08055f2c);
+    xml_wr_reset((int)&DAT_08055f18);
     return uVar1;
 }
 
-/* orig: 0x0803725c FUN_0803725c — find and replace in string buffer */
-uint FUN_0803725c(param_1, param_2, param_3)
+/* orig: 0x0803725c str_find_replace — find and replace substring in buffer.
+ * Only works when replacement is shorter or equal to original. */
+uint str_find_replace(param_1, param_2, param_3)
 int param_1; int param_2; int param_3;
 {
     int iVar1;
@@ -342,9 +1259,9 @@ int param_1; int param_2; int param_3;
         if (uVar3 <= uVar2) {
             iVar4 = param_1 + iVar1;
             while ((param_1 = (int)strstr((char *)param_1, (char *)param_2)), param_1 != 0) {
-                FUN_08027bf8(param_1, iVar1, param_3, uVar3);
+                bounded_memcpy(param_1, iVar1, param_3, uVar3);
                 param_1 = param_1 + uVar3;
-                FUN_08027c12(param_1, iVar1, (uVar2 - uVar3) + param_1, iVar4 - param_1);
+                bounded_memmove(param_1, iVar1, (uVar2 - uVar3) + param_1, iVar4 - param_1);
             }
             return 1;
         }

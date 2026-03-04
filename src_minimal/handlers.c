@@ -38,8 +38,8 @@ extern uint DAT_004a3000;       /* memory-mapped timer register */
 extern char DAT_08055e90;       /* device extra state base */
 extern uint DAT_0803d71c;       /* CRC32 lookup table */
 
-/* orig: 0x08022178 FUN_08022178 */
-int FUN_08022178(param_1, param_2, param_3, param_4, param_5, param_6)
+/* orig: 0x08022178 handler_validate_attr */
+int handler_validate_attr(param_1, param_2, param_3, param_4, param_5, param_6)
 int param_1; undefined4 param_2; int param_3; undefined4 param_4; uint param_5; uint param_6;
 {
   longlong lVar1;
@@ -74,8 +74,8 @@ int param_1; undefined4 param_2; int param_3; undefined4 param_4; uint param_5; 
 }
 
 
-/* orig: 0x08022440 FUN_08022440 */
-int FUN_08022440()
+/* orig: 0x08022440 handler_poll_usb */
+int handler_poll_usb()
 {
   do {
   } while (false);
@@ -117,24 +117,24 @@ undefined4 handle_benchmark()
   uVar2 = DAT_08055fb8;
   uVar9 = DAT_08054e90;
   uVar10 = 0x35a0;
-  while (iVar8 = FUN_08038db4(&DAT_08055ea0,uVar10), iVar8 == 2) {
-    iVar8 = FUN_0803906c(&DAT_08055ea0,"TestWritePerformance");
-    if ((iVar8 != 0) && (FUN_08038d38(&DAT_08055ea0,local_248,0x200,0), local_248[0] == 0x31)) {
+  while (iVar8 = xml_advance(&DAT_08055ea0,uVar10), iVar8 == 2) {
+    iVar8 = xml_attr_match(&DAT_08055ea0,"TestWritePerformance");
+    if ((iVar8 != 0) && (xml_get_attr_value(&DAT_08055ea0,local_248,0x200,0), local_248[0] == 0x31)) {
       firehose_log("Going to test writes for lengths %llu to %llu for %llu trials. This can take a while."
                    ,uVar2,uVar4,uVar5,uVar2,uVar3,1000,0);
-      FUN_08038206(&DAT_08058430,0);
+      storage_select_partition(&DAT_08058430,0);
       uVar15 = FUN_080060c0(uVar2,uVar3,uVar4,uVar5);
-      FUN_08038014(&DAT_08058430,uVar9,0,0,uVar15);
+      storage_read_sectors(&DAT_08058430,uVar9,0,0,uVar15);
       uVar10 = uVar4;
       for (uVar12 = uVar5; uVar12 < uVar3 || uVar3 - uVar12 < (uint)(uVar10 <= uVar2);
           uVar12 = uVar12 * 2 + (uint)bVar14) {
-        iVar8 = FUN_08022440(0,uVar2 - uVar10);
+        iVar8 = handler_poll_usb(0,uVar2 - uVar10);
         uVar13 = 0;
         uVar11 = 0;
         while( true ) {
           if (uVar11 != 0 || uVar11 < (999 < uVar13)) break;
           uVar15 = FUN_080060c0(uVar10,uVar12,uVar4,uVar5);
-          iVar6 = mmc_write_wrapper(&DAT_08058430,uVar9,0,0,uVar15,auStack_24c);
+          iVar6 = storage_write_sectors(&DAT_08058430,uVar9,0,0,uVar15,auStack_24c);
           if (iVar6 != 1) {
             firehose_log("Failure in write during perf testing");
           }
@@ -142,7 +142,7 @@ undefined4 handle_benchmark()
           uVar13 = uVar13 + 1;
           uVar11 = uVar11 + bVar14;
         }
-        iVar6 = FUN_08022440(uVar13 - 1000,uVar11 - (999 >= uVar13));
+        iVar6 = handler_poll_usb(uVar13 - 1000,uVar11 - (999 >= uVar13));
         uVar15 = FUN_080060c0(iVar6 - iVar8,iVar6 - iVar8 >> 0x1f,uVar13,uVar11);
         firehose_log("Writing %llu bytes %d us",(int)((ulonglong)uVar15 >> 0x20),uVar10,uVar12,
                      (int)uVar15);
@@ -150,12 +150,12 @@ undefined4 handle_benchmark()
         uVar10 = uVar10 * 2;
       }
     }
-    iVar8 = FUN_0803906c(&DAT_08055ea0,"TestReadPerformance");
+    iVar8 = xml_attr_match(&DAT_08055ea0,"TestReadPerformance");
     if (iVar8 == 0) {
-      uVar15 = FUN_0803906c(&DAT_08055ea0,"TestDigestPerformance");
+      uVar15 = xml_attr_match(&DAT_08055ea0,"TestDigestPerformance");
       uVar10 = (uint)((ulonglong)uVar15 >> 0x20);
       if ((int)uVar15 != 0) {
-        FUN_08038d38(&DAT_08055ea0,local_248,0x200,0);
+        xml_get_attr_value(&DAT_08055ea0,local_248,0x200,0);
         uVar10 = (uint)local_248[0];
         if (uVar10 == 0x31) {
           uVar12 = uVar4;
@@ -165,9 +165,9 @@ undefined4 handle_benchmark()
             iVar8 = 0;
             uVar10 = 0;
             for (uVar11 = 0; uVar11 == 0 && (999 < uVar10) <= uVar11; uVar11 = uVar11 + bVar14) {
-              iVar6 = FUN_08022440(uVar11 - (999 >= uVar10));
-              FUN_0800d59c(uVar9,uVar12,auStack_48);
-              iVar7 = FUN_08022440();
+              iVar6 = handler_poll_usb(uVar11 - (999 >= uVar10));
+              sha256_hash(uVar9,uVar12,auStack_48);
+              iVar7 = handler_poll_usb();
               bVar14 = 0xfffffffe < uVar10;
               uVar10 = uVar10 + 1;
               iVar8 = iVar8 + (iVar7 - iVar6);
@@ -182,23 +182,23 @@ undefined4 handle_benchmark()
       }
     }
     else {
-      FUN_08038d38(&DAT_08055ea0,local_248,0x200,0);
+      xml_get_attr_value(&DAT_08055ea0,local_248,0x200,0);
       uVar10 = (uint)local_248[0];
       if (uVar10 == 0x31) {
         firehose_log("Going to test reads for lengths %llu to %llu for %llu trials. This can take a while."
                      ,uVar2,uVar4,uVar5,uVar2,uVar3,1000,0);
-        FUN_08038206(&DAT_08058430,0);
+        storage_select_partition(&DAT_08058430,0);
         uVar12 = uVar4;
         for (uVar11 = uVar5; uVar10 = uVar2 - uVar12,
             uVar11 < uVar3 || uVar3 - uVar11 < (uint)(uVar12 <= uVar2);
             uVar11 = uVar11 * 2 + (uint)bVar14) {
-          iVar8 = FUN_08022440();
+          iVar8 = handler_poll_usb();
           uVar10 = 0;
           uVar13 = 0;
           while( true ) {
             if (uVar13 != 0 || uVar13 < (999 < uVar10)) break;
             uVar15 = FUN_080060c0(uVar12,uVar11,uVar4,uVar5);
-            iVar6 = FUN_08038014(&DAT_08058430,uVar9,0,0,uVar15);
+            iVar6 = storage_read_sectors(&DAT_08058430,uVar9,0,0,uVar15);
             if (iVar6 != 1) {
               firehose_log("Failure in read during perf testing");
             }
@@ -206,7 +206,7 @@ undefined4 handle_benchmark()
             uVar10 = uVar10 + 1;
             uVar13 = uVar13 + bVar14;
           }
-          iVar6 = FUN_08022440(uVar10 - 1000,uVar13 - (999 >= uVar10));
+          iVar6 = handler_poll_usb(uVar10 - 1000,uVar13 - (999 >= uVar10));
           uVar15 = FUN_080060c0(iVar6 - iVar8,iVar6 - iVar8 >> 0x1f,uVar10,uVar13);
           firehose_log("Reading %llu bytes %d us",(int)((ulonglong)uVar15 >> 0x20),uVar12,uVar11,
                        (int)uVar15);
@@ -218,7 +218,7 @@ undefined4 handle_benchmark()
   }
   uVar9 = handle_response(1);
   if (local_28 != iVar1) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar9;
 }
@@ -267,7 +267,7 @@ LAB_08022be2:
   DAT_08055fb8 = (undefined4)lVar5;
   DAT_08057ffc = (undefined4)(uVar1 >> 0x20);
   DAT_08057ff8 = (undefined4)uVar1;
-  iVar3 = FUN_08038db4(&DAT_08055ea0);
+  iVar3 = xml_advance(&DAT_08055ea0);
   if (iVar3 != 2) {
     firehose_log("logbuf@0x%08X fh@0x%08X",&DAT_08058028,&DAT_08054e90);
     local_238 = 0x73;
@@ -284,33 +284,33 @@ LAB_08022be2:
     uStack_258 = 0x100000;
     local_268 = DAT_08055fb8;
     uStack_264 = DAT_08055fbc;
-    uVar4 = FUN_08037084(uVar4,8,"MinVersionSupported",100,1,"MemoryName",0x73,&DAT_08022ea0,
+    uVar4 = send_xml_response(uVar4,8,"MinVersionSupported",100,1,"MemoryName",0x73,&DAT_08022ea0,
                          "MaxPayloadSizeFromTargetInBytes",100,0x1000,
                          "MaxPayloadSizeToTargetInBytes",0x74);
     if (local_2c != local_230) {
-      FUN_08010960();
+      stack_canary_fail();
     }
     return uVar4;
   }
-  iVar3 = FUN_0803906c(&DAT_08055ea0,"MaxPayloadSizeToTargetInBytes");
+  iVar3 = xml_attr_match(&DAT_08055ea0,"MaxPayloadSizeToTargetInBytes");
   if (iVar3 == 0) {
-    iVar3 = FUN_0803906c(&DAT_08055ea0,"MaxDigestTableSizeInBytes");
+    iVar3 = xml_attr_match(&DAT_08055ea0,"MaxDigestTableSizeInBytes");
     if (iVar3 == 0) {
-      iVar3 = FUN_0803906c(&DAT_08055ea0,"ZlpAwareHost");
+      iVar3 = xml_attr_match(&DAT_08055ea0,"ZlpAwareHost");
       if (iVar3 == 0) {
-        iVar3 = FUN_0803906c(&DAT_08055ea0,"SkipWrite");
+        iVar3 = xml_attr_match(&DAT_08055ea0,"SkipWrite");
         if (iVar3 == 0) {
-          iVar3 = FUN_0803906c(&DAT_08055ea0,"AckRawData");
+          iVar3 = xml_attr_match(&DAT_08055ea0,"AckRawData");
           if (iVar3 == 0) {
-            iVar3 = FUN_0803906c(&DAT_08055ea0,"AckRawDataEveryNumPackets");
+            iVar3 = xml_attr_match(&DAT_08055ea0,"AckRawDataEveryNumPackets");
             if (iVar3 == 0) {
-              iVar3 = FUN_0803906c(&DAT_08055ea0,"AlwaysValidate");
+              iVar3 = xml_attr_match(&DAT_08055ea0,"AlwaysValidate");
               if (iVar3 == 0) {
-                iVar3 = FUN_0803906c(&DAT_08055ea0,"Verbose");
+                iVar3 = xml_attr_match(&DAT_08055ea0,"Verbose");
                 uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
                 lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
                 if (iVar3 != 0) {
-                  FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
+                  xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
                   uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
                   lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
                   if (local_22c[0] == '1') {
@@ -321,7 +321,7 @@ LAB_08022be2:
                 }
               }
               else {
-                FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
+                xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
                 uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
                 lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
                 if (local_22c[0] == '1') {
@@ -332,8 +332,8 @@ LAB_08022be2:
               }
             }
             else {
-              FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
-              DAT_08058484 = FUN_0803823e(local_22c,local_26c);
+              xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
+              DAT_08058484 = parse_uint_from_str(local_22c,local_26c);
               uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
               lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
               if (local_26c[0] == '\0') {
@@ -344,7 +344,7 @@ LAB_08022be2:
             }
           }
           else {
-            FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
+            xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
             uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
             lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
             if (local_22c[0] == '1') {
@@ -355,7 +355,7 @@ LAB_08022be2:
           }
         }
         else {
-          FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
+          xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
           uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
           lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
           if (local_22c[0] == '1') {
@@ -367,19 +367,19 @@ LAB_08022be2:
         }
       }
       else {
-        FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
+        xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
         uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
         lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
         if (local_22c[0] == '0') {
-          FUN_0802f838(0);
+          dispatch_set_state(0);
           uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
           lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
         }
       }
       goto LAB_08022be2;
     }
-    FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
-    uVar6 = FUN_0803823e(local_22c,local_26c);
+    xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
+    uVar6 = parse_uint_from_str(local_22c,local_26c);
     lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
     uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
     if (local_26c[0] == '\0') {
@@ -395,8 +395,8 @@ LAB_08022be2:
     pcVar2 = "Host\'s hash buffer size is too large";
   }
   else {
-    FUN_08038d38(&DAT_08055ea0,local_22c,0x200,0);
-    lVar5 = FUN_0803823e(local_22c,local_26c);
+    xml_get_attr_value(&DAT_08055ea0,local_22c,0x200,0);
+    lVar5 = parse_uint_from_str(local_22c,local_26c);
     uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
     if (local_26c[0] == '\0') {
       pcVar2 = "Failed to get max payload size";
@@ -436,11 +436,11 @@ undefined4 handle_erase()
   FUN_08006d14(auStack_21c,0x200);
   bVar1 = true;
   uVar4 = 0xffffffff;
-  while (iVar3 = FUN_08038db4(&DAT_08055ea0), iVar3 == 2) {
-    iVar3 = FUN_0803906c(&DAT_08055ea0,"storagedrive");
+  while (iVar3 = xml_advance(&DAT_08055ea0), iVar3 == 2) {
+    iVar3 = xml_attr_match(&DAT_08055ea0,"storagedrive");
     if (iVar3 != 0) {
-      FUN_08038d38(&DAT_08055ea0,auStack_21c,0x200,0);
-      uVar4 = FUN_0803823e(auStack_21c,local_220);
+      xml_get_attr_value(&DAT_08055ea0,auStack_21c,0x200,0);
+      uVar4 = parse_uint_from_str(auStack_21c,local_220);
       if (local_220[0] == '\0') {
         firehose_log("Failed to get storage drive number");
         bVar1 = false;
@@ -452,9 +452,9 @@ undefined4 handle_erase()
       firehose_log("No storage drive number");
     }
     else {
-      iVar3 = FUN_08038206(&DAT_08058430,uVar4 & 0xff);
+      iVar3 = storage_select_partition(&DAT_08058430,uVar4 & 0xff);
       if (iVar3 != 0) {
-        iVar3 = FUN_08037c56(&DAT_08058430);
+        iVar3 = storage_erase_partition(&DAT_08058430);
         handle_response(iVar3 == 1);
         if (iVar3 == 1) {
           uVar5 = 0;
@@ -471,7 +471,7 @@ undefined4 handle_erase()
   uVar5 = 1;
 LAB_08022f50:
   if (local_1c != iVar2) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar5;
 }
@@ -510,21 +510,21 @@ undefined4 handle_firmwarewrite()
   lVar9 = 0;
   FUN_08006d14(auStack_22c,0x200);
   bVar1 = true;
-  while (uVar7 = (undefined4)((ulonglong)lVar9 >> 0x20), uVar10 = FUN_08038db4(&DAT_08055ea0),
+  while (uVar7 = (undefined4)((ulonglong)lVar9 >> 0x20), uVar10 = xml_advance(&DAT_08055ea0),
         (int)uVar10 == 2) {
-    iVar4 = FUN_0803906c(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
+    iVar4 = xml_attr_match(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
     if (iVar4 != 0) {
-      FUN_08038d38(&DAT_08055ea0,auStack_22c,0x200,0);
-      lVar8 = FUN_0803823e(auStack_22c,local_238);
+      xml_get_attr_value(&DAT_08055ea0,auStack_22c,0x200,0);
+      lVar8 = parse_uint_from_str(auStack_22c,local_238);
       if (local_238[0] == '\0') {
         firehose_log("Failed to get Sector size value");
         bVar1 = false;
       }
     }
-    iVar4 = FUN_0803906c(&DAT_08055ea0,"num_partition_sectors");
+    iVar4 = xml_attr_match(&DAT_08055ea0,"num_partition_sectors");
     if (iVar4 != 0) {
-      FUN_08038d38(&DAT_08055ea0,auStack_22c,0x200,0);
-      lVar9 = FUN_0803823e(auStack_22c,local_238);
+      xml_get_attr_value(&DAT_08055ea0,auStack_22c,0x200,0);
+      lVar9 = parse_uint_from_str(auStack_22c,local_238);
       if (local_238[0] == '\0') {
         firehose_log("Failed to get Number of sectors to write");
         bVar1 = false;
@@ -560,8 +560,8 @@ LAB_0802310c:
       uVar6 = DAT_08055fbc;
       goto LAB_0802310c;
     }
-    FUN_08037084(1,1,"rawmode",0x73,&DAT_08023360);
-    iVar4 = FUN_08021ca4(&local_234,extraout_r1_02,uVar5,uVar6,&local_240);
+    send_xml_response(1,1,"rawmode",0x73,&DAT_08023360);
+    iVar4 = usb_read_complete(&local_234,extraout_r1_02,uVar5,uVar6,&local_240);
     if (iVar4 == 0) {
       if (uVar5 != local_240 || (uVar6 ^ uStack_23c) != 0) {
         firehose_log("Read Error.Bytes expected:%llu,read:%llu",uVar6 ^ uStack_23c,uVar5,uVar6,
@@ -571,7 +571,7 @@ LAB_0802310c:
       if (bVar1) {
         firehose_log("Channel read %llu bytes");
       }
-      iVar4 = FUN_08037cb0(&DAT_08058430,local_234,(int)lVar9,uVar7,auStack_230);
+      iVar4 = storage_fw_update(&DAT_08058430,local_234,(int)lVar9,uVar7,auStack_230);
       if (iVar4 == 0) goto LAB_080231a4;
       iVar4 = 1;
     }
@@ -580,7 +580,7 @@ LAB_0802310c:
 LAB_080231a4:
       iVar4 = 0;
     }
-    FUN_08037084(iVar4,1,"rawmode",0x73,"false");
+    send_xml_response(iVar4,1,"rawmode",0x73,"false");
     if (iVar4 != 0) {
       uVar7 = 0;
       goto LAB_08023190;
@@ -593,14 +593,14 @@ LAB_080230ce:
   uVar7 = 1;
 LAB_08023190:
   if (local_2c != iVar2) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar7;
 }
 
 
-/* orig: 0x080233ec FUN_080233ec */
-undefined4 FUN_080233ec(param_1)
+/* orig: 0x080233ec handler_digest_cmd */
+undefined4 handler_digest_cmd(param_1)
 int param_1;
 {
   longlong lVar1;
@@ -667,24 +667,24 @@ int param_1;
   uStack_2dc = 0;
 LAB_080234ee:
   while( true ) {
-    iVar9 = FUN_08038db4(&DAT_08055ea0);
+    iVar9 = xml_advance(&DAT_08055ea0);
     if (iVar9 != 2) break;
-    iVar9 = FUN_0803906c(&DAT_08055ea0,"start_sector");
+    iVar9 = xml_attr_match(&DAT_08055ea0,"start_sector");
     if (iVar9 == 0) {
-      iVar9 = FUN_0803906c(&DAT_08055ea0,"num_partition_sectors");
+      iVar9 = xml_attr_match(&DAT_08055ea0,"num_partition_sectors");
       if (iVar9 == 0) {
-        iVar9 = FUN_0803906c(&DAT_08055ea0,"physical_partition_number");
+        iVar9 = xml_attr_match(&DAT_08055ea0,"physical_partition_number");
         if (iVar9 == 0) goto LAB_080234c0;
-        FUN_08038d38(&DAT_08055ea0,auStack_2d4,0x200,0);
-        uVar15 = FUN_0803823e(auStack_2d4,local_318);
+        xml_get_attr_value(&DAT_08055ea0,auStack_2d4,0x200,0);
+        uVar15 = parse_uint_from_str(auStack_2d4,local_318);
         if (local_318[0] == '\0') {
           pcVar10 = "Failed to get physical_partition_number";
           goto LAB_080234e8;
         }
       }
       else {
-        FUN_08038d38(&DAT_08055ea0,auStack_2d4,0x200,0);
-        uVar13 = FUN_0803823e(auStack_2d4,local_318);
+        xml_get_attr_value(&DAT_08055ea0,auStack_2d4,0x200,0);
+        uVar13 = parse_uint_from_str(auStack_2d4,local_318);
         if (local_318[0] == '\0') {
           pcVar10 = "Failed to get num_partition_sectors";
           goto LAB_080234e8;
@@ -692,7 +692,7 @@ LAB_080234ee:
       }
     }
     else {
-      FUN_08038d38(&DAT_08055ea0,auStack_8c,0x40,0);
+      xml_get_attr_value(&DAT_08055ea0,auStack_8c,0x40,0);
     }
   }
   if (bVar2) {
@@ -700,12 +700,12 @@ LAB_080234ee:
       if (local_324 == DAT_08058458 && DAT_0805845c == (int)local_324 >> 0x1f) {
         local_300 = FUN_080060c0(DAT_08055fb8,DAT_08055fbc,local_324,(int)local_324 >> 0x1f);
         local_2e4 = &DAT_08058430;
-        uVar14 = FUN_08038206(&DAT_08058430,uVar15 & 0xff);
+        uVar14 = storage_select_partition(&DAT_08058430,uVar15 & 0xff);
         if ((int)uVar14 == 0) {
           firehose_log("Invalid physical partition %d",uVar15);
         }
         else {
-          iVar9 = FUN_08028c10(auStack_8c,(int)((ulonglong)uVar14 >> 0x20),0x40,0,&local_320);
+          iVar9 = parse_sector_value(auStack_8c,(int)((ulonglong)uVar14 >> 0x20),0x40,0,&local_320);
           if (iVar9 != 0) {
             if (local_28 == 0) {
               FUN_080364e4(auStack_3b0);
@@ -737,7 +737,7 @@ LAB_080234ee:
               uVar11 = (undefined4)lVar1;
               local_2d8 = (int)uVar6 * ((int)local_324 >> 0x1f) +
                           (int)(uVar6 >> 0x20) * local_324 + (int)((ulonglong)lVar1 >> 0x20);
-              iVar12 = FUN_08038014(local_2e4,local_310,(undefined4)local_320,_GHIDRA_FIELD(local_320, 4, uint),uVar6)
+              iVar12 = storage_read_sectors(local_2e4,local_310,(undefined4)local_320,_GHIDRA_FIELD(local_320, 4, uint),uVar6)
               ;
               local_320 = lVar7;
               if (iVar12 == 0) {
@@ -830,14 +830,14 @@ LAB_08023522:
   uVar11 = 1;
 LAB_080236ae:
   if (local_2c != local_2f8) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar11;
 LAB_080234c0:
-  iVar9 = FUN_0803906c(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
+  iVar9 = xml_attr_match(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
   if (iVar9 != 0) {
-    FUN_08038d38(&DAT_08055ea0,auStack_2d4,0x200,0);
-    local_324 = FUN_0803823e(auStack_2d4,local_318);
+    xml_get_attr_value(&DAT_08055ea0,auStack_2d4,0x200,0);
+    local_324 = parse_uint_from_str(auStack_2d4,local_318);
     if (local_318[0] == '\0') {
       pcVar10 = "Failed to get sector_size_in_bytes";
 LAB_080234e8:
@@ -866,11 +866,11 @@ undefined4 handle_getstorageinfo()
   FUN_08006d14(auStack_21c,0x200);
   bVar1 = true;
   uVar4 = 0xffffffff;
-  while (iVar3 = FUN_08038db4(&DAT_08055ea0), iVar3 == 2) {
-    iVar3 = FUN_0803906c(&DAT_08055ea0,"physical_partition_number");
+  while (iVar3 = xml_advance(&DAT_08055ea0), iVar3 == 2) {
+    iVar3 = xml_attr_match(&DAT_08055ea0,"physical_partition_number");
     if (iVar3 != 0) {
-      FUN_08038d38(&DAT_08055ea0,auStack_21c,0x200,0);
-      uVar4 = FUN_0803823e(auStack_21c,local_220);
+      xml_get_attr_value(&DAT_08055ea0,auStack_21c,0x200,0);
+      uVar4 = parse_uint_from_str(auStack_21c,local_220);
       if (local_220[0] == '\0') {
         firehose_log("Failed to get physical partition number");
         bVar1 = false;
@@ -878,12 +878,12 @@ undefined4 handle_getstorageinfo()
     }
   }
   if ((uVar4 != 0xffffffff) && (bVar1)) {
-    iVar3 = FUN_08038206(&DAT_08058430,uVar4 & 0xff);
+    iVar3 = storage_select_partition(&DAT_08058430,uVar4 & 0xff);
     if (iVar3 == 0) {
       firehose_log("Invalid physical partition %d",uVar4);
     }
     else {
-      iVar3 = FUN_08037f88(&DAT_08058430);
+      iVar3 = storage_log_partition_info(&DAT_08058430);
       if (iVar3 != 0) {
         handle_response(1);
         uVar5 = 0;
@@ -895,7 +895,7 @@ undefined4 handle_getstorageinfo()
   uVar5 = 1;
 LAB_08023938:
   if (local_1c != iVar2) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar5;
 }
@@ -961,35 +961,35 @@ undefined4 handle_patch()
   local_30c = 0;
   uVar5 = uVar9;
   uVar3 = uVar9;
-  while (iVar4 = FUN_08038db4(&DAT_08055ea0), iVar4 == 2) {
-    iVar4 = FUN_0803906c(&DAT_08055ea0,"byte_offset");
+  while (iVar4 = xml_advance(&DAT_08055ea0), iVar4 == 2) {
+    iVar4 = xml_attr_match(&DAT_08055ea0,"byte_offset");
     if (iVar4 == 0) {
-      iVar4 = FUN_0803906c(&DAT_08055ea0,"physical_partition_number");
+      iVar4 = xml_attr_match(&DAT_08055ea0,"physical_partition_number");
       if (iVar4 == 0) {
-        iVar4 = FUN_0803906c(&DAT_08055ea0,"size_in_bytes");
+        iVar4 = xml_attr_match(&DAT_08055ea0,"size_in_bytes");
         if (iVar4 == 0) {
-          iVar4 = FUN_0803906c(&DAT_08055ea0,"start_sector");
+          iVar4 = xml_attr_match(&DAT_08055ea0,"start_sector");
           if (iVar4 != 0) {
             puVar7 = auStack_a8;
             goto LAB_08023b14;
           }
-          iVar4 = FUN_0803906c(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
+          iVar4 = xml_attr_match(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
           if (iVar4 == 0) {
-            iVar4 = FUN_0803906c(&DAT_08055ea0,"filename");
+            iVar4 = xml_attr_match(&DAT_08055ea0,"filename");
             if (iVar4 != 0) {
               puVar7 = auStack_68;
               goto LAB_08023b14;
             }
-            iVar4 = FUN_0803906c(&DAT_08055ea0,"value");
+            iVar4 = xml_attr_match(&DAT_08055ea0,"value");
             if (iVar4 != 0) {
               puVar7 = &uStack_e8;
 LAB_08023b14:
-              FUN_08038d38(&DAT_08055ea0,puVar7,0x40,0);
+              xml_get_attr_value(&DAT_08055ea0,puVar7,0x40,0);
             }
           }
           else {
-            FUN_08038d38(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
-            iVar10 = FUN_0803823e(auStack_2e9 + 1,local_314);
+            xml_get_attr_value(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
+            iVar10 = parse_uint_from_str(auStack_2e9 + 1,local_314);
             if (local_314[0] == '\0') {
               pcVar2 = "Failed to get sector_size_in_bytes";
               goto LAB_08023aea;
@@ -997,8 +997,8 @@ LAB_08023b14:
           }
         }
         else {
-          FUN_08038d38(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
-          uVar3 = FUN_0803823e(auStack_2e9 + 1,local_314);
+          xml_get_attr_value(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
+          uVar3 = parse_uint_from_str(auStack_2e9 + 1,local_314);
           if (local_314[0] == '\0') {
             pcVar2 = "Failed to get size_in_bytes";
             goto LAB_08023aea;
@@ -1006,8 +1006,8 @@ LAB_08023b14:
         }
       }
       else {
-        FUN_08038d38(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
-        uVar5 = FUN_0803823e(auStack_2e9 + 1,local_314);
+        xml_get_attr_value(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
+        uVar5 = parse_uint_from_str(auStack_2e9 + 1,local_314);
         if (local_314[0] == '\0') {
           pcVar2 = "Failed to get physical_partition_number";
           goto LAB_08023aea;
@@ -1015,8 +1015,8 @@ LAB_08023b14:
       }
     }
     else {
-      FUN_08038d38(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
-      uVar9 = FUN_0803823e(auStack_2e9 + 1,local_314);
+      xml_get_attr_value(&DAT_08055ea0,auStack_2e9 + 1,0x200,0);
+      uVar9 = parse_uint_from_str(auStack_2e9 + 1,local_314);
       if (local_314[0] == '\0') {
         pcVar2 = "Failed to get byte_offset";
 LAB_08023aea:
@@ -1028,7 +1028,7 @@ LAB_08023aea:
   if (!bVar1) goto LAB_08023b48;
   if ((((uVar9 == 0xffffffff) || (uVar5 == 0xffffffff)) || (uVar3 == 0xffffffff)) || (iVar10 == -1))
   goto LAB_08023c14;
-  iVar4 = strncmp_fh(&DAT_08023e4c,auStack_68,0x40);
+  iVar4 = strncasecmp_fh(&DAT_08023e4c,auStack_68,0x40);
   if (iVar4 != 0) {
     uVar8 = 0;
     goto LAB_08023d36;
@@ -1036,36 +1036,36 @@ LAB_08023aea:
   local_2f0 = &DAT_08058458;
   if (DAT_08058458 == iVar10 && DAT_0805845c == iVar10 >> 0x1f) {
     local_2f8 = &DAT_08058430;
-    iVar10 = FUN_08038206(&DAT_08058430,uVar5 & 0xff);
+    iVar10 = storage_select_partition(&DAT_08058430,uVar5 & 0xff);
     if (iVar10 == 0) {
       firehose_log("Invalid physical partition %d",uVar5);
       goto LAB_08023b48;
     }
     puVar13 = &DAT_08055e90;
     iVar4 = (&DAT_08054e90)[1 - DAT_08055fd4];
-    FUN_08037f64(local_2f8);
+    storage_get_sector_count(local_2f8);
     snprintf_buf(auStack_2e9 + 1,0x200,&DAT_08023e98);
-    FUN_0803725c(&uStack_e8,"NUM_DISK_SECTORS",auStack_2e9 + 1);
-    FUN_0803725c(&uStack_e8,&DAT_08023eb4,"");
-    FUN_0803725c(auStack_a8,"NUM_DISK_SECTORS",auStack_2e9 + 1);
-    FUN_0803725c(auStack_a8,&DAT_08023eb4,"");
-    FUN_080288b0(auStack_a8,&local_308);
+    str_find_replace(&uStack_e8,"NUM_DISK_SECTORS",auStack_2e9 + 1);
+    str_find_replace(&uStack_e8,&DAT_08023eb4,"");
+    str_find_replace(auStack_a8,"NUM_DISK_SECTORS",auStack_2e9 + 1);
+    str_find_replace(auStack_a8,&DAT_08023eb4,"");
+    eval_sector_expression(auStack_a8,&local_308);
     iVar10 = FUN_08006874(&uStack_e8,"CRC32");
     if (iVar10 == 0) {
-      FUN_080288b0(&uStack_e8,&local_310);
+      eval_sector_expression(&uStack_e8,&local_310);
 LAB_08023cd4:
-      FUN_08038014(local_2f8,iVar4,local_308,uStack_304,1,0);
+      storage_read_sectors(local_2f8,iVar4,local_308,uStack_304,1,0);
       if (uVar3 == 4) {
         local_30c = 0;
       }
-      FUN_08027bf8(iVar4 + uVar9,*(int *)(puVar13 + 0x128) - uVar9,&local_310,uVar3);
-      mmc_write_wrapper(local_2f8,iVar4,local_308,uStack_304,1,0,auStack_2ec);
+      bounded_memcpy(iVar4 + uVar9,*(int *)(puVar13 + 0x128) - uVar9,&local_310,uVar3);
+      storage_write_sectors(local_2f8,iVar4,local_308,uStack_304,1,0,auStack_2ec);
       firehose_log("Patched sector %llu with %08X",local_30c,local_308,uStack_304,local_310,
                    local_30c);
       uVar8 = handle_response(1);
       goto LAB_08023d36;
     }
-    FUN_0803725c(&uStack_e8,"CRC32","");
+    str_find_replace(&uStack_e8,"CRC32","");
     iVar10 = FUN_08006906(&uStack_e8);
     uVar5 = FUN_08006860(&uStack_e8,0x2c);
     uVar6 = FUN_080068f0(&uStack_e8,0x29);
@@ -1073,20 +1073,20 @@ LAB_08023cd4:
       firehose_log("Invalid CRC patch value");
     }
     else if (uVar5 <= uVar6) {
-      FUN_08027bf8(auStack_2e9 + 1,0x200,uVar5 + 1,(uVar6 - uVar5) + -1);
+      bounded_memcpy(auStack_2e9 + 1,0x200,uVar5 + 1,(uVar6 - uVar5) + -1);
       auStack_2e9[uVar6 - uVar5] = 0;
-      uVar11 = FUN_0803823e(auStack_2e9 + 1,local_314);
+      uVar11 = parse_uint_from_str(auStack_2e9 + 1,local_314);
       if (local_314[0] == '\0') {
         firehose_log("Failed to get crc_over_num_bytes");
         goto LAB_08023b48;
       }
-      FUN_08027c12(uVar5,0x200,uVar6,auStack_e7 + (iVar10 - uVar6));
-      FUN_080288b0(&uStack_e8,&local_300);
+      bounded_memmove(uVar5,0x200,uVar6,auStack_e7 + (iVar10 - uVar6));
+      eval_sector_expression(&uStack_e8,&local_300);
       firehose_log("crc start sector %llu, over bytes %llu",extraout_r1,local_300,local_2fc,uVar11);
       lVar12 = FUN_080060c0((int)uVar11,(int)((ulonglong)uVar11 >> 0x20),*local_2f0,local_2f0[1]);
-      FUN_08038014(local_2f8,iVar4,local_300,local_2fc,
+      storage_read_sectors(local_2f8,iVar4,local_300,local_2fc,
                    lVar12 + (ulonglong)(extraout_r2 != 0 || extraout_r3 != 0));
-      local_310 = FUN_08019abc(iVar4,(int)uVar11);
+      local_310 = crc32_update_byte(iVar4,(int)uVar11);
       local_30c = 0;
       goto LAB_08023cd4;
     }
@@ -1100,7 +1100,7 @@ LAB_08023c14:
   uVar8 = 1;
 LAB_08023d36:
   if (local_28 != local_2f4) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar8;
 }
@@ -1139,12 +1139,12 @@ undefined4 handle_peek()
 LAB_08023ffc:
   while( true ) {
     uVar7 = (uint)((ulonglong)lVar10 >> 0x20);
-    iVar3 = FUN_08038db4(&DAT_08055ea0);
+    iVar3 = xml_advance(&DAT_08055ea0);
     if (iVar3 != 2) break;
-    iVar3 = FUN_0803906c(&DAT_08055ea0,"SizeInBytes");
+    iVar3 = xml_attr_match(&DAT_08055ea0,"SizeInBytes");
     if (iVar3 == 0) goto LAB_08023fcc;
-    FUN_08038d38(&DAT_08055ea0,auStack_42c,0x200,0);
-    lVar10 = FUN_0803823e(auStack_42c,local_438);
+    xml_get_attr_value(&DAT_08055ea0,auStack_42c,0x200,0);
+    lVar10 = parse_uint_from_str(auStack_42c,local_438);
     if (local_438[0] == '\0') {
       pcVar2 = "Failed to get size in bytes";
       goto LAB_08023ff6;
@@ -1158,7 +1158,7 @@ LAB_08023ffc:
       while (lVar1 = CONCAT44(uVar6,uVar5),
             uVar6 <= uVar7 && (uint)((uint)lVar10 <= uVar5) <= uVar6 - uVar7) {
         snprintf_buf(auStack_42c,0x200,"0x%02X ",*(undefined1 *)(iVar8 + uVar5));
-        FUN_08038282(local_22c,auStack_42c,0x200);
+        safe_strlcat(local_22c,auStack_42c,0x200);
         bVar9 = 0xfffffffe < uVar5;
         uVar5 = uVar5 + 1;
         uVar6 = uVar6 + bVar9;
@@ -1178,14 +1178,14 @@ LAB_08023ffc:
   uVar4 = 1;
 LAB_08024094:
   if (local_2c != local_434) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar4;
 LAB_08023fcc:
-  iVar3 = FUN_0803906c(&DAT_08055ea0,"address64");
+  iVar3 = xml_attr_match(&DAT_08055ea0,"address64");
   if (iVar3 != 0) {
-    FUN_08038d38(&DAT_08055ea0,auStack_42c,0x200,0);
-    iVar8 = FUN_0803823e(auStack_42c,local_438);
+    xml_get_attr_value(&DAT_08055ea0,auStack_42c,0x200,0);
+    iVar8 = parse_uint_from_str(auStack_42c,local_438);
     if (local_438[0] == '\0') {
       pcVar2 = "Failed to get address";
 LAB_08023ff6:
@@ -1225,17 +1225,17 @@ undefined4 handle_poke()
   uVar12 = 0;
 LAB_080241c2:
   while (uVar9 = (uint)((ulonglong)lVar11 >> 0x20), uVar8 = (uint)lVar11,
-        iVar3 = FUN_08038db4(&DAT_08055ea0), iVar3 == 2) {
-    iVar3 = FUN_0803906c(&DAT_08055ea0,"SizeInBytes");
+        iVar3 = xml_advance(&DAT_08055ea0), iVar3 == 2) {
+    iVar3 = xml_attr_match(&DAT_08055ea0,"SizeInBytes");
     if (iVar3 != 0) {
-      FUN_08038d38(&DAT_08055ea0,auStack_22c,0x200,0);
-      lVar11 = FUN_0803823e(auStack_22c,local_230);
+      xml_get_attr_value(&DAT_08055ea0,auStack_22c,0x200,0);
+      lVar11 = parse_uint_from_str(auStack_22c,local_230);
       goto LAB_0802420e;
     }
-    iVar3 = FUN_0803906c(&DAT_08055ea0,"address64");
+    iVar3 = xml_attr_match(&DAT_08055ea0,"address64");
     if (iVar3 == 0) goto LAB_080241e8;
-    FUN_08038d38(&DAT_08055ea0,auStack_22c,0x200,0);
-    puVar6 = (undefined1 *)FUN_0803823e(auStack_22c,local_230);
+    xml_get_attr_value(&DAT_08055ea0,auStack_22c,0x200,0);
+    puVar6 = (undefined1 *)parse_uint_from_str(auStack_22c,local_230);
     if (local_230[0] == '\0') {
       pcVar2 = "Failed to get address";
       goto LAB_080241ba;
@@ -1268,14 +1268,14 @@ LAB_080241c2:
   uVar7 = 1;
 LAB_08024266:
   if (local_2c != iVar1) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar7;
 LAB_080241e8:
-  iVar3 = FUN_0803906c(&DAT_08055ea0,"value");
+  iVar3 = xml_attr_match(&DAT_08055ea0,"value");
   if (iVar3 != 0) {
-    FUN_08038d38(&DAT_08055ea0,auStack_22c,0x200,0);
-    uVar12 = FUN_0803823e(auStack_22c,local_230);
+    xml_get_attr_value(&DAT_08055ea0,auStack_22c,0x200,0);
+    uVar12 = parse_uint_from_str(auStack_22c,local_230);
 LAB_0802420e:
     if (local_230[0] == '\0') {
       pcVar2 = "Failed to get size in bytes";
@@ -1307,47 +1307,47 @@ undefined4 handle_power()
 LAB_080243d6:
   do {
     while( true ) {
-      iVar2 = FUN_08038db4(&DAT_08055ea0);
+      iVar2 = xml_advance(&DAT_08055ea0);
       if (iVar2 != 2) {
         if (iVar4 == 1) {
           handle_response(1);
-          FUN_0801b85c(iVar3);
-          FUN_0801999c();
+          transport_error_loop(iVar3);
+          fatal_error_halt();
           do {
                     /* WARNING: Do nothing block with infinite loop */
           } while( true );
         }
         if (iVar4 != 2) {
           if (local_1c != iVar1) {
-            FUN_08010960();
+            stack_canary_fail();
           }
           return 1;
         }
         handle_response(1);
-        FUN_0801b85c(iVar3);
-        FUN_08019984();
+        transport_error_loop(iVar3);
+        fatal_error_dma_reset();
         do {
                     /* WARNING: Do nothing block with infinite loop */
         } while( true );
       }
-      iVar2 = FUN_0803906c(&DAT_08055ea0,"value");
+      iVar2 = xml_attr_match(&DAT_08055ea0,"value");
       if (iVar2 == 0) break;
-      FUN_08038d38(&DAT_08055ea0,auStack_21c,0x200,0);
-      iVar2 = strncmp_fh(auStack_21c,"reset",5);
+      xml_get_attr_value(&DAT_08055ea0,auStack_21c,0x200,0);
+      iVar2 = strncasecmp_fh(auStack_21c,"reset",5);
       if (iVar2 == 0) {
         iVar4 = 1;
       }
       else {
-        iVar2 = strncmp_fh(auStack_21c,&DAT_08024444,3);
+        iVar2 = strncasecmp_fh(auStack_21c,&DAT_08024444,3);
         if (iVar2 == 0) {
           iVar4 = 2;
         }
       }
     }
-    iVar2 = FUN_0803906c(&DAT_08055ea0,"delayinseconds");
+    iVar2 = xml_attr_match(&DAT_08055ea0,"delayinseconds");
   } while (iVar2 == 0);
-  FUN_08038d38(&DAT_08055ea0,auStack_21c,0x200,0);
-  iVar3 = FUN_0803823e(auStack_21c,local_220);
+  xml_get_attr_value(&DAT_08055ea0,auStack_21c,0x200,0);
+  iVar3 = parse_uint_from_str(auStack_21c,local_220);
   if (local_220[0] != '\0') goto code_r0x080243d0;
   firehose_log("Failed to get delay time. Using default.");
   goto LAB_080243d4;
@@ -1422,27 +1422,27 @@ int handle_program()
   FUN_08006d14(auStack_4c,0x20);
   bVar16 = true;
   iVar15 = 0;
-  while (iVar4 = FUN_08038db4(&DAT_08055ea0), iVar4 == 2) {
-    iVar4 = FUN_0803906c(&DAT_08055ea0,"start_sector");
+  while (iVar4 = xml_advance(&DAT_08055ea0), iVar4 == 2) {
+    iVar4 = xml_attr_match(&DAT_08055ea0,"start_sector");
     if (iVar4 == 0) {
-      iVar4 = FUN_0803906c(&DAT_08055ea0,"num_partition_sectors");
+      iVar4 = xml_attr_match(&DAT_08055ea0,"num_partition_sectors");
       if (iVar4 != 0) {
         puVar1 = auStack_ac;
         goto LAB_08024502;
       }
-      iVar4 = FUN_0803906c(&DAT_08055ea0,"physical_partition_number");
+      iVar4 = xml_attr_match(&DAT_08055ea0,"physical_partition_number");
       if (iVar4 == 0) {
-        iVar4 = FUN_0803906c(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
+        iVar4 = xml_attr_match(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
         if (iVar4 == 0) {
-          iVar4 = FUN_0803906c(&DAT_08055ea0,"read_back_verify");
-          if ((iVar4 != 0) && (FUN_08038d38(&DAT_08055ea0,local_2ec,0x200,0), local_2ec[0] == '1'))
+          iVar4 = xml_attr_match(&DAT_08055ea0,"read_back_verify");
+          if ((iVar4 != 0) && (xml_get_attr_value(&DAT_08055ea0,local_2ec,0x200,0), local_2ec[0] == '1'))
           {
             local_314 = 1;
           }
         }
         else {
-          FUN_08038d38(&DAT_08055ea0,local_2ec,0x200,0);
-          iVar14 = FUN_0803823e(local_2ec,local_318);
+          xml_get_attr_value(&DAT_08055ea0,local_2ec,0x200,0);
+          iVar14 = parse_uint_from_str(local_2ec,local_318);
           if (local_318[0] == '\0') {
             pcVar6 = "Failed to get sector size";
             goto LAB_0802455e;
@@ -1450,8 +1450,8 @@ int handle_program()
         }
       }
       else {
-        FUN_08038d38(&DAT_08055ea0,local_2ec,0x200,0);
-        uVar13 = FUN_0803823e(local_2ec,local_318);
+        xml_get_attr_value(&DAT_08055ea0,local_2ec,0x200,0);
+        uVar13 = parse_uint_from_str(local_2ec,local_318);
         if (local_318[0] == '\0') {
           pcVar6 = "Failed to get physical partition number";
 LAB_0802455e:
@@ -1463,7 +1463,7 @@ LAB_0802455e:
     else {
       puVar1 = auStack_ec;
 LAB_08024502:
-      FUN_08038d38(&DAT_08055ea0,puVar1,0x40,0);
+      xml_get_attr_value(&DAT_08055ea0,puVar1,0x40,0);
     }
   }
   if (bVar16) {
@@ -1474,20 +1474,20 @@ LAB_08024502:
         lVar17 = FUN_080060c0(DAT_08055fb8,DAT_08055fbc,iVar14,iVar4);
         uVar7 = (uint)((ulonglong)lVar17 >> 0x20);
         local_31c = &DAT_08058430;
-        uVar18 = FUN_08038206(&DAT_08058430,uVar13 & 0xff);
+        uVar18 = storage_select_partition(&DAT_08058430,uVar13 & 0xff);
         if ((int)uVar18 == 0) {
           firehose_log("Invalid physical partition %d",uVar13);
         }
         else {
-          uVar18 = FUN_08028c10(auStack_ec,(int)((ulonglong)uVar18 >> 0x20),0x40,0);
+          uVar18 = parse_sector_value(auStack_ec,(int)((ulonglong)uVar18 >> 0x20),0x40,0);
           if ((int)uVar18 == 0) {
             pcVar6 = "Failed to parse start sector";
           }
           else {
-            iVar12 = FUN_08028c10(auStack_ac,(int)((ulonglong)uVar18 >> 0x20),0x40,0);
+            iVar12 = parse_sector_value(auStack_ac,(int)((ulonglong)uVar18 >> 0x20),0x40,0);
             if (iVar12 != 0) {
               firehose_log("start %llu, num %llu",uStack_30c,0,0);
-              FUN_08037084(1,1,"rawmode",0x73);
+              send_xml_response(1,1,"rawmode",0x73);
               local_32c = 1;
               local_2f0 = &DAT_08058484;
               while( true ) {
@@ -1500,8 +1500,8 @@ LAB_08024502:
                 }
                 uVar10 = (uint)(lVar19 * iVar14);
                 uVar11 = (uint)((ulonglong)(lVar19 * iVar14) >> 0x20);
-                iVar12 = FUN_08021ca4(&local_320);
-                FUN_0801b6bc("toread %d read %d",uStack_304,uVar10,uVar11);
+                iVar12 = usb_read_complete(&local_320);
+                debug_log("toread %d read %d",uStack_304,uVar10,uVar11);
                 uVar8 = uStack_304;
                 uVar13 = local_308;
                 if (iVar12 != 0) {
@@ -1509,8 +1509,8 @@ LAB_08024502:
                     firehose_log("Encountered RAW data transport error in validation mode.");
                   }
                   else {
-                    FUN_0801b85c(10);
-                    FUN_08037084(0,2,"rawmode",0x73);
+                    transport_error_loop(10);
+                    send_xml_response(0,2,"rawmode",0x73);
                   }
                   goto LAB_08024840;
                 }
@@ -1520,7 +1520,7 @@ LAB_08024502:
                   lVar19 = FUN_080060c0(uVar13,uVar8,iVar14,iVar4);
                   iVar12 = (int)((ulonglong)lVar19 >> 0x20);
                   uVar13 = (uint)lVar19;
-                  FUN_0801b6bc("rx %llu start %llu",uStack_324,uVar13,iVar12);
+                  debug_log("rx %llu start %llu",uStack_324,uVar13,iVar12);
                   if (lVar19 != CONCAT44(uStack_30c,local_310)) {
                     uVar8 = (uStack_30c - iVar12) - (uint)(local_310 < uVar13);
                     lVar3 = CONCAT44(uVar8,local_310 - uVar13);
@@ -1528,11 +1528,11 @@ LAB_08024502:
                     {
                       lVar3 = lVar17;
                     }
-                    FUN_08030ecc((int)(lVar3 * iVar14),(int)((ulonglong)(lVar3 * iVar14) >> 0x20));
+                    transport_set_pending((int)(lVar3 * iVar14),(int)((ulonglong)(lVar3 * iVar14) >> 0x20));
                   }
                   if (local_32c == 1) {
                     if (DAT_08058480 == '\x01') goto LAB_080247c4;
-                    uVar18 = mmc_write_wrapper(local_31c,local_320,local_328,uStack_324);
+                    uVar18 = storage_write_sectors(local_31c,local_320,local_328,uStack_324);
                     uVar9 = (undefined4)((ulonglong)uVar18 >> 0x20);
                     iVar5 = (int)uVar18;
                     if (iVar5 == 0) {
@@ -1548,9 +1548,9 @@ LAB_080247be:
                           local_300 = 0;
                         }
                         else if (local_314 != 1) goto LAB_080247c4;
-                        FUN_0800d59c(local_320,local_308,auStack_6c);
-                        FUN_08038014(local_31c,local_320,local_328,uStack_324);
-                        FUN_0800d59c(local_320,local_308,auStack_4c);
+                        sha256_hash(local_320,local_308,auStack_6c);
+                        storage_read_sectors(local_31c,local_320,local_328,uStack_324);
+                        sha256_hash(local_320,local_308,auStack_4c);
                         uVar18 = FUN_08006898(auStack_6c,auStack_4c,0x20);
                         uVar9 = (undefined4)((ulonglong)uVar18 >> 0x20);
                         if ((int)uVar18 != 0) {
@@ -1577,7 +1577,7 @@ LAB_080247c4:
                 }
               }
               firehose_log("Finished sector address %llu",0,local_328,uStack_324);
-              FUN_08037084(local_32c,1,"rawmode",0x73);
+              send_xml_response(local_32c,1,"rawmode",0x73);
               if (local_32c == 1) {
                 iVar12 = 0;
                 goto LAB_08024840;
@@ -1603,7 +1603,7 @@ LAB_0802483a:
   iVar12 = 1;
 LAB_08024840:
   if (local_2c != local_2fc) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return iVar12;
 }
@@ -1651,24 +1651,24 @@ undefined4 handle_read()
   FUN_08006d14(auStack_6c,0x40);
 LAB_08024be4:
   while( true ) {
-    iVar5 = FUN_08038db4(&DAT_08055ea0);
+    iVar5 = xml_advance(&DAT_08055ea0);
     if (iVar5 != 2) break;
-    iVar5 = FUN_0803906c(&DAT_08055ea0,"start_sector");
+    iVar5 = xml_attr_match(&DAT_08055ea0,"start_sector");
     if (iVar5 == 0) {
-      iVar5 = FUN_0803906c(&DAT_08055ea0,"num_partition_sectors");
+      iVar5 = xml_attr_match(&DAT_08055ea0,"num_partition_sectors");
       if (iVar5 == 0) {
-        iVar5 = FUN_0803906c(&DAT_08055ea0,"physical_partition_number");
+        iVar5 = xml_attr_match(&DAT_08055ea0,"physical_partition_number");
         if (iVar5 == 0) goto LAB_08024bb6;
-        FUN_08038d38(&DAT_08055ea0,auStack_26c,0x200,0);
-        uVar9 = FUN_0803823e(auStack_26c,local_278);
+        xml_get_attr_value(&DAT_08055ea0,auStack_26c,0x200,0);
+        uVar9 = parse_uint_from_str(auStack_26c,local_278);
         if (local_278[0] == '\0') {
           pcVar4 = "Failed to get physical_partition_number";
           goto LAB_08024bde;
         }
       }
       else {
-        FUN_08038d38(&DAT_08055ea0,auStack_26c,0x200,0);
-        lVar10 = FUN_0803823e(auStack_26c,local_278);
+        xml_get_attr_value(&DAT_08055ea0,auStack_26c,0x200,0);
+        lVar10 = parse_uint_from_str(auStack_26c,local_278);
         if (local_278[0] == '\0') {
           pcVar4 = "Failed to get num_partition_sectors";
           goto LAB_08024bde;
@@ -1676,7 +1676,7 @@ LAB_08024be4:
       }
     }
     else {
-      FUN_08038d38(&DAT_08055ea0,auStack_6c,0x40,0);
+      xml_get_attr_value(&DAT_08055ea0,auStack_6c,0x40,0);
     }
   }
   if (bVar1) {
@@ -1685,14 +1685,14 @@ LAB_08024be4:
         local_270 = &DAT_08055e90;
         local_288 = FUN_080060c0(DAT_08055fb8,DAT_08055fbc,iVar8,iVar8 >> 0x1f);
         local_28c = &DAT_08058430;
-        iVar5 = FUN_08038206(&DAT_08058430,uVar9 & 0xff);
+        iVar5 = storage_select_partition(&DAT_08058430,uVar9 & 0xff);
         if (iVar5 == 0) {
           firehose_log("Invalid physical partition %d",uVar9);
         }
         else {
-          iVar5 = FUN_08028c10(auStack_6c,&local_298,0x40,0,&local_298);
+          iVar5 = parse_sector_value(auStack_6c,&local_298,0x40,0,&local_298);
           if (iVar5 != 0) {
-            FUN_08037084(1,1,"rawmode",0x73,&DAT_08024e68);
+            send_xml_response(1,1,"rawmode",0x73,&DAT_08024e68);
             iVar5 = 1;
             lVar2 = local_288;
             while( true ) {
@@ -1708,7 +1708,7 @@ LAB_08024be4:
               lVar3 = CONCAT44(uStack_294,&DAT_08054e90);
               local_290 = (&DAT_08054e90)[1 - *(int *)(local_270 + 0x144)];
               if (iVar5 == 1) {
-                iVar6 = FUN_08038014(local_28c,local_290,local_298,uStack_294,lVar2);
+                iVar6 = storage_read_sectors(local_28c,local_290,local_298,uStack_294,lVar2);
                 lVar3 = CONCAT44(uStack_294,local_298);
                 if (iVar6 == 0) {
                   local_280 = local_298;
@@ -1721,7 +1721,7 @@ LAB_08024be4:
                 }
               }
               uStack_294 = (undefined4)((ulonglong)lVar3 >> 0x20);
-              FUN_08038c24(local_290,(int)lVar3,(int)(lVar2 * iVar8),
+              xml_send_and_wait(local_290,(int)lVar3,(int)(lVar2 * iVar8),
                            (int)((ulonglong)(lVar2 * iVar8) >> 0x20));
               lVar10 = lVar10 - lVar2;
               lVar2 = local_288;
@@ -1734,7 +1734,7 @@ LAB_08024be4:
               uVar7 = 0;
             }
             firehose_log("Finished sector address %d",uVar7,local_298,uStack_294);
-            FUN_08037084(iVar5,1,"rawmode",0x73,"false");
+            send_xml_response(iVar5,1,"rawmode",0x73,"false");
             if (iVar5 == 1) {
               uVar7 = 0;
               goto LAB_08024d3c;
@@ -1758,14 +1758,14 @@ LAB_08024d36:
   uVar7 = 1;
 LAB_08024d3c:
   if (local_2c != local_274) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar7;
 LAB_08024bb6:
-  iVar5 = FUN_0803906c(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
+  iVar5 = xml_attr_match(&DAT_08055ea0,"SECTOR_SIZE_IN_BYTES");
   if (iVar5 != 0) {
-    FUN_08038d38(&DAT_08055ea0,auStack_26c,0x200,0);
-    iVar8 = FUN_0803823e(auStack_26c,local_278);
+    xml_get_attr_value(&DAT_08055ea0,auStack_26c,0x200,0);
+    iVar8 = parse_uint_from_str(auStack_26c,local_278);
     if (local_278[0] == '\0') {
       pcVar4 = "Failed to get sector_size_in_bytes";
 LAB_08024bde:
@@ -1794,11 +1794,11 @@ undefined4 handle_setbootable()
   FUN_08006d14(auStack_21c,0x200);
   bVar1 = true;
   uVar5 = 0xffffffff;
-  while (iVar3 = FUN_08038db4(&DAT_08055ea0), iVar3 == 2) {
-    iVar3 = FUN_0803906c(&DAT_08055ea0,"value");
+  while (iVar3 = xml_advance(&DAT_08055ea0), iVar3 == 2) {
+    iVar3 = xml_attr_match(&DAT_08055ea0,"value");
     if (iVar3 != 0) {
-      FUN_08038d38(&DAT_08055ea0,auStack_21c,0x200,0);
-      uVar5 = FUN_0803823e(auStack_21c,local_220);
+      xml_get_attr_value(&DAT_08055ea0,auStack_21c,0x200,0);
+      uVar5 = parse_uint_from_str(auStack_21c,local_220);
       if (local_220[0] == '\0') {
         firehose_log("Failed to get bootable drive");
         bVar1 = false;
@@ -1816,20 +1816,20 @@ LAB_08024fb4:
     uVar4 = 0;
   }
   else {
-    iVar3 = FUN_08038206(&DAT_08058430,uVar5 & 0xff);
+    iVar3 = storage_select_partition(&DAT_08058430,uVar5 & 0xff);
     if (iVar3 == 0) {
       firehose_log("Failed to set bootable drive to %d.",uVar5);
       goto LAB_08024fb4;
     }
-    FUN_0803803c(&DAT_08058430);
-    FUN_08037c40(&DAT_08058430);
+    storage_select_and_read(&DAT_08058430);
+    storage_select_all(&DAT_08058430);
     firehose_log("Set bootable drive to %d.",uVar5);
     uVar4 = 1;
   }
   uVar4 = handle_response(uVar4);
 LAB_08024f86:
   if (local_1c != iVar2) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar4;
 }
@@ -1857,13 +1857,13 @@ undefined4 handle_storagextras()
   bVar2 = false;
   bVar1 = true;
   bVar3 = false;
-  while (iVar5 = FUN_08038db4(&DAT_08055ea0), iVar5 == 2) {
-    iVar5 = FUN_0803906c(&DAT_08055ea0,"commit");
+  while (iVar5 = xml_advance(&DAT_08055ea0), iVar5 == 2) {
+    iVar5 = xml_attr_match(&DAT_08055ea0,"commit");
     if (iVar5 == 0) {
-      iVar5 = FUN_0803906c(&DAT_08055ea0,"display");
+      iVar5 = xml_attr_match(&DAT_08055ea0,"display");
       if (iVar5 == 0) {
-        FUN_08038cfa(&DAT_08055ea0,auStack_224,0x200,0);
-        FUN_08038d38(&DAT_08055ea0,local_424,0x200,0);
+        xml_get_attr_name(&DAT_08055ea0,auStack_224,0x200,0);
+        xml_get_attr_value(&DAT_08055ea0,local_424,0x200,0);
         iVar5 = FUN_0803805c(&DAT_08058430,auStack_224,local_424);
         if (iVar5 == 0) {
           bVar1 = false;
@@ -1871,14 +1871,14 @@ undefined4 handle_storagextras()
         }
       }
       else {
-        FUN_08038d38(&DAT_08055ea0,local_424);
+        xml_get_attr_value(&DAT_08055ea0,local_424);
         if (local_424[0] == '1') {
           bVar3 = true;
         }
       }
     }
     else {
-      FUN_08038d38(&DAT_08055ea0,local_424,0x200,0);
+      xml_get_attr_value(&DAT_08055ea0,local_424,0x200,0);
       if (local_424[0] == '1') {
         bVar2 = true;
       }
@@ -1886,21 +1886,21 @@ undefined4 handle_storagextras()
   }
   if (bVar1) {
     if (bVar3) {
-      FUN_08037e88(&DAT_08058430);
+      storage_log_drive_info(&DAT_08058430);
     }
     if (!bVar2) {
 LAB_08025142:
       uVar6 = 1;
       goto LAB_08025144;
     }
-    iVar5 = FUN_08038206(&DAT_08058430,0);
+    iVar5 = storage_select_partition(&DAT_08058430,0);
     if (iVar5 == 0) {
       pcVar7 = "Could not open partition for creating new drives";
     }
     else {
-      iVar5 = FUN_08037c88(&DAT_08058430,auStack_428);
+      iVar5 = storage_commit(&DAT_08058430,auStack_428);
       if (iVar5 != 0) {
-        FUN_08037c40(&DAT_08058430);
+        storage_select_all(&DAT_08058430);
         firehose_log("Set storage parameters successfully");
         goto LAB_08025142;
       }
@@ -1912,7 +1912,7 @@ LAB_08025142:
 LAB_08025144:
   uVar6 = handle_response(uVar6);
   if (local_24 != iVar4) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar6;
 }

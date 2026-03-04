@@ -1,26 +1,29 @@
+/* platform.c — Timer, boot, and misc platform helpers.
+ *
+ * Sources: fhprg_8019930.c, fhprg_801a5f0.c, fhprg_801bd00.c,
+ *          fhprg_8013b70.c, fhprg_8007b18.c, fhprg_8007418.c
+ */
 #include "firehose.h"
 
-/* orig: 0x08019984 FUN_08019984 */
-void FUN_08019984(void)
+/* orig: 0x08019984 fatal_error_dma_reset — halt with DMA reset */
+void fatal_error_dma_reset(void)
 {
-    FUN_0802d180(0, 2);
+    pmic_set_power(0, 2);
     while (1);
 }
 
-/* orig: 0x0801999c FUN_0801999c */
-void FUN_0801999c(void)
+/* orig: 0x0801999c fatal_error_halt — halt without DMA reset */
+void fatal_error_halt(void)
 {
-    FUN_0802d180(0, 0);
+    pmic_set_power(0, 0);
     while (1);
 }
 
-/* orig: 0x08019abc FUN_08019abc */
-uint FUN_08019abc(uint param_1, uint param_2)
+/* orig: 0x08019abc crc32_update_byte — CRC32 one byte step */
+uint crc32_update_byte(uint param_1, uint param_2)
 {
-    /* CRC32 calculation using FUN_08031548 for bit reversal */
     uint crc = param_1;
     uint i;
-    uint val;
 
     for (i = 0; i < 8; i++) {
         if (crc & 1) {
@@ -29,74 +32,75 @@ uint FUN_08019abc(uint param_1, uint param_2)
             crc = crc >> 1;
         }
     }
-    return FUN_08031548(crc);
+    return FUN_08031548(crc); /* bit_reverse */
 }
 
-/* orig: 0x08013bb0 FUN_08013bb0 */
-int FUN_08013bb0(uint param_1, uint param_2, uint *param_3, uint *param_4)
+/* orig: 0x08013bb0 dal_device_dispatch — DAL device dispatch.
+ * Validates magic (0xD00CAFE) and calls through vtable.
+ * Used by hotplug to enumerate storage devices. */
+int dal_device_dispatch(uint param_1, uint param_2, uint *param_3, uint *param_4)
 {
     uint magic;
     if (param_1 == 0) return -1;
     magic = *(uint *)param_1;
     if (magic != 0xd00cafe) return -1;
-    /* vtable dispatch: call through vtable */
+    /* vtable dispatch: call through function pointer table */
     return 0;
 }
 
-/* orig: 0x0801b6bc FUN_0801b6bc */
-void FUN_0801b6bc(format)
+/* orig: 0x0801b6bc debug_log — debug ring buffer log (stub).
+ * Original formats into DAT_08058028 ring buffer. */
+void debug_log(format)
     const char *format;
 {
-    /* debug ring buffer log: stub — original formats into DAT_08058028 ring buffer */
     (void)format;
 }
 
-/* orig: 0x0801b85c FUN_0801b85c */
-void FUN_0801b85c(void)
+/* orig: 0x0801b85c transport_error_loop — infinite error recovery loop */
+void transport_error_loop(void)
 {
-    /* transport_error: calls FUN_08022440 in a loop */
     while (1) {
-        FUN_08022440();
+        handler_poll_usb();
     }
 }
 
-/* orig: 0x08013520 FUN_08013520 */
-int FUN_08013520(uint param_1)
+/* orig: 0x08013520 is_digit — check if character is ASCII digit */
+int is_digit(uint param_1)
 {
-    /* is_digit: returns 1 if param_1-0x30 < 10 */
     return (param_1 - 0x30) < 10 ? 1 : 0;
 }
 
-/* orig: 0x08007450 FUN_08007450 */
-void *FUN_08007450(void)
+/* orig: 0x08007450 get_global_context — return pointer to global context struct */
+void *get_global_context(void)
 {
     return &DAT_0805a8ac;
 }
 
-/* orig: 0x08010960 FUN_08010960 */
-void FUN_08010960(void)
+/* orig: 0x08010960 stack_canary_fail — stack canary check failed, halt */
+void stack_canary_fail(void)
 {
-    /* canary_fail: infinite loop */
     while (1);
 }
 
-/* orig: 0x08013078 FUN_08013078 */
-int FUN_08013078(void *param_1, void *param_2, uint param_3)
+/* orig: 0x08013078 dal_device_copy — copy between DAL device structs.
+ * Complex, not critical for write path (stub). */
+int dal_device_copy(void *param_1, void *param_2, uint param_3)
 {
-    /* boot helper: copies data between device structs (complex, stub) */
     return 0;
 }
 
-/* orig: 0x0800d59c FUN_0800d59c */
-uint FUN_0800d59c(const void *param_1, uint param_2)
+/* orig: 0x0800d59c sha256_hash — compute SHA-256 hash.
+ * Used by validation mode (which we don't need since we control the client).
+ * Stub — calls several sub-functions in the original. */
+uint sha256_hash(const void *param_1, uint param_2)
 {
-    /* hash/checksum: calls several sub-functions (stub) */
     return 0;
 }
 
-/* orig: 0x0801be1c FUN_0801be1c */
-uint FUN_0801be1c(uint param_1, uint param_2, uint *param_3)
+/* orig: 0x0801be1c bignum_divmod — multi-precision division.
+ * Used by the sector expression parser (which we don't need).
+ * 96-bit division: complex math. */
+uint bignum_divmod(uint param_1, uint param_2, uint *param_3)
 {
-    /* 96-bit division: complex math, TODO implementation */
     return 0;
 }

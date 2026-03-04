@@ -1,17 +1,21 @@
-/*
- * dispatch.c - Firehose Command Router
+/* dispatch.c — Firehose command router.
  *
- * This module contains the core XML command dispatcher that parses incoming
- * Firehose XML commands and routes them to appropriate handler functions
- * (configure, program, read, erase, patch, etc.) based on tag names.
+ * Parses incoming XML commands and dispatches to handler functions.
+ * The dispatcher is the main loop entry point: it reads one XML element,
+ * matches the tag name, and calls the corresponding handler.
  *
- * The dispatcher is the main state machine entry point that processes the
- * XML stream and orchestrates all command handling.
+ * Source: src/fhprg/fhprg_802efa4.c
  */
-
 #include "firehose.h"
 
-/* orig: 0x0802f130 firehose_dispatch */
+/* orig: 0x0802f130 firehose_dispatch — main XML command router.
+ *
+ * Called in a loop by the main firehose state machine. Each call:
+ *   1. Calls xml_advance() to parse the next XML token
+ *   2. If it's an open tag, matches against known command names
+ *   3. Dispatches to the appropriate handler
+ *   4. Returns 0 (continue) or 1 (done)
+ */
 undefined4 firehose_dispatch()
 {
   int iVar1;
@@ -22,7 +26,7 @@ undefined4 firehose_dispatch()
 
   iVar1 = DAT_0804cd58;
   local_18 = DAT_0804cd58;
-  iVar2 = FUN_08038db4();
+  iVar2 = xml_advance();
   FUN_08006d14(auStack_218,0x200);
   if (iVar2 == 0) {
 LAB_0802f176:
@@ -30,11 +34,13 @@ LAB_0802f176:
   }
   else {
     if (iVar2 == 4) {
+      /* Close tag — check if it's the wrapper element */
       xml_get_tag_name(&DAT_08055ea0,auStack_218,0x200,0);
       iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f2e8);
       if (iVar2 != 0) goto LAB_0802f176;
     }
     else if (iVar2 == 1) {
+      /* Open tag — dispatch by name */
       iVar2 = xml_tag_match(&DAT_08055ea0,"configure");
       if (iVar2 != 0) {
         uVar3 = handle_configure();
@@ -129,7 +135,7 @@ LAB_0802f176:
       else {
         uVar3 = 1;
       }
-      uVar3 = FUN_080233ec(uVar3);
+      uVar3 = handler_digest_cmd(uVar3);
       goto LAB_0802f2a6;
     }
 LAB_0802f2a4:
@@ -137,13 +143,14 @@ LAB_0802f2a4:
   }
 LAB_0802f2a6:
   if (local_18 != iVar1) {
-    FUN_08010960();
+    stack_canary_fail();
   }
   return uVar3;
 }
 
-/* orig: 0x0802f838 FUN_0802f838 */
-void FUN_0802f838(param_1)
+/* orig: 0x0802f838 dispatch_set_state — set dispatch execution state.
+ * 0 = idle (state 1), nonzero = processing (state 2) */
+void dispatch_set_state(param_1)
 int param_1;
 {
   if (param_1 == 0) {
