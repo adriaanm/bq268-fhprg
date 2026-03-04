@@ -92,6 +92,9 @@ FN_XML_WR_CLOSE2     = 0x080390e4  # XML writer close element
 FN_HASH_CALC         = 0x0800d59c  # hash/checksum
 FN_SET_PENDING       = 0x08030ecc  # FUN_08030ecc - set pending transfer size
 FN_TRANSPORT_ERR     = 0x0801b85c  # FUN_0801b85c - transport error handler
+FN_EMMC_SWITCH_PART  = 0x08034fb0  # FUN_08034fb0 - eMMC partition switch
+FN_EMMC_WRITE_CMD    = 0x08033656  # FUN_08033656 - eMMC SDCC write command
+FN_EMMC_WRITE_CHECK  = 0x08034228  # FUN_08034228 - eMMC write with WP check
 
 # Fake data locations in scratch RAM
 FAKE_CARD_INFO       = 0x80100000
@@ -138,9 +141,11 @@ class TraceLog:
 # ---------------------------------------------------------------------------
 
 class FHProgramEmulator:
-    def __init__(self, elf_path=ELF_PATH, verbose=False, native_partition_sel=False):
+    def __init__(self, elf_path=ELF_PATH, verbose=False, native_partition_sel=False,
+                 native_write=False):
         self.elf_path = os.path.abspath(elf_path)
         self.native_partition_sel = native_partition_sel
+        self.native_write = native_write
         self.verbose = verbose
         self.trace = TraceLog(verbose)
         self.uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
@@ -320,7 +325,18 @@ class FHProgramEmulator:
         elif addr == FN_USB_READ:
             self._hook_usb_read(uc)
         elif addr == FN_WRITE_WRAPPER:
-            self._hook_write_wrapper(uc)
+            if self.native_write:
+                self._hook_trace_write_wrapper(uc)
+                return  # let it run natively
+            else:
+                self._hook_write_wrapper(uc)
+        elif addr == FN_EMMC_WRITE_CHECK and self.native_write:
+            self._hook_trace_write_check(uc)
+            return  # let it run natively through WP check
+        elif addr == FN_EMMC_SWITCH_PART and self.native_write:
+            self._hook_emmc_switch_part(uc)
+        elif addr == FN_EMMC_WRITE_CMD and self.native_write:
+            self._hook_emmc_write_cmd(uc)
         elif addr == FN_READ_WRAPPER:
             self._hook_read_wrapper(uc)
         elif addr == FN_SEND_RESPONSE:
@@ -449,6 +465,64 @@ class FHProgramEmulator:
                        f"nsectors={num_sect}, buf=0x{r1:08x}")
         # Return 1 (success) - the function returns 1 on success, 0 on failure
         self._do_return(uc, 1)
+
+    def _hook_trace_write_wrapper(self, uc):
+        """Trace FUN_080381d8 entry but let it run natively."""
+        r0 = uc.reg_read(UC_ARM_REG_R0)
+        r2 = uc.reg_read(UC_ARM_REG_R2)
+        r3 = uc.reg_read(UC_ARM_REG_R3)
+        sp = uc.reg_read(UC_ARM_REG_SP)
+        num_sect = struct.unpack('<H', bytes(uc.mem_read(sp, 2)))[0]
+        start_sector = r2 | (r3 << 32)
+        # Read selected partition from storage dev struct
+        sel_part = struct.unpack('B', bytes(uc.mem_read(r0 + 0x26, 1)))[0]
+        # Read the handler ptr
+        handler_ptr = self._read_u32(r0 + sel_part * 4 + 4)
+        self.trace.log("WRITE_NATIVE", f"sector={start_sector} (0x{start_sector:x}), "
+                       f"nsectors={num_sect}, sel_part={sel_part}, handler=0x{handler_ptr:08x}")
+        # Don't intercept - let it run natively into FUN_08034228
+
+    def _hook_trace_write_check(self, uc):
+        """Trace FUN_08034228 entry - the eMMC write function with WP check.
+        Let it run natively so we can see what error code it returns."""
+        r0 = uc.reg_read(UC_ARM_REG_R0)  # device handle ptr (param_1)
+        r1 = uc.reg_read(UC_ARM_REG_R1)  # start sector (param_2)
+        r2 = uc.reg_read(UC_ARM_REG_R2)  # buffer (param_3)
+        r3 = uc.reg_read(UC_ARM_REG_R3)  # num_sectors (param_4)
+        # Trace the WP check: puVar3 = *param_1, then check *(char*)(puVar3[0x24]+0xa0)
+        if r0 != 0:
+            card_ptr = self._read_u32(r0)
+            if card_ptr != 0:
+                dev_id = self._read_u32(card_ptr)
+                card_type = struct.unpack('B', bytes(uc.mem_read(card_ptr + 8, 1)))[0]
+                ext_csd_ptr = self._read_u32(card_ptr + 0x90)
+                wp_byte = 0xff
+                if ext_csd_ptr != 0:
+                    wp_byte = struct.unpack('B', bytes(uc.mem_read(ext_csd_ptr + 0xa0, 1)))[0]
+                self.trace.log("WP_CHECK", f"dev_id={dev_id}, card_type=0x{card_type:02x}, "
+                               f"ext_csd=0x{ext_csd_ptr:08x}, WP_byte=0x{wp_byte:02x}, "
+                               f"sector={r1}, nsect={r3}")
+                if wp_byte != 0:
+                    self.trace.log("WP_CHECK", "*** WRITE-PROTECT IS SET - will return 0x1b ***")
+                else:
+                    self.trace.log("WP_CHECK", "WP clear - write allowed at code level")
+        # Don't intercept - let it run natively
+
+    def _hook_emmc_switch_part(self, uc):
+        """FUN_08034fb0 - eMMC partition switch. Return success (0)."""
+        r0 = uc.reg_read(UC_ARM_REG_R0)
+        self.trace.log("EMMC_SWITCH", f"param_1=0x{r0:08x}")
+        self._do_return(uc, 0)
+
+    def _hook_emmc_write_cmd(self, uc):
+        """FUN_08033656 - actual eMMC SDCC write command. Return success (0)."""
+        r0 = uc.reg_read(UC_ARM_REG_R0)
+        sp = uc.reg_read(UC_ARM_REG_SP)
+        r2 = uc.reg_read(UC_ARM_REG_R2)
+        r3 = uc.reg_read(UC_ARM_REG_R3)
+        self.trace.log("EMMC_WRITE", f"SDCC write cmd: param_1=0x{r0:08x}, "
+                       f"buf=0x{r2:08x}, nsect={r3}")
+        self._do_return(uc, 0)
 
     def _hook_read_wrapper(self, uc):
         """FUN_08038014 - storage read. Return success."""
@@ -1125,14 +1199,98 @@ def main():
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Verbose trace output')
     parser.add_argument('--compare', action='store_true',
-                        help='Compare splash vs aboot writes')
+                        help='Compare splash vs aboot writes (partition 0 vs 3)')
+    parser.add_argument('--compare-sectors', action='store_true',
+                        help='Compare splash vs aboot sector writes (both partition 0)')
     parser.add_argument('--elf', type=str, default=None,
                         help='Path to ELF binary (default: fhprg_peek.bin)')
     parser.add_argument('--native-partition-sel', action='store_true',
                         help='Let native FUN_08038206 run (for testing patched binaries)')
+    parser.add_argument('--native-write', action='store_true',
+                        help='Let FUN_080381d8/FUN_08034228 run natively (trace WP check)')
     args = parser.parse_args()
 
-    if args.compare:
+    if args.compare_sectors:
+        # Compare splash sector range vs aboot sector range (both partition 0)
+        print("=" * 70)
+        print("SECTOR COMPARISON: splash (2663442) vs aboot (2623488) on partition 0")
+        print("  Mimics real EDL write: physical_partition_number=0")
+        print("=" * 70)
+
+        elf = args.elf or ELF_PATH
+
+        # Splash write (known good)
+        emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
+                                native_partition_sel=args.native_partition_sel,
+                                native_write=args.native_write)
+        splash_trace = emu.run_program_test(
+            start_sector=2663442, num_sectors=2048, partition=0)
+
+        # Aboot write (silently dropped on real device)
+        emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
+                                native_partition_sel=args.native_partition_sel,
+                                native_write=args.native_write)
+        aboot_trace = emu.run_program_test(
+            start_sector=2623488, num_sectors=2048, partition=0)
+
+        print(f"\n{'='*70}")
+        print("SECTOR COMPARISON RESULT")
+        print(f"{'='*70}")
+
+        def sector_trace_summary(name, trace):
+            writes = [e for e in trace.events if e[0] in ('WRITE', 'WRITE_NATIVE')]
+            wp_checks = [e for e in trace.events if e[0] == 'WP_CHECK']
+            emmc_writes = [e for e in trace.events if e[0] == 'EMMC_WRITE']
+            emmc_switch = [e for e in trace.events if e[0] == 'EMMC_SWITCH']
+            naks = [e for e in trace.events
+                    if e[0] in ('RESPONSE', 'RESPONSE_W') and 'NAK' in e[1]]
+            acks = [e for e in trace.events
+                    if e[0] in ('RESPONSE', 'RESPONSE_W') and 'ACK' in e[1]]
+            logs = [e for e in trace.events if e[0] == 'LOG']
+            errors = [e for e in trace.events if e[0] == 'EMU_ERR']
+            print(f"\n  {name}:")
+            if writes:
+                for _, msg in writes:
+                    print(f"    Write: {msg}")
+            if wp_checks:
+                for _, msg in wp_checks:
+                    print(f"    WP check: {msg}")
+            if emmc_switch:
+                for _, msg in emmc_switch:
+                    print(f"    eMMC switch: {msg}")
+            if emmc_writes:
+                for _, msg in emmc_writes:
+                    print(f"    eMMC write: {msg}")
+            print(f"    ACKs: {len(acks)}, NAKs: {len(naks)}")
+            for _, msg in logs:
+                print(f"    Log: {msg}")
+            if errors:
+                for _, msg in errors:
+                    print(f"    ERROR: {msg}")
+
+        sector_trace_summary("Splash (sector 2663442, known good)", splash_trace)
+        sector_trace_summary("Aboot (sector 2623488, silently dropped)", aboot_trace)
+
+        # Check if code paths differ
+        splash_writes = [e for e in splash_trace.events if e[0] in ('WRITE', 'WRITE_NATIVE', 'EMMC_WRITE')]
+        aboot_writes = [e for e in aboot_trace.events if e[0] in ('WRITE', 'WRITE_NATIVE', 'EMMC_WRITE')]
+        splash_wp = [e for e in splash_trace.events if e[0] == 'WP_CHECK' and 'SET' in e[1]]
+        aboot_wp = [e for e in aboot_trace.events if e[0] == 'WP_CHECK' and 'SET' in e[1]]
+
+        if len(splash_writes) > 0 and len(aboot_writes) > 0 and not splash_wp and not aboot_wp:
+            print(f"\n  RESULT: Both writes take identical code path.")
+            print(f"  No write-protect flag detected in code. The restriction is NOT in")
+            print(f"  the firehose programmer code — it's at the eMMC hardware level.")
+            print(f"  The eMMC likely has power-on or permanent write-protect set on the")
+            print(f"  aboot sector range. This requires clearing WP via CMD28/CMD29.")
+        elif aboot_wp:
+            print(f"\n  RESULT: Write-protect flag is SET for aboot write.")
+            print(f"  Patch target: clear WP byte or bypass check in FUN_08034228.")
+        else:
+            print(f"\n  RESULT: Unexpected. Splash writes={len(splash_writes)}, "
+                  f"aboot writes={len(aboot_writes)}")
+
+    elif args.compare:
         # Compare partition 0 (allowed) vs partition 3 (blocked)
         print("=" * 70)
         print("COMPARISON: partition 0 (allowed) vs partition 3 (aboot, restricted)")
@@ -1140,7 +1298,8 @@ def main():
 
         elf = args.elf or ELF_PATH
         emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
-                                native_partition_sel=args.native_partition_sel)
+                                native_partition_sel=args.native_partition_sel,
+                                native_write=args.native_write)
 
         # Partition 0: should succeed
         p0_trace = emu.run_program_test(
@@ -1148,7 +1307,8 @@ def main():
 
         # Re-create emulator for clean state
         emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
-                                native_partition_sel=args.native_partition_sel)
+                                native_partition_sel=args.native_partition_sel,
+                                native_write=args.native_write)
 
         # Partition 3: should be blocked by FUN_08038206
         p3_trace = emu.run_program_test(
@@ -1159,7 +1319,7 @@ def main():
         print(f"{'='*70}")
 
         def trace_summary(name, trace):
-            writes = [e for e in trace.events if e[0] == 'WRITE']
+            writes = [e for e in trace.events if e[0] in ('WRITE', 'WRITE_NATIVE')]
             naks = [e for e in trace.events
                     if e[0] in ('RESPONSE', 'RESPONSE_W') and 'NAK' in e[1]]
             acks = [e for e in trace.events
@@ -1175,8 +1335,8 @@ def main():
         trace_summary("Partition 0 (normal)", p0_trace)
         trace_summary("Partition 3 (aboot)", p3_trace)
 
-        p0_writes = [e for e in p0_trace.events if e[0] == 'WRITE']
-        p3_writes = [e for e in p3_trace.events if e[0] == 'WRITE']
+        p0_writes = [e for e in p0_trace.events if e[0] in ('WRITE', 'WRITE_NATIVE')]
+        p3_writes = [e for e in p3_trace.events if e[0] in ('WRITE', 'WRITE_NATIVE')]
         p3_blocked = [e for e in p3_trace.events if e[0] == 'PART_SEL' and 'BLOCKED' in e[1]]
 
         if len(p0_writes) > 0 and p3_blocked:
@@ -1190,7 +1350,8 @@ def main():
     else:
         elf = args.elf or ELF_PATH
         emu = FHProgramEmulator(elf_path=elf, verbose=args.verbose,
-                                native_partition_sel=args.native_partition_sel)
+                                native_partition_sel=args.native_partition_sel,
+                                native_write=args.native_write)
         emu.run_program_test(
             start_sector=args.start_sector,
             num_sectors=args.num_sectors,
