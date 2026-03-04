@@ -293,3 +293,22 @@ Some lessons from the process:
 **Hook at the right level.** The initial plan was to let as much code run natively as possible. But the eMMC driver structures go several pointer dereferences deep, and each level has its own invariants. Hooking at the function boundary — `FUN_08038206` for partition validation, `FUN_08028c10` for number parsing — was the pragmatic choice. Let the code above the hooks run natively (the XML parser, the command dispatcher, the attribute extraction loop), and fake everything below.
 
 The full harness is about 1,200 lines of Python. Most of that is hook implementations and memory setup. The actual Unicorn interaction — load ELF, map memory, start emulation — is maybe 50 lines. The rest is the accumulated understanding of what this particular binary expects from the world around it.
+
+## Postscript: The hash table
+
+The patched binary — four bytes changed, emulator-verified, ready to go — didn't load. The Sahara protocol transferred every byte, and then... silence. A 5-second timeout. The PBL had rejected the image.
+
+Qualcomm's ELF-based MBN format includes a hash table segment (program header index 1, type NULL with metadata flags `0x02200000`). After a 40-byte header, it stores one SHA-256 hash per program header — the PBL loads each segment, computes its hash, and compares against the stored value. Our two `beq → nop` patches changed the hash of segment 4 (the main code at `0x08006000`), but we hadn't updated the hash table.
+
+The fix is straightforward: recompute SHA-256 over the patched segment data and write the new digest into the hash table entry. There's a subtlety — the hash table segment contains its own hash entry (segment 1), but that entry is always zero in QC's format since updating it would create a circular dependency.
+
+The hash table is also covered by an RSA-2048 signature (256 bytes at file offset `0x1148`) with a full X.509 certificate chain. This signature is now invalid. But on this device the secure boot fuses aren't blown — the PBL checks segment hashes but not the RSA signature. The hash-fixed binary loads and runs:
+
+```
+[sahara] END_TRANSFER: imageID=0xd status=0x0
+[sahara] END_TRANSFER OK
+[sahara] complete — Firehose programmer running
+[firehose] << ACK logs=[logbuf@0x08058028 fh@0x08054E90]
+```
+
+The lesson: binary patching a signed Qualcomm image requires updating three layers — the code, the hash table, and (if fuses are blown) the RSA signature. On a development or unfused device, you only need the first two. `tools/fix_hashes.py` automates the hash table update for any MBN ELF.
