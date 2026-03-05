@@ -186,19 +186,27 @@ void main(void)
     (void)aboot_payload_gz;
     (void)aboot_payload_gz_len;
 
-    /* Red was turned on in entry.S. Turn it off = proof we reached main. */
+    /* Turn off red, turn on green = proof we reached main */
     led_init(LED_RED_GPIO);
-    led_off(LED_RED_GPIO);
-
     led_init(LED_GREEN_GPIO);
+    led_off(LED_RED_GPIO);
+    led_on(LED_GREEN_GPIO);
+
+    /* Pause 3s so user can see solid green = "in main()" */
+    spin_delay(); spin_delay(); spin_delay();
+    spin_delay(); spin_delay(); spin_delay();
+
+    led_off(LED_GREEN_GPIO);
+    spin_delay(); spin_delay();
 
     /* Apply ICB config (BIMC bus arbitration) */
     icb_config();
 
     /* Test DDR memory */
     if (ddr_test()) {
-        /* DDR works! Blink green 3 times fast */
-        blink(LED_GREEN_GPIO, 3);
+        /* DDR works! 5 slow green blinks then solid green */
+        blink(LED_GREEN_GPIO, 5);
+        led_on(LED_GREEN_GPIO);
     } else {
         /* DDR failed — solid red */
         led_on(LED_RED_GPIO);
