@@ -84,27 +84,13 @@ static void led_off(int gpio)
     REG32(GPIO_IN_OUT_ADDR(gpio)) = 0;
 }
 
-static void msleep(unsigned int ms)
-{
-    /* Try sleep timetick first (32768 Hz) */
-    volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-    unsigned int t0 = *tick;
-    /* Quick check: is the timer actually ticking? */
-    volatile unsigned int i;
-    for (i = 0; i < 1000; i++);
-    if (*tick != t0) {
-        /* Timer is ticking — use it */
-        unsigned int ticks = (ms * 32768U) / 1000U;
-        while ((*tick - t0) < ticks);
-        return;
-    }
-    /* Fallback: CPU loop. ~5 cycles/iteration at ~400MHz = ~80k iter/ms */
-    for (i = 0; i < ms * 80000U; i++);
-}
-
 static void spin_delay(void)
 {
-    msleep(500);
+    /* Pure CPU loop — ~5 cycles/iteration.
+     * CPU likely on CXO (19.2 MHz) since we don't configure APCS PLL.
+     * 4M iters ≈ 1s at 19.2MHz, ≈ 25ms at 800MHz */
+    volatile unsigned int i;
+    for (i = 0; i < 4000000; i++);
 }
 
 static void blink(int gpio, int count)
@@ -207,36 +193,12 @@ void main(void)
     led_init(LED_GREEN_GPIO);
     led_off(LED_RED_GPIO);
 
-    /* Debug: test if sleep timetick still works in C.
-     * Read the timer value and blink based on whether it changes. */
-    {
-        volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-        unsigned int t0 = *tick;
-        unsigned int t1;
-        /* Busy-wait with a CPU loop we know works */
-        volatile unsigned int i;
-        for (i = 0; i < 50000000; i++);
-        t1 = *tick;
-
-        if (t1 == t0) {
-            /* Timer NOT ticking — blink red 3x fast as warning */
-            for (i = 0; i < 3; i++) {
-                led_on(LED_RED_GPIO);
-                volatile unsigned int j; for (j = 0; j < 20000000; j++);
-                led_off(LED_RED_GPIO);
-                for (j = 0; j < 20000000; j++);
-            }
-        }
-    }
-
+    /* Solid green ~2s = "in main()" */
     led_on(LED_GREEN_GPIO);
-
-    /* Pause 3s so user can see solid green = "in main()" */
-    spin_delay(); spin_delay(); spin_delay();
-    spin_delay(); spin_delay(); spin_delay();
+    spin_delay(); spin_delay();
 
     led_off(LED_GREEN_GPIO);
-    spin_delay(); spin_delay();
+    spin_delay();
 
     /* Apply ICB config (BIMC bus arbitration) */
     icb_config();
