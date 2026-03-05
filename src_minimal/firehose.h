@@ -278,6 +278,22 @@ int  FUN_08035040();            /* 0x08035040: sdcc_pre_write_setup */
 undefined4 FUN_080350ee();      /* 0x080350ee: sdcc_post_write_check */
 undefined4 FUN_08035134();      /* 0x08035134: sdcc_busy_wait */
 undefined4 FUN_08035188();      /* 0x08035188: sdcc_pio_transfer */
+uint sdcc_get_card_status();    /* 0x08034f80: send CMD13, return state */
+
+/* ---- card_init.c ---- */
+void FUN_08032a04();            /* 0x08032a04: clock source setup */
+void FUN_08032dcc();            /* 0x08032dcc: mmc_set_bus_width */
+int  FUN_08032eac();            /* 0x08032eac: mmc_set_speed */
+int  FUN_08033ca0();            /* 0x08033ca0: mmc_get_slot_context */
+void FUN_080335b4();            /* 0x080335b4: mmc_finalize_init */
+void FUN_080335fc();            /* 0x080335fc: mmc_release_slot */
+char FUN_08033dfc();            /* 0x08033dfc: mmc_classify_error */
+int  FUN_08033b30();            /* 0x08033b30: mmc_identify_card */
+int  FUN_080345b8();            /* 0x080345b8: mmc_config_bus */
+undefined4 FUN_0803460c();      /* 0x0803460c: mmc_init_fallback */
+undefined4 FUN_08034704();      /* 0x08034704: mmc_init_card */
+int *FUN_08034cb4();            /* 0x08034cb4: mmc_read_ext_csd */
+undefined4 FUN_08034888();      /* 0x08034888: mmc_setup_partitions */
 
 /* ---- xml.c ---- */
 int  xml_advance();             /* 0x08038db4: tokenizer state machine */
@@ -418,19 +434,7 @@ void thunk_FUN_0800947c();
 /* (SDCC register functions moved to sdcc_regs.c)
  * (eMMC helper functions moved to sdcc_helpers.c) */
 
-/* Card init (outside closure, called from mmc_open_device) */
-int  FUN_08034704();            /* mmc_init_card */
-int  FUN_0803460c();            /* mmc_init_fallback */
-int  FUN_08033ca0();            /* mmc_get_slot_context */
-int  FUN_08034cb4();            /* mmc_read_ext_csd */
-int  FUN_08034888();            /* mmc_setup_partitions */
-void FUN_080335b4();            /* mmc_finalize_init */
-void FUN_080335fc();            /* mmc_release_slot */
-char FUN_08033dfc();            /* mmc_classify_error */
-int  FUN_080345b8();            /* mmc_config_bus */
-int  FUN_08033b30();            /* mmc_identify_card */
-void FUN_08032dcc();            /* mmc_set_bus_width */
-int  FUN_08032eac();            /* mmc_set_speed */
+/* (Card init functions moved to card_init.c) */
 
 /* Response/digest builders (outside closure, called from handlers) */
 uint FUN_0803649c();            /* digest_finalize */

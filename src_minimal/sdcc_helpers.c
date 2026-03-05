@@ -9,7 +9,7 @@
 #include "firehose.h"
 
 /* Forward declarations for sub-helpers (defined later in this file) */
-static uint sdcc_get_card_status();
+uint sdcc_get_card_status();
 static undefined4 sdcc_wait_card_ready();
 
 /* ---- DMA bounce helpers (from fhprg_8007b18.c) ---- */
@@ -507,7 +507,7 @@ LAB_08034f26:
 }
 
 /* orig: 0x08034f80 sdcc_get_card_status — send CMD13 and return card state nibble */
-static uint sdcc_get_card_status(param_1)
+uint sdcc_get_card_status(param_1)
 int param_1;
 {
   int iVar1;
