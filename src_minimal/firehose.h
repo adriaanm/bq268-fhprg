@@ -180,8 +180,11 @@ extern uint DAT_0804d3a4;       /* dispatch execution state */
 /* --- SDCC/eMMC globals --- */
 extern uint DAT_0804e2ac;       /* SDCC slot status table */
 extern uint DAT_0804e2b8;       /* SDCC device handle table */
+extern char DAT_0804e2c4;       /* SDCC bases initialized flag */
 extern uint DAT_0804e2c8;       /* SDCC register base table */
+extern uint DAT_0804e2d0;       /* SDCC register base table (alt) */
 extern uint DAT_0804e2d8;       /* SDCC FIFO base table */
+extern uint DAT_0804e2e0;       /* SDCC FIFO base table (alt) */
 
 /* --- PMIC/DAL globals --- */
 extern char DAT_0804d288;       /* PMIC initialized flag */

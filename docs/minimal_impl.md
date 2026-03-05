@@ -212,7 +212,60 @@ Source: `src/fhprg/fhprg_8037820.c`
 
 ---
 
-## Task List — Status
+## Phase 2: Self-Contained Build
+
+The 101 internal functions call ~63 external functions that currently resolve
+against the original binary at link time. The original binary won't be
+available at runtime, so all dependencies must be implemented in-place.
+
+### New files
+
+| File | Functions | Est. Lines | Content |
+|------|-----------|-----------|---------|
+| `sdcc_regs.c` | 15 | ~150 | MMIO register wrappers |
+| `sdcc_helpers.c` | 14 | ~600 | Data transfer, DMA, polling |
+| `card_init.c` | 12 | ~500 | Card identification & bus setup |
+| `transport_usb.c` | 8 | ~300 | USB send/receive/poll |
+| `dispatch_loop.c` | 2 | ~50 | Tick + send-and-wait |
+| `stubs.c` | ~16 | ~40 | No-op/trivial stubs |
+| `globals.c` | — | ~100 | All 77 DAT_ as C variables + strings |
+
+### Stubs (safe no-ops)
+
+| Function | Address | Stub |
+|----------|---------|------|
+| `FUN_08015a50` | assert/abort | `while(1);` |
+| `FUN_0801a6a8` | UART helper | `return;` |
+| `FUN_080275c4` | hex dump log | `return;` |
+| `FUN_0801daf0` | validation reset | `return;` |
+| `FUN_0802b248` | DAL property set | `return 0;` |
+| `FUN_0802b6b4` | DAL device open | `return 0;` |
+| `FUN_0802d0b8` | PMIC status check | `DAT_0804d288=1; return 0;` |
+| `FUN_08027328` | hw_reinit | `return 1;` |
+| `FUN_0803649c` | digest_finalize | `return 0;` (skip digest) |
+| `FUN_080364e4` | digest_init | `return;` (skip digest) |
+| `FUN_08036ee8` | digest_update | `return;` (skip digest) |
+| `FUN_0803805c` | storage_set_extra | `return 0;` |
+| `FUN_08019a70` | CRC32 table update | `return 0;` |
+| `FUN_0801352e` | bignum_add | `return;` |
+| `FUN_08038338` | bignum_sub | `return;` |
+| `FUN_08019d98` | bignum_compare | `return 0;` |
+
+### Special cases
+
+| Item | Resolution |
+|------|-----------|
+| `FUN_080060b0` (ctype table) | Static 256-byte table in stubs.c |
+| `FUN_080060c0` (__aeabi_uldivmod) | Compiler provides automatically |
+| `FUN_08031548` (bit_reverse) | ~10 lines in stubs.c |
+| `FUN_080071ec` (strtoll thunk) | Use toolchain strtoll |
+| `FUN_080199b4` (delay_us) | Busy-loop on timer DAT_004a3000 |
+| `FUN_0800947c` | Identify & stub |
+| `qtimer_init` | Timer register setup, ~10 lines |
+
+---
+
+## Phase 1 Task List — Status (COMPLETE)
 
 All files complete. 101 functions with `orig: 0x` traceability. Build clean.
 
