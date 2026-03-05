@@ -4,51 +4,96 @@
  * After PBL loads us via Sahara into OCIMEM (0x08006000), we:
  *   1. Set VBAR (exception vector base)
  *   2. Set up stack pointer
- *   3. Zero BSS
- *   4. Enable GPLL0 and XO clocks
- *   5. Copy DDR driver to IMEM (0x00220000) and call it
- *   6. Map DDR via simple MPU/cache setup
- *   7. Enable GCC SDCC1 clocks (AHB + APPS)
- *   8. Branch to C main()
+ *   3. Copy .data, zero BSS
+ *   4. Enable GPLL0 PLL via vote register
+ *   5. Init DDR (call blob at 0x00222780)
+ *   6. Enable GCC SDCC1 clocks (RCG + AHB + APPS branches)
+ *   7. Branch to C main()
  *
- * Register addresses from MSM8909 GCC (Global Clock Controller):
- *   GCC base = 0x01800000
- *   GPLL0_MODE          = 0x01821000
- *   GCC_SDCC1_APPS_CBCR = 0x01842004
- *   GCC_SDCC1_AHB_CBCR  = 0x01842008
- *   GCC_SDCC1_APPS_CMD_RCGR = 0x01842000
- *
- * QTimer base = 0x004a0000
- *   CNTFRQ via CP15
+ * Register definitions from lk_src/platform/msm8909/.
  */
 
+#include "msm8909.h"
+
     .syntax unified
-    .thumb
     .arch armv7-a
 
+    /*==============================================================
+     * ARM-mode entry stub
+     *
+     * The PBL jumps to e_entry without BX, so we must start in ARM
+     * mode (original fhprg_peek.bin entry is ARM at 0x08008780).
+     * We turn on the red LED immediately, then switch to Thumb.
+     *==============================================================*/
     .section .text.entry, "ax", %progbits
     .balign 4
     .global _start
-    .thumb_func
+    .arm
 _start:
+    /* 0. Immediate LED — red on to prove we're running */
+    ldr     r0, =GPIO_CFG_ADDR(LED_RED_GPIO)
+    mov     r1, #(GPIO_ENABLE << GPIO_OE_SHIFT)
+    str     r1, [r0]
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
+    mov     r1, #GPIO_OUT_BIT
+    str     r1, [r0]
+
+    /* Switch to Thumb mode for the rest */
+    adr     r0, _thumb_entry + 1
+    bx      r0
+
+    .thumb
+    .thumb_func
+_thumb_entry:
+
+    /*--------------------------------------------------------------
+     * Checkpoint macro: blink green LED once (~0.5s on, ~0.5s off)
+     * Uses r4, r5 (caller-saved at this point, no C ABI yet)
+     *--------------------------------------------------------------*/
+    .macro checkpoint
+    /* Configure green LED as output */
+    ldr     r4, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
+    mov     r5, #(GPIO_ENABLE << GPIO_OE_SHIFT)
+    str     r5, [r4]
+    /* Green ON */
+    ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    movs    r5, #GPIO_OUT_BIT
+    str     r5, [r4]
+    /* Delay ~0.5s */
+    ldr     r5, =2000000
+99:
+    subs    r5, #1
+    bne     99b
+    /* Green OFF */
+    ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    movs    r5, #0
+    str     r5, [r4]
+    /* Delay ~0.5s gap */
+    ldr     r5, =2000000
+98:
+    subs    r5, #1
+    bne     98b
+    .endm
+
     /*--------------------------------------------------------------
      * 1. Exception vectors — point VBAR at a minimal vector table
-     *    (we don't handle exceptions, just set it for safety)
      *--------------------------------------------------------------*/
     ldr     r0, =_vectors
     mcr     p15, 0, r0, c12, c0, 0     /* VBAR = _vectors */
     isb
 
+    checkpoint              /* BLINK 1: VBAR done */
+
     /*--------------------------------------------------------------
-     * 2. Stack — use top of OCIMEM BSS region
+     * 2. Stack — use top of OCIMEM DATA region
      *--------------------------------------------------------------*/
     ldr     sp, =_stack_top
 
     /*--------------------------------------------------------------
      * 3. Copy .data from CODE (LMA) to DATA (VMA)
      *--------------------------------------------------------------*/
-    ldr     r0, =_data_start    /* dest: DATA VMA */
-    ldr     r1, =_data_load     /* src: CODE LMA */
+    ldr     r0, =_data_start
+    ldr     r1, =_data_load
     ldr     r2, =_data_end
 .Ldata_loop:
     cmp     r0, r2
@@ -71,76 +116,94 @@ _start:
     b       .Lbss_loop
 .Lbss_done:
 
+    checkpoint              /* BLINK 2: stack + data + BSS done */
+
     /*--------------------------------------------------------------
-     * 4. Clock init — enable GPLL0 (800 MHz reference PLL)
+     * 5. Enable GPLL0 (800 MHz) via vote register
      *
-     * The PBL may have already enabled this, but ensure it.
-     * GPLL0_MODE: bit 0 = PLL enable, bit 2 = output enable
-     * Poll bit 31 (LOCK_DET) for PLL lock.
+     * LK uses the vote register (APCS_GPLL_ENA_VOTE) with BIT(0)
+     * and polls GPLL0_MODE BIT(30) for lock.  The direct MODE
+     * register write we had before also works but the vote approach
+     * matches LK and the original SBL1.
      *--------------------------------------------------------------*/
-    ldr     r0, =0x01821000     /* GPLL0_MODE */
+    ldr     r0, =APCS_GPLL_ENA_VOTE
     ldr     r1, [r0]
-    orr     r1, r1, #0x7       /* enable + LVMAIN + LVAUX */
+    orr     r1, r1, #1             /* BIT(0) = GPLL0 vote */
     str     r1, [r0]
     dsb
+    ldr     r0, =GPLL0_MODE
 .Lgpll0_wait:
     ldr     r1, [r0]
-    tst     r1, #(1 << 31)     /* LOCK_DET */
+    tst     r1, #GPLL0_LOCK_BIT    /* BIT(30) */
     beq     .Lgpll0_wait
 
-    /*--------------------------------------------------------------
-     * 5. Init DDR
-     *
-     * The DDR driver blob is loaded directly to IMEM (0x00220000)
-     * by Sahara/PBL via ELF program headers — no copy needed.
-     *
-     * Call DDR init entry point:
-     * FUN_00222780(ddr_config_base=0x8600190, config_size)
-     * The DDR driver is ARM mode code. We use BLX to switch.
-     *--------------------------------------------------------------*/
-    ldr     r0, =0x08600190     /* DDR config base (HWIO region) */
-    movs    r1, #0              /* config size — filled by DDR driver */
-    ldr     r3, =0x00222780     /* DDR init entry (ARM mode) */
-    blx     r3
+    checkpoint              /* BLINK 3: GPLL0 locked */
 
     /*--------------------------------------------------------------
-     * 6. DDR region cache/MMU setup
+     * 6. Init DDR — SKIPPED for now
      *
-     * Configure MPU region for DDR at 0x80000000.
-     * Use CP15 to set up a basic cacheable region.
+     * DDR init at 0x00222780 hangs (needs valid DDR config struct
+     * at 0x08600190 with magic 0x44445200 and non-zero size param).
+     * Not needed until we do eMMC writes with large buffers.
      *--------------------------------------------------------------*/
-    /* For simplicity, we rely on the DDR driver having set up
-     * basic memory access. The eMMC DMA engine accesses DDR
-     * directly via physical addresses. */
+
+    checkpoint              /* BLINK 4: (DDR skipped) */
 
     /*--------------------------------------------------------------
      * 7. Enable GCC SDCC1 clocks
      *
-     * SDCC1 needs AHB clock and APPS clock enabled.
-     * The clock source (CXO or GPLL0) should already be running.
+     * Sequence (from lk_src/platform/msm_shared/clock_lib2.c):
+     *   a) Configure RCG: set source + divider in CFG_RCGR
+     *   b) Trigger CMD_RCGR update, wait for completion
+     *   c) Enable AHB branch clock, wait for CLK_OFF to clear
+     *   d) Enable APPS branch clock, wait for CLK_OFF to clear
+     *
+     * Initial clock: CXO (19.2 MHz), no divider.
+     * The eMMC driver will reconfigure for higher speeds later.
      *--------------------------------------------------------------*/
 
-    /* Enable SDCC1 AHB clock */
-    ldr     r0, =0x01842008     /* GCC_SDCC1_AHB_CBCR */
+    /* a) Configure RCG: source = CXO, divider = 1 */
+    ldr     r0, =SDCC1_CFG_RCGR
     ldr     r1, [r0]
-    orr     r1, r1, #1          /* CLK_ENABLE */
+    bic     r1, r1, #CFG_SRC_SEL_MASK  /* clear source select */
+    bic     r1, r1, #CFG_SRC_DIV_MASK  /* clear divider = div 1 */
+    /* SRC_CXO = 0, so no need to OR in source */
+    str     r1, [r0]
+
+    /* b) Trigger CMD_RCGR update */
+    ldr     r0, =SDCC1_CMD_RCGR
+    ldr     r1, [r0]
+    orr     r1, r1, #CMD_UPDATE_BIT
+    str     r1, [r0]
+    dsb
+.Lcmd_wait:
+    ldr     r1, [r0]
+    tst     r1, #CMD_UPDATE_BIT
+    bne     .Lcmd_wait
+
+    /* c) Enable SDCC1 AHB branch clock */
+    ldr     r0, =SDCC1_AHB_CBCR
+    ldr     r1, [r0]
+    orr     r1, r1, #CBCR_BRANCH_ENABLE_BIT
     str     r1, [r0]
     dsb
 .Lahb_wait:
     ldr     r1, [r0]
-    tst     r1, r1              /* N flag = bit 31 (CLK_OFF) */
-    bmi     .Lahb_wait          /* wait until CLK_OFF=0 */
+    tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
+    bmi     .Lahb_wait
 
-    /* Enable SDCC1 APPS clock */
-    ldr     r0, =0x01842004     /* GCC_SDCC1_APPS_CBCR */
+    /* d) Enable SDCC1 APPS branch clock */
+    ldr     r0, =SDCC1_APPS_CBCR
     ldr     r1, [r0]
-    orr     r1, r1, #1          /* CLK_ENABLE */
+    orr     r1, r1, #CBCR_BRANCH_ENABLE_BIT
     str     r1, [r0]
     dsb
 .Lapps_wait:
     ldr     r1, [r0]
-    tst     r1, r1              /* N flag = bit 31 (CLK_OFF) */
+    tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
     bmi     .Lapps_wait
+
+    checkpoint              /* BLINK 5: SDCC clocks done */
 
     /*--------------------------------------------------------------
      * 8. Jump to C main

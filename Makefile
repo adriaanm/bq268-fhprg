@@ -221,7 +221,8 @@ tmp/minimal_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
 
 tmp/minimal_%.o: src_minimal/%.S
 	@mkdir -p tmp
-	arm-none-eabi-as -march=armv7-a -mthumb -mfloat-abi=soft -o $@ $<
+	arm-none-eabi-gcc -c -march=armv7-a -mthumb -mfloat-abi=soft \
+		-I src_minimal -DMINIMAL_EMBEDDED_PAYLOAD -DMINIMAL_NO_PAYLOAD -o $@ $<
 
 minimal: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
 	@echo "[*] Minimal build: $(words $(MINIMAL_OBJ)) C objects, $(words $(MINIMAL_ASM_OBJ)) ASM objects"
@@ -232,9 +233,10 @@ minimal-elf: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
 	@echo "[*] Linking minimal ELF..."
 	$(LD) -T $(MINIMAL_LD_SCRIPT) -o $(MINIMAL_ELF) $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ) \
 		$(MINIMAL_LIBGCC) -Map $(MINIMAL_MAP)
-	@echo "[*] ELF size: $$(stat -c %s $(MINIMAL_ELF)) bytes"
 	@echo "[*] CODE segment: $$(arm-none-eabi-size -A $(MINIMAL_ELF) | awk '/.text/{t+=$$2} /.rodata/{t+=$$2} /.payload/{t+=$$2} END{print t}') bytes (limit: 294912)"
-	@echo "[*] Sahara loads ELF directly — no flat binary needed"
+	@echo "[*] Adding MBN hash table for Sahara..."
+	python3 tools/mbn_wrap.py $(MINIMAL_ELF)
+	@echo "[*] Final ELF: $$(stat -c %s $(MINIMAL_ELF)) bytes"
 
 # ── minimal-emu (emulator-friendly build, no inline asm) ──────────────────────
 MINIMAL_EMU_CFLAGS = $(MINIMAL_CFLAGS) -DEMU_BUILD

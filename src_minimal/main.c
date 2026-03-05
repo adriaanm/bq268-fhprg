@@ -16,6 +16,7 @@
 #ifdef MINIMAL_EMBEDDED_PAYLOAD
 
 #include "firehose.h"
+#include "msm8909.h"
 #include "tinf.h"
 
 /*========================================================================
@@ -35,8 +36,8 @@
 /* Sector size (always 512 for eMMC) */
 #define SECTOR_SIZE  512
 
-/* DDR buffer for decompression — 2 MB available at 0x80000000 */
-#define DDR_BUFFER  ((unsigned char *)0x80000000)
+/* DDR buffer for decompression — 2 MB available at SDRAM_START_ADDR */
+#define DDR_BUFFER       ((unsigned char *)SDRAM_START_ADDR)
 #define DDR_BUFFER_SIZE  (2 * 1024 * 1024)
 
 /*========================================================================
@@ -58,98 +59,63 @@ extern const unsigned int  aboot_payload_gz_len;
 static char storage_ctx[0x100] __attribute__((aligned(4)));
 
 /*========================================================================
+ * GPIO LED helpers — MSM8909 TLMM
+ *========================================================================*/
+
+#define REG32(addr)  (*(volatile unsigned int *)(addr))
+
+static void led_init(int gpio)
+{
+    /* Configure as GPIO function 0, output, no pull, 2mA drive */
+    REG32(GPIO_CFG_ADDR(gpio)) =
+          (GPIO_NO_PULL << GPIO_PULL_SHIFT)
+        | (0            << GPIO_FUNC_SHIFT)   /* function 0 = GPIO */
+        | (GPIO_2MA     << GPIO_DRV_SHIFT)
+        | (GPIO_ENABLE  << GPIO_OE_SHIFT);
+}
+
+static void led_on(int gpio)
+{
+    REG32(GPIO_IN_OUT_ADDR(gpio)) = GPIO_OUT_BIT;
+}
+
+static void led_off(int gpio)
+{
+    REG32(GPIO_IN_OUT_ADDR(gpio)) = 0;
+}
+
+static void spin_delay(void)
+{
+    /* ~0.5s at ~200MHz-ish OCIMEM speed */
+    volatile unsigned int i;
+    for (i = 0; i < 2000000; i++);
+}
+
+static void blink(int gpio, int count)
+{
+    int j;
+    for (j = 0; j < count; j++) {
+        led_on(gpio);
+        spin_delay();
+        led_off(gpio);
+        spin_delay();
+    }
+}
+
+/*========================================================================
  * main — entry point from assembly
  *========================================================================*/
 void main(void)
 {
     int ret;
-    unsigned int decompressed_len;
-    unsigned int num_sectors;
+    (void)aboot_payload_gz;
+    (void)aboot_payload_gz_len;
 
-    /* 1. Initialize SDCC controller register bases.
-     *    sdcc_init_bases() sets DAT_0804e2c8[] with controller addresses.
-     *    Slot 0 = 0x07824000 (SDCC1, eMMC). */
-    sdcc_init_bases();
+    /* Red was turned on in entry.S. Turn it off = proof we reached main. */
+    led_init(LED_RED_GPIO);
+    led_off(LED_RED_GPIO);
 
-    /* 2. Open eMMC device.
-     *    mmc_open_device does the full card init sequence:
-     *    CMD0 (reset) → CMD1 (OCR) → CMD2 (CID) → CMD3 (RCA) →
-     *    CMD7 (select) → CMD8 (EXT_CSD) → bus width → speed setup.
-     *
-     *    Slot 0, open flags 0. */
-    ret = mmc_open_device(0, 0);
-    if (ret == 0) {
-        /* Init failed — hang (no USB to report errors in embedded mode).
-         * mmc_open_device returns 0 on failure, non-zero (partition entry
-         * pointer) on success. */
-        while (1);
-    }
-
-    /* 3. Set up storage context for partition access.
-     *    mmc_open_device returned a partition entry pointer (ret != 0).
-     *    The partition entry has [0] = device struct pointer.
-     *    mmc_write_sectors expects the partition entry pointer directly:
-     *      puVar3 = (uint *)*param_1  // entry[0] = device struct ptr
-     *    Store it at ctx+0x04 for the write loop to retrieve. */
-    memset(storage_ctx, 0, sizeof(storage_ctx));
-    *(unsigned int *)(storage_ctx + 0x04) = (unsigned int)ret;
-    storage_ctx[0x26] = 0;  /* partition 0 = user area */
-
-    /* 4. Decompress gzipped aboot from embedded payload.
-     *    Destination: DDR buffer at 0x80000000.
-     *    The tinf library handles gzip header parsing and inflate. */
-    decompressed_len = DDR_BUFFER_SIZE;
-    ret = tinf_gzip_uncompress(DDR_BUFFER, &decompressed_len,
-                               aboot_payload_gz, aboot_payload_gz_len);
-    if (ret != TINF_OK) {
-        while (1);  /* Decompression failed */
-    }
-
-    /* 5. Write decompressed data to aboot partition.
-     *    Write in chunks — mmc_write_sectors handles CMD24/CMD25. */
-    num_sectors = (decompressed_len + SECTOR_SIZE - 1) / SECTOR_SIZE;
-
-    {
-        unsigned int sectors_written = 0;
-        unsigned int chunk;
-        /* The partition entry pointer (from mmc_open_device) is passed
-         * directly to mmc_write_sectors. It does:
-         *   puVar3 = (uint *)*param_1   // entry[0] = device struct ptr
-         *   slot = *puVar3              // dev_struct[0] = slot number
-         * This matches how storage_write_sectors calls it. */
-        unsigned int *part_entry = (unsigned int *)*(unsigned int *)(storage_ctx + 0x04);
-
-        while (sectors_written < num_sectors) {
-            /* Write up to 128 sectors (64 KB) at a time */
-            chunk = num_sectors - sectors_written;
-            if (chunk > 128) {
-                chunk = 128;
-            }
-
-            ret = mmc_write_sectors(
-                part_entry,
-                TARGET_START_SECTOR + sectors_written,
-                (unsigned int)(DDR_BUFFER + sectors_written * SECTOR_SIZE),
-                chunk
-            );
-
-            if (ret != 0) {
-                /* Write failed — hang */
-                while (1);
-            }
-
-            sectors_written += chunk;
-        }
-    }
-
-    /* 6. Done — reboot.
-     *    Use PMIC to trigger a warm reset, or just hang and let
-     *    the user power cycle. */
-
-    /* Try PSHOLD reset (direct MMIO — MSM8909 PSHOLD at 0x004ab000) */
-    *(volatile unsigned int *)0x004ab000 = 0;
-
-    /* If PSHOLD didn't work, hang */
+    /* Hang here — just testing entry→main transition */
     while (1);
 }
 
