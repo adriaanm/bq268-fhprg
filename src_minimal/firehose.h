@@ -78,6 +78,14 @@ typedef uint32_t undefined3;
  * ARM intrinsics (stubs for analysis, not execution)
  *========================================================================*/
 
+#ifdef EMU_BUILD
+/* EMU_BUILD: no inline asm — runs under Unicorn, not real ARM */
+static inline void DataMemoryBarrier(unsigned int opt) { (void)opt; }
+static inline void DataSynchronizationBarrier(unsigned int opt) { (void)opt; }
+static inline void InstructionSynchronizationBarrier(unsigned int opt) { (void)opt; }
+#define coprocessor_movefromRt(...) ((unsigned int)0)
+#define coprocessor_moveto(...) do { } while(0)
+#else
 static inline void DataMemoryBarrier(unsigned int opt) {
     (void)opt; __asm__ volatile("dmb" ::: "memory"); }
 static inline void DataSynchronizationBarrier(unsigned int opt) {
@@ -89,6 +97,7 @@ static inline void InstructionSynchronizationBarrier(unsigned int opt) {
     ({ __asm__ volatile("" ::: "memory"); (unsigned int)0; })
 #define coprocessor_moveto(...) \
     do { __asm__ volatile("" ::: "memory"); } while(0)
+#endif
 
 /*========================================================================
  * Globals (extern, provided by data blob at link time)

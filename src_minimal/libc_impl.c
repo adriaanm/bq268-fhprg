@@ -50,6 +50,10 @@ uint param_1;
 void thunk_FUN_080199b4(param_1)
 uint param_1;
 {
+#ifdef EMU_BUILD
+    /* EMU_BUILD: no-op (no CP15 counter in Unicorn) */
+    (void)param_1;
+#else
     uint64_t start, now, target;
     /* Read CNTPCT (64-bit physical counter) via CP15 */
     uint32_t lo, hi;
@@ -60,6 +64,7 @@ uint param_1;
         __asm__ volatile("mrrc p15, 0, %0, %1, c14" : "=r"(lo), "=r"(hi));
         now = ((uint64_t)hi << 32) | lo;
     } while (now < target);
+#endif
 }
 
 /*========================================================================

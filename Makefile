@@ -190,6 +190,7 @@ fhprg-regen:
 MINIMAL_CC     = clang
 MINIMAL_CFLAGS = --target=arm-none-eabi -mthumb -march=armv7-a -mfloat-abi=soft \
                  -mno-movt -Oz -fomit-frame-pointer -std=gnu89 \
+                 -DMINIMAL_EMBEDDED_PAYLOAD \
                  -Wall -Wextra \
                  -Wunused-function -Wunused-variable \
                  -Warray-bounds -Wformat -Wformat-security \
@@ -202,25 +203,69 @@ MINIMAL_CFLAGS = --target=arm-none-eabi -mthumb -march=armv7-a -mfloat-abi=soft 
 MINIMAL_SRC = $(wildcard src_minimal/*.c)
 MINIMAL_OBJ = $(patsubst src_minimal/%.c,tmp/minimal_%.o,$(MINIMAL_SRC))
 
-.PHONY: minimal minimal-link minimal-clean
+# Assembly sources (entry point, DDR blobs, payload)
+MINIMAL_ASM_SRC = src_minimal/entry.S src_minimal/ddr_blob.S src_minimal/aboot_payload.S
+MINIMAL_ASM_OBJ = $(patsubst src_minimal/%.S,tmp/minimal_%.o,$(MINIMAL_ASM_SRC))
+
+MINIMAL_LIBGCC = $(shell arm-none-eabi-gcc -mthumb -march=armv7-a -mfloat-abi=soft --print-libgcc-file-name)
+MINIMAL_LD_SCRIPT = src_minimal/minimal.ld
+MINIMAL_ELF = tmp/minimal.elf
+MINIMAL_BIN = tmp/minimal.bin
+MINIMAL_MAP = tmp/minimal.map
+
+.PHONY: minimal minimal-elf minimal-clean
 
 tmp/minimal_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
 	@mkdir -p tmp
 	$(MINIMAL_CC) $(MINIMAL_CFLAGS) -c $< -o $@
 
-minimal: $(MINIMAL_OBJ)
-	@echo "[*] Minimal build: $(words $(MINIMAL_OBJ)) objects compiled"
-	@echo "[*] Checking undefined symbols..."
-	@arm-none-eabi-nm -u $(MINIMAL_OBJ) | sort -u | head -40
-	@echo "[*] Function count:"
-	@grep -rc 'orig: 0x' src_minimal/*.c || true
+tmp/minimal_%.o: src_minimal/%.S
+	@mkdir -p tmp
+	arm-none-eabi-as -march=armv7-a -mthumb -mfloat-abi=soft -o $@ $<
 
-minimal-link: $(MINIMAL_OBJ)
-	@echo "[*] Link step requires a linker script (TBD)"
-	@echo "[*] Hash fixup: python3 tools/fix_hashes.py tmp/minimal.bin tmp/minimal_hashed.bin"
+minimal: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
+	@echo "[*] Minimal build: $(words $(MINIMAL_OBJ)) C objects, $(words $(MINIMAL_ASM_OBJ)) ASM objects"
+	@echo "[*] Checking undefined symbols..."
+	@arm-none-eabi-nm -u $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ) | sort -u | head -40
+
+minimal-elf: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
+	@echo "[*] Linking minimal ELF..."
+	$(LD) -T $(MINIMAL_LD_SCRIPT) -o $(MINIMAL_ELF) $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ) \
+		$(MINIMAL_LIBGCC) -Map $(MINIMAL_MAP)
+	@echo "[*] ELF size: $$(stat -c %s $(MINIMAL_ELF)) bytes"
+	@echo "[*] CODE segment: $$(arm-none-eabi-size -A $(MINIMAL_ELF) | awk '/.text/{t+=$$2} /.rodata/{t+=$$2} /.payload/{t+=$$2} END{print t}') bytes (limit: 294912)"
+	@echo "[*] Sahara loads ELF directly — no flat binary needed"
+
+# ── minimal-emu (emulator-friendly build, no inline asm) ──────────────────────
+MINIMAL_EMU_CFLAGS = $(MINIMAL_CFLAGS) -DEMU_BUILD
+MINIMAL_EMU_OBJ = $(patsubst src_minimal/%.c,tmp/minimal_emu_%.o,$(MINIMAL_SRC))
+MINIMAL_EMU_ELF = tmp/minimal_emu.elf
+MINIMAL_EMU_MAP = tmp/minimal_emu.map
+
+# Dummy payload for emu build (no real aboot needed)
+MINIMAL_EMU_PAYLOAD_OBJ = tmp/minimal_emu_payload.o
+
+.PHONY: minimal-emu
+
+tmp/minimal_emu_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
+	@mkdir -p tmp
+	$(MINIMAL_CC) $(MINIMAL_EMU_CFLAGS) -c $< -o $@
+
+# Generate a small dummy gzip payload for emulator testing
+$(MINIMAL_EMU_PAYLOAD_OBJ): tools/gen_emu_payload.py
+	@mkdir -p tmp
+	python3 tools/gen_emu_payload.py
+	arm-none-eabi-as -march=armv7-a -mthumb -mfloat-abi=soft -o $@ tmp/emu_payload.S
+
+minimal-emu: $(MINIMAL_EMU_OBJ) $(MINIMAL_EMU_PAYLOAD_OBJ)
+	@echo "[*] Linking minimal-emu ELF..."
+	$(LD) -T $(MINIMAL_LD_SCRIPT) -o $(MINIMAL_EMU_ELF) $(MINIMAL_EMU_OBJ) $(MINIMAL_EMU_PAYLOAD_OBJ) \
+		$(MINIMAL_LIBGCC) -Map $(MINIMAL_EMU_MAP)
+	@echo "[*] minimal-emu ELF: $$(stat -c %s $(MINIMAL_EMU_ELF)) bytes"
 
 minimal-clean:
-	rm -f tmp/minimal_*.o
+	rm -f tmp/minimal_*.o tmp/minimal_emu_*.o $(MINIMAL_ELF) $(MINIMAL_BIN) $(MINIMAL_MAP)
+	rm -f $(MINIMAL_EMU_ELF) $(MINIMAL_EMU_MAP) tmp/emu_payload.bin.gz tmp/emu_payload.S
 
 # ── clean ────────────────────────────────────────────────────────────────────
 clean:
