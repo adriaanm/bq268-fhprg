@@ -46,7 +46,7 @@ undefined4 param_1; undefined4 param_2;
 /* Slot context base: 0x8059cc8, 0xbc bytes per slot, 2 slots.
  * Partition table: DAT_08059efc (array of 3-word entries).
  * These are in the SDCC driver's BSS. */
-extern int DAT_08059efc;        /* partition table start */
+extern uint DAT_08059efc[96];   /* partition table: 32 entries × 3 words */
 extern int DAT_0804e2a8;        /* free partition slot counter */
 
 /* MMIO timer for qtimer_init */

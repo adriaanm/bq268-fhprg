@@ -26,6 +26,7 @@ volatile uint DAT_004a3000 __attribute__((section(".mmio_timer"))) = 0;
  * so they must be defined as char arrays (not pointers).
  *========================================================================*/
 
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
 /* protocol.c / firehose_log */
 char DAT_08027710[] = "data";       /* XML wrapper: <data>...</data> */
 char DAT_08027718[] = "log";        /* XML tag: <log .../> */
@@ -55,6 +56,7 @@ char DAT_080390fc[] = "<%s";        /* tag opening format */
 char DAT_08039108[] = "<%s>";       /* tag opening with close bracket */
 char DAT_080391e8[] = " %s=\"";     /* attribute: space + name + =" */
 char DAT_080391ec[] = "\"";         /* closing double-quote */
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */
 
 /*========================================================================
  * State variables — originally in .data / .bss
@@ -71,11 +73,19 @@ int DAT_0804e2a8 = 0x20;
 /* SDCC per-slot status table [2]: slot0=0x21, slot1=0x02 */
 int DAT_0804e2ac[2] = { 0x21, 0x02 };
 
-/* SDCC device handle table [2]: placeholder values 1, 2 */
-uint DAT_0804e2b8[2] = { 1, 2 };
+/* SDCC device handle table [2]: zero until populated by init */
+uint DAT_0804e2b8[2] = { 0, 0 };
 
 /* SDCC register bases initialized flag — starts uninitialized */
 char DAT_0804e2c4 = 0;
 
 /* SDCC register base table [2]: filled at runtime by sdcc_init_bases() */
 uint DAT_0804e2c8[2] = { 0, 0 };
+
+/* SDCC FIFO/HC base tables: filled at runtime by sdcc_init_bases() */
+uint DAT_0804e2d0 = 0;
+uint DAT_0804e2d8 = 0;
+uint DAT_0804e2e0 = 0;
+
+/* Global context struct — referenced by get_global_context() */
+uint DAT_0805a8ac = 0;
