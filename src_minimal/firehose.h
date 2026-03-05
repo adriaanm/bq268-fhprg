@@ -405,7 +405,7 @@ uint bignum_divmod();           /* 0x0801be1c */
 
 /* libc-like */
 int *get_ctype_table();            /* returns ctype table ptr */
-uint FUN_080060c0();            /* __aeabi_uldivmod (64-bit div) */
+/* FUN_080060c0 (__aeabi_uldivmod) replaced with C / and % operators */
 uint bit_reverse();            /* bit_reverse for CRC */
 longlong thunk_FUN_080071ec();  /* strtoll */
 void thunk_FUN_080199b4();      /* delay_us */

@@ -305,9 +305,7 @@ int handle_program()
   uint uVar8;
   undefined4 uVar9;
   uint uVar10;
-  int extraout_r2;
   uint uVar11;
-  int extraout_r3;
   int iVar12;
   uint uVar13;
   int iVar14;
@@ -403,7 +401,7 @@ LAB_08024502:
       iVar4 = iVar14 >> 0x1f;
       if (DAT_08058458 == iVar14 && DAT_0805845c == iVar4) {
         local_2f4 = &DAT_08055e90;
-        lVar17 = FUN_080060c0(DAT_08055fb8,DAT_08055fbc,iVar14,iVar4);
+        lVar17 = (longlong)(CONCAT44(DAT_08055fbc,DAT_08055fb8) / CONCAT44(iVar4,iVar14));
         uVar7 = (uint)((ulonglong)lVar17 >> 0x20);
         local_31c = &DAT_08058430;
         uVar18 = storage_select_partition(&DAT_08058430,uVar13 & 0xff);
@@ -447,9 +445,8 @@ LAB_08024502:
                   goto LAB_08024840;
                 }
                 if ((uStack_304 < uVar11 || uVar11 - uStack_304 < (uint)(local_308 <= uVar10)) &&
-                   (FUN_080060c0(local_308,uStack_304,iVar14,iVar4),
-                   extraout_r2 == 0 && extraout_r3 == 0)) {
-                  lVar19 = FUN_080060c0(uVar13,uVar8,iVar14,iVar4);
+                   (CONCAT44(uStack_304,local_308) % CONCAT44(iVar4,iVar14) == 0)) {
+                  lVar19 = (longlong)(CONCAT44(uVar8,uVar13) / CONCAT44(iVar4,iVar14));
                   iVar12 = (int)((ulonglong)lVar19 >> 0x20);
                   uVar13 = (uint)lVar19;
                   debug_log("rx %llu start %llu",uStack_324,uVar13,iVar12);
@@ -616,7 +613,7 @@ LAB_08024be4:
     if (uVar9 != 0xffffffff) {
       if (DAT_08058458 == iVar8 && DAT_0805845c == iVar8 >> 0x1f) {
         local_270 = &DAT_08055e90;
-        local_288 = FUN_080060c0(DAT_08055fb8,DAT_08055fbc,iVar8,iVar8 >> 0x1f);
+        local_288 = (longlong)(CONCAT44(DAT_08055fbc,DAT_08055fb8) / CONCAT44(iVar8 >> 0x1f,iVar8));
         local_28c = &DAT_08058430;
         iVar5 = storage_select_partition(&DAT_08058430,uVar9 & 0xff);
         if (iVar5 == 0) {
