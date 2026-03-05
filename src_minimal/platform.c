@@ -35,19 +35,6 @@ uint crc32_update_byte(uint param_1, uint param_2)
     return bit_reverse(crc); /* bit_reverse */
 }
 
-/* orig: 0x08013bb0 dal_device_dispatch — DAL device dispatch.
- * Validates magic (0xD00CAFE) and calls through vtable.
- * Used by hotplug to enumerate storage devices. */
-int dal_device_dispatch(uint param_1, uint param_2, uint *param_3, uint *param_4)
-{
-    uint magic;
-    if (param_1 == 0) return -1;
-    magic = *(uint *)param_1;
-    if (magic != 0xd00cafe) return -1;
-    /* vtable dispatch: call through function pointer table */
-    return 0;
-}
-
 /* orig: 0x0801b6bc debug_log — debug ring buffer log (stub).
  * Original formats into DAT_08058028 ring buffer. */
 void debug_log(format)

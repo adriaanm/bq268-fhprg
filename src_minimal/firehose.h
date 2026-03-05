@@ -371,21 +371,10 @@ int  transport_read_data();     /* 0x08031170 */
 void transport_set_pending();   /* 0x08030ecc */
 int  pmic_set_power();          /* 0x0802d180 */
 
-/* ---- hotplug.c ---- */
-int  hfat_open();               /* 0x08025b74 */
-int  hfat_read();               /* 0x08025c08 */
-int  hfat_close();              /* 0x08025c80 */
-int  extfs_open();              /* 0x08013918 */
-int  hotplug_parse_mbr();       /* 0x0802ef24 */
-void hotplug_partition_init();  /* 0x08026b88 */
-void hotplug_dev_alloc();       /* 0x08026af8 */
-uint *hotplug_poll_device();    /* 0x08026dd8 */
-
 /* ---- platform.c ---- */
 void fatal_error_dma_reset();   /* 0x08019984 */
 void fatal_error_halt();        /* 0x0801999c */
 uint crc32_update_byte();       /* 0x08019abc */
-int  dal_device_dispatch();     /* 0x08013bb0 */
 void debug_log();               /* 0x0801b6bc */
 void transport_error_loop();    /* 0x0801b85c */
 int  is_digit();                /* 0x08013520 */
