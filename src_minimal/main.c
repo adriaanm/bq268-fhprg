@@ -71,7 +71,7 @@ static void led_init(int gpio)
           (GPIO_NO_PULL << GPIO_PULL_SHIFT)
         | (0            << GPIO_FUNC_SHIFT)   /* function 0 = GPIO */
         | (GPIO_2MA     << GPIO_DRV_SHIFT)
-        | (GPIO_ENABLE  << GPIO_OE_SHIFT);
+        | (GPIO_OE_ENABLE << GPIO_OE_SHIFT);
 }
 
 static void led_on(int gpio)

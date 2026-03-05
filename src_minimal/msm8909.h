@@ -187,9 +187,12 @@
 #define GPIO_14MA                   6
 #define GPIO_16MA                   7
 
-/* Direction / enable (bit 9) */
-#define GPIO_ENABLE                 0   /* output enabled */
-#define GPIO_DISABLE                1   /* output disabled (input) */
+/* Output enable (bit 9) — NOTE: LK names are misleading!
+ * Hardware: bit 9 = 1 enables output driver, 0 = high-Z (input).
+ * LK defines GPIO_ENABLE=0, GPIO_DISABLE=1 but passes GPIO_DISABLE
+ * for all output pins.  We use clear names instead. */
+#define GPIO_OE_ENABLE              1   /* output driver on */
+#define GPIO_OE_DISABLE             0   /* output driver off (input) */
 
 /* GPIO_IN_OUT register bits */
 #define GPIO_IN_BIT                 (1 << 0)
