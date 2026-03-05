@@ -31,7 +31,7 @@
 
 /* orig: 0x08032ae4 sdcc_get_device — get device handle from slot table.
  * The SDCC slot table at DAT_0804e2b8 holds pointers to device structs
- * for up to 2 slots (slot 0 = eMMC, slot 1 = SD card typically). */
+ * for up to 2 slots. Only slot 0 (eMMC) is used. */
 uint sdcc_get_device(param_1)
 uint param_1;
 {
@@ -64,7 +64,6 @@ uint param_1;
  *
  * param_1 = device struct:
  *   [0]    = SDCC slot number (0 or 1)
- *   [0x23] = card mode (1 = SPI mode, else SD/MMC mode)
  *   [0x24] = pointer to EXT_CSD data (512 bytes)
  *
  * param_2 = command struct (10 words, 40 bytes):
@@ -78,166 +77,78 @@ uint param_1;
  *
  * Returns: 0=success, 0x14=invalid params, 3=timeout, 6=CMD0 timeout,
  *          7=busy timeout, 0xb=R1 error bits set
- *
- * Two paths:
- *   SPI mode (card[0x23]==1): uses sdcc_read_present_state/sdcc_set_irq_mask register ops
- *   SD/MMC mode: uses sdcc_setup_data_xfer data setup, then reads response
  */
 int sdcc_send_cmd(param_1, param_2)
 int * param_1; int * param_2;
 {
-  char cVar1;
-  undefined4 uVar2;
   int iVar3;
   uint uVar4;
   int *piVar5;
-  char cVar6;
   int iVar7;
   uint uVar8;
-  bool bVar9;
-  undefined4 local_30;
-  undefined4 local_2c;
   int local_28;
 
   if ((param_1 == (int *)0x0) || (param_2 == (int *)0x0)) {
     return 0x14;
   }
-  /* SPI mode path — talks to controller via register polling */
-  if ((char)param_1[0x23] != '\x01') {
-    iVar7 = 0;
-    sdcc_pre_cmd_hook(); /* sdcc_pre_cmd_hook */
-    if (*param_2 == 0) {
-      /* CMD0 (GO_IDLE_STATE): poll until card responds */
-      iVar7 = *param_1; /* slot number */
-      uVar8 = 0;
-      while ((uVar4 = uVar8 + 1, uVar8 < 800 &&
-              (uVar8 = sdcc_read_status(iVar7), (uVar8 & 0x80) == 0)))
-      {
-        thunk_FUN_080199b4(10); /* delay 10us */
-        uVar8 = uVar4;
-      }
-      if (uVar4 < 800) {
-        *(undefined4 *)((&DAT_0804e2c8)[iVar7] + 0x38) = 0x80;
-        while (uVar4 < 800) {
-          uVar8 = sdcc_read_status(iVar7);
-          if ((uVar8 & 0x80) == 0) {
-            return 0;
-          }
-          thunk_FUN_080199b4(10);
-          uVar4 = uVar4 + 1;
-        }
-      }
-      iVar7 = 6; /* CMD0 timeout */
-    }
-    else {
-      /* Non-CMD0: set up data transfer if needed */
-      if ((char)param_2[2] != '\0') {
-        iVar3 = sdcc_setup_data_xfer(param_1,param_2); /* sdcc_setup_data_xfer */
-        if (iVar3 != 0) {
-          return iVar3;
-        }
-        /* Read response from controller */
-        if ((char)param_2[2] != '\0') {
-          if ((char)param_2[2] == '\x04') {
-            uVar8 = 4; /* R2: 4 words */
-          }
-          else {
-            uVar8 = 1; /* R1/R1B: 1 word */
-          }
-          piVar5 = param_2 + 3; /* response dest */
-          for (uVar4 = 0; uVar4 < uVar8; uVar4 = uVar4 + 1) {
-            *piVar5 = *(int *)((&DAT_0804e2c8)[*param_1] + uVar4 * 4 + 0x14);
-            piVar5 = piVar5 + 1;
-          }
-          /* Check R1 error bits for CMD52 (0x34) and CMD53 (0x35) */
-          if ((*param_2 == 0x34 || *param_2 == 0x35) && (param_2[3] & 0xcf00U) != 0) {
-            iVar7 = 0xb; /* R1 error */
-          }
-        }
-      }
-      /* Wait for busy if requested */
-      if ((param_2[7] != 0) && (iVar7 == 0)) {
-        iVar7 = sdcc_busy_wait(param_1); /* sdcc_busy_wait */
-      }
-      memset_zero(&local_28,0x14); /* memset(clean, 0, 20) */
-      sdcc_cleanup(*param_1,&local_28); /* sdcc_cleanup */
-    }
-    return iVar7;
-  }
-
-  /* SD/MMC native mode path — more complex register interaction */
-  cVar6 = '\0';
+  /* eMMC path (card[0x23] != 1, not SPI mode) */
   iVar7 = 0;
-  local_28 = 0;
-  uVar8 = 0;
-  iVar3 = *param_1; /* slot number */
-  local_30 = 0;
-  local_2c = 0;
-  /* Wait for command line to be free (present state register bits 0-1) */
-  do {
-    uVar4 = sdcc_read_present_state(iVar3); /* sdcc_read_present_state */
-    if ((uVar4 & 3) == 0) goto LAB_08032cc4;
-    thunk_FUN_080199b4(100); /* delay 100us */
-    uVar8 = uVar8 + 100;
-  } while (uVar8 < 10000);
-  iVar7 = 3; /* timeout waiting for cmd line */
-LAB_08032cc4:
-  if (iVar7 == 0) {
-    sdcc_set_irq_mask(iVar3,0xf);     /* sdcc_set_irq_mask(slot, ALL) */
-    sdcc_set_cmd_arg(iVar3,param_2[1]); /* sdcc_set_cmd_arg(slot, arg) */
-    /* Build command register value */
-    uVar2 = local_30;
-    bVar9 = (param_2[9] & 3U) != 0; /* DMA/ADMA flag */
-    _GHIDRA_FIELD(local_30, 3, byte) = SUB41(uVar2,3);
-    _GHIDRA_FIELD(local_30, 0, uint24_t) = CONCAT12(bVar9,(ushort)(byte)*param_2);
-    /* Determine response type encoding for controller */
-    cVar1 = (char)param_2[2];
-    if (cVar1 == '\0') {
-      cVar6 = '\0';        /* no response */
+  sdcc_pre_cmd_hook();
+  if (*param_2 == 0) {
+    /* CMD0 (GO_IDLE_STATE): poll until card responds */
+    iVar7 = *param_1; /* slot number */
+    uVar8 = 0;
+    while ((uVar4 = uVar8 + 1, uVar8 < 800 &&
+            (uVar8 = sdcc_read_status(iVar7), (uVar8 & 0x80) == 0)))
+    {
+      thunk_FUN_080199b4(10); /* delay 10us */
+      uVar8 = uVar4;
     }
-    else if (cVar1 == '\x04') {
-      cVar6 = '\x01';      /* R2 (136-bit) */
-    }
-    else if (cVar1 == '\x01') {
-      if (param_2[7] == 0) {
-        cVar6 = '\x02';    /* R1 (48-bit, no busy) */
-      }
-      else {
-        cVar6 = '\x03';    /* R1B (48-bit, with busy) */
-      }
-    }
-    _GHIDRA_FIELD(local_2c, 0, ushort) = CONCAT11(cVar6,(undefined1)local_2c);
-    sdcc_fire_cmd(iVar3,&local_30); /* sdcc_fire_cmd(slot, &cmd_reg) */
-    /* Wait for command completion */
-    iVar7 = sdcc_wait_complete(iVar3,1,&local_28); /* sdcc_wait_complete(slot, CMD, &status) */
-    if (iVar7 == 0) {
-      sdcc_clear_status(iVar3,1); /* sdcc_clear_status(slot, CMD) */
-      /* Read response if expected */
-      if (cVar6 != '\0') {
-        param_2[3] = 0;
-        param_2[4] = 0;
-        param_2[5] = 0;
-        param_2[6] = 0;
-        sdcc_read_response(iVar3,param_2 + 3,(char)param_2[2] == '\x04');
-        /* sdcc_read_response(slot, &resp[3], is_R2) */
-      }
-      /* If busy wait requested and NOT in DMA mode, wait for data complete */
-      if ((param_2[7] != 0) && (!bVar9)) {
-        iVar7 = sdcc_wait_complete(iVar3,2,&local_28); /* wait for DATA complete */
-        if (iVar7 != 0) {
-          param_2[8] = local_28;
-          return 7; /* busy timeout */
+    if (uVar4 < 800) {
+      *(undefined4 *)((&DAT_0804e2c8)[iVar7] + 0x38) = 0x80;
+      while (uVar4 < 800) {
+        uVar8 = sdcc_read_status(iVar7);
+        if ((uVar8 & 0x80) == 0) {
+          return 0;
         }
-        sdcc_clear_status(iVar3,2); /* sdcc_clear_status(slot, DATA) */
+        thunk_FUN_080199b4(10);
+        uVar4 = uVar4 + 1;
       }
-      iVar7 = 0;
     }
-    else {
-      param_2[8] = local_28; /* store error status */
-    }
+    iVar7 = 6; /* CMD0 timeout */
   }
   else {
-    iVar7 = 3; /* timeout */
+    /* Non-CMD0: set up data transfer if needed */
+    if ((char)param_2[2] != '\0') {
+      iVar3 = sdcc_setup_data_xfer(param_1,param_2);
+      if (iVar3 != 0) {
+        return iVar3;
+      }
+      /* Read response from controller */
+      if ((char)param_2[2] != '\0') {
+        if ((char)param_2[2] == '\x04') {
+          uVar8 = 4; /* R2: 4 words */
+        }
+        else {
+          uVar8 = 1; /* R1/R1B: 1 word */
+        }
+        piVar5 = param_2 + 3; /* response dest */
+        for (uVar4 = 0; uVar4 < uVar8; uVar4 = uVar4 + 1) {
+          *piVar5 = *(int *)((&DAT_0804e2c8)[*param_1] + uVar4 * 4 + 0x14);
+          piVar5 = piVar5 + 1;
+        }
+        /* Check R1 error bits for CMD52 (0x34) and CMD53 (0x35) */
+        if ((*param_2 == 0x34 || *param_2 == 0x35) && (param_2[3] & 0xcf00U) != 0) {
+          iVar7 = 0xb; /* R1 error */
+        }
+      }
+    }
+    /* Wait for busy if requested */
+    if ((param_2[7] != 0) && (iVar7 == 0)) {
+      iVar7 = sdcc_busy_wait(param_1);
+    }
+    memset_zero(&local_28,0x14);
+    sdcc_cleanup(*param_1,&local_28);
   }
   return iVar7;
 }
@@ -293,8 +204,8 @@ undefined4 * param_1; int * param_2; undefined4 param_3; uint param_4;
   local_2c = param_3;
   uStack_28 = param_4;
 
-  /* SD/MMC native mode path (card[0x23] != 1) */
-  if (*(char *)(param_1 + 0x23) != '\x01') {
+  /* eMMC path (card[0x23] != 1, not SPI mode) */
+  {
     uVar4 = param_2[9];          /* flags */
     iVar5 = param_1[0x24];      /* EXT_CSD pointer */
     iVar8 = 0;
@@ -392,119 +303,16 @@ LAB_0803376e:
     return iVar8;
   }
 
-  /* SPI mode path — simpler FIFO-based transfer */
-  local_38 = 0;
-  uVar3 = *param_1; /* slot number */
-  if (param_1[0x16] == 0) {
-    uVar7 = 1;
-    uVar4 = param_4;
-  }
-  else {
-    uVar4 = param_1[9]; /* custom sector size */
-    uVar7 = param_4;
-  }
-  iVar8 = uVar4 * uVar7; /* total bytes */
-  local_38 = sdcc_read_present(uVar3); /* sdcc_read_present */
-  if (((local_38 & 0x7ff003f) != 0) && (sdcc_clear_status(uVar3), (local_38 & 0x7ff0000) != 0)) {
-    sdcc_reset_data_line(uVar3,6); /* sdcc_reset_data_line */
-  }
-  /* Set up DMA if in DMA mode */
-  if (*(char *)((int)param_1 + 0x8e) == '\x01') {
-    sdcc_dma_setup(uVar3,local_2c,iVar8); /* sdcc_dma_setup */
-  }
-  /* Set block size and block count in controller */
-  sdcc_set_block_size(uVar3,uVar4 & 0xffff);  /* sdcc_set_block_size */
-  sdcc_set_block_count(uVar3,uVar7 & 0xffff);  /* sdcc_set_block_count */
-  /* Build transfer mode register */
-  local_60 = 0;
-  if (param_2[9] << 0x1e < 0) {
-    local_60 = 0x100; /* multi-block */
-  }
-  if (1 < (uVar7 & 0xffff)) {
-    local_60 = (local_60 & 0xffffff00) | 1;
-  }
-  local_60 = (uint3)(ushort)local_60;
-  local_60 = (1 << 24) | local_60; /* direction = write */
-  local_5c = (uint)*(byte *)((int)param_1 + 0x8e); /* DMA mode */
-  sdcc_set_transfer_ctrl(*param_1,&local_60); /* sdcc_set_transfer_ctrl */
-  /* Send the write command */
-  if (param_2[9] << 0x1d < 0) {
-    iVar1 = sdcc_adma_write(); /* ADMA path */
-  }
-  else {
-    iVar1 = sdcc_send_cmd(param_1,param_2);
-  }
-  if (iVar1 == 0) {
-    uVar9 = 2; /* wait for DATA complete */
-    if (*(char *)((int)param_1 + 0x8e) == '\0') {
-      /* PIO mode: push data through FIFO */
-      iVar1 = sdcc_fifo_write(param_1,param_2,local_2c,iVar8); /* sdcc_fifo_write */
-      if (iVar1 != 0) goto LAB_080338ba;
-    }
-    else {
-      uVar9 = 0x2000002; /* DMA + DATA complete */
-    }
-    /* Wait for transfer completion */
-    iVar1 = sdcc_wait_complete(uVar3,uVar9,&local_38); /* sdcc_wait_complete */
-    if (iVar1 == 0) {
-      iVar1 = 0;
-      /* Multi-block: send CMD12 STOP_TRANSMISSION */
-      if ((((int)(local_38 << 0x1e) < 0) && (sdcc_clear_status(uVar3,2), -1 < param_2[9] << 0x1d)) &&
-         (1 < uVar7)) {
-        local_60 = 0xc;  /* CMD12 */
-        local_58 = 1;     /* R1B response */
-        local_44 = param_2[9] & 1;
-        local_5c = 0;
-        local_3c = 0;
-        iVar1 = sdcc_send_cmd(param_1,&local_60);
-      }
-      sdcc_event_notify(4,0); /* sdcc_event_notify(WRITE_DONE) */
-      if ((param_2[9] << 0x1e < 0) && (*(char *)((int)param_1 + 0x8e) == '\x01')) {
-        sdcc_event_notify(1,local_2c,iVar8); /* notify DMA complete */
-        sdcc_event_notify(4,0);
-      }
-      sdcc_reset_data_line(uVar3,6); /* sdcc_reset_data_line */
-      return iVar1;
-    }
-    param_2[8] = local_38; /* store error status */
-  }
-LAB_080338ba:
-  sdcc_read_present(uVar3); /* read & clear present state */
-  return iVar1;
+  /* SPI mode path removed — eMMC only */
+  return 0x14;
 }
 
-/* orig: 0x08033cbc mmc_get_card_type — detect card type for both slots.
- * Sets *param_2 and *param_3 to card type:
- *   0 = MMC, 1 = SD, 2 = SDIO */
+/* orig: 0x08033cbc mmc_get_card_type — always MMC for eMMC-only build */
 undefined4 mmc_get_card_type(param_1, param_2, param_3)
 undefined4 param_1; undefined1 * param_2; undefined1 * param_3;
 {
-  uint uVar1;
-
-  uVar1 = sdcc_get_slot_status();
-  if ((uVar1 & 1) == 0) {
-    if ((int)(uVar1 << 0x1e) < 0) {
-      *param_2 = 2; /* SDIO */
-    }
-    else {
-      *param_2 = 0; /* MMC */
-    }
-  }
-  else {
-    *param_2 = 1; /* SD */
-  }
-  uVar1 = sdcc_get_device(param_1);
-  if ((uVar1 & 1) == 0) {
-    if ((int)(uVar1 << 0x1e) < 0) {
-      *param_3 = 2;
-    }
-    else {
-      *param_3 = 0;
-    }
-  }
-  else {
-    *param_3 = 1;
-  }
+  *param_2 = 0; /* MMC */
+  *param_3 = 0; /* MMC */
   return 0;
 }
 
@@ -646,25 +454,16 @@ uint *param_1; char *param_2;
     } else {
         param_2[0x18] = '\x01'; /* card present */
     }
-    if (((char)puVar3[2] == '\x02') || ((char)puVar3[2] == '\x06')) {
-        /* MMC/eMMC: get capacity from partition table */
-        uVar4 = mmc_get_capacity(param_1, &local_28, &local_24);
-        *(uint *)(param_2 + 4) = local_28; /* total sectors */
-        param_2[0x10] = (char)puVar3[0x18]; /* num physical partitions */
-        *(uint *)(param_2 + 0x14) = puVar3[0xb]; /* block count */
-        {
-            char cVar1 = mmc_is_partition_active(param_1);
-            param_2[0x24] = cVar1; /* is active */
-        }
-        *(uint *)(param_2 + 8) = puVar3[8]; /* card identifier */
-    } else {
-        /* SD card */
-        *(uint *)(param_2 + 4) = puVar3[7]; /* total sectors */
-        param_2[0x10] = (char)puVar3[0x18];
-        param_2[0x14] = '\0'; param_2[0x15] = '\0';
-        param_2[0x16] = '\0'; param_2[0x17] = '\0';
-        param_2[0x24] = '\0';
+    /* eMMC only: get capacity from partition table */
+    uVar4 = mmc_get_capacity(param_1, &local_28, &local_24);
+    *(uint *)(param_2 + 4) = local_28; /* total sectors */
+    param_2[0x10] = (char)puVar3[0x18]; /* num physical partitions */
+    *(uint *)(param_2 + 0x14) = puVar3[0xb]; /* block count */
+    {
+        char cVar1 = mmc_is_partition_active(param_1);
+        param_2[0x24] = cVar1; /* is active */
     }
+    *(uint *)(param_2 + 8) = puVar3[8]; /* card identifier */
     *(uint *)(param_2 + 0x20) = local_24; /* partition type */
     *(uint *)(param_2 + 0x1c) = puVar3[0xd]; /* reliable write count */
     *(undefined2 *)(param_2 + 0x26) = *(undefined2 *)((int)puVar3 + 0x3e); /* speed class */
@@ -1059,15 +858,7 @@ int param_1; undefined4 param_2;
 
   local_20 = 0;
   if (param_1 < 3) {
-    /* The decompiled code has a dead branch (if(false)) checking for
-     * SD card init via FUN_080348b8/FUN_080340e4. In the compiled binary,
-     * this path is always MMC. */
-    if (true) {
-      iVar2 = mmc_init_card(param_1); /* mmc_init_card */
-    }
-    else {
-      iVar2 = mmc_init_fallback(); /* fallback init */
-    }
+    iVar2 = mmc_init_card(param_1);
     if (iVar2 == 0) {
       return 0;
     }

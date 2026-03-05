@@ -1,7 +1,7 @@
 /* card_init.c — eMMC card identification and initialization.
  *
  * These functions handle the eMMC card bring-up sequence:
- *   mmc_init_card / mmc_init_fallback -> mmc_config_bus -> mmc_identify_card
+ *   mmc_init_card -> mmc_config_bus -> mmc_identify_card
  *   -> mmc_set_bus_width -> mmc_set_speed -> mmc_finalize_init
  *
  * The programmer runs AFTER the bootloader has already initialized the eMMC,
@@ -14,11 +14,8 @@
 
 /* Sub-function forward declarations */
 static uint csd_parse_mmc();
-static uint csd_parse_sd();
 static uint csd_get_rca();
-static void csd_extract_fields();
 static undefined4 cmd7_select_card();
-static void clock_set_bus_speed();
 static undefined4 clock_set_divider();
 static undefined4 clock_set_sdr_mode();
 
@@ -246,33 +243,7 @@ int * param_1; int param_2;
   return 1;
 }
 
-/* orig: 0x0803344c — parse CSD for SD cards */
-static uint csd_parse_sd(param_1, param_2)
-undefined4 * param_1; int param_2;
-{
-  int iVar1;
-  uint uVar2;
-  int iVar3;
-
-  if ((param_1 != (undefined4 *)0x0) && (param_2 != 0)) {
-    *(ushort *)(param_2 + 0x3e) = (ushort)(byte)((uint)*param_1 >> 0x18);
-    *(short *)(param_2 + 0x40) = (short)((uint)*param_1 >> 8);
-    *(char *)(param_2 + 0x42) = (char)*param_1;
-    iVar1 = 4;
-    uVar2 = param_1[1];
-    do {
-      iVar3 = param_2 + iVar1;
-      iVar1 = iVar1 + -1;
-      *(char *)(iVar3 + 0x42) = (char)uVar2;
-      uVar2 = uVar2 >> 8;
-    } while (0 < iVar1);
-    *(undefined1 *)(param_2 + 0x47) = 0;
-    *(char *)(param_2 + 0x49) = (char)((uint)param_1[2] >> 0x18);
-    *(uint *)(param_2 + 0x4c) = param_1[2] << 8 | (uint)param_1[3] >> 0x18;
-    return 1;
-  }
-  return 0;
-}
+/* csd_parse_sd removed — eMMC only */
 
 /* orig: 0x0803351c — parse EXT_CSD byte stream into structured fields */
 static undefined4 mmc_parse_ext_csd(param_1, param_2)
@@ -374,9 +345,9 @@ int param_1;
   local_1c = 0;
   local_14 = 0;
   iVar1 = sdcc_send_cmd(param_1,&local_38);
+  /* eMMC only: always MMC type '\x02' or '\x06' */
   if ((iVar1 == 0) &&
-     (((*(char *)(param_1 + 8) != '\x02' && (*(char *)(param_1 + 8) != '\x06')) ||
-      (iVar2 = csd_parse_mmc(auStack_2c,param_1), iVar2 == 0)))) {
+     (iVar2 = csd_parse_mmc(auStack_2c,param_1), iVar2 == 0)) {
     iVar1 = 0x14;
   }
   return iVar1;
@@ -436,12 +407,7 @@ int param_1;
   local_14 = 0;
   iVar2 = sdcc_send_cmd(param_1,&local_38);
   if (iVar2 == 0) {
-    if ((*(char *)(param_1 + 8) == '\x02') || (*(char *)(param_1 + 8) == '\x06')) {
-      iVar3 = csd_parse_mmc(auStack_2c,param_1);
-    }
-    else {
-      iVar3 = csd_parse_sd(auStack_2c,param_1);
-    }
+    iVar3 = csd_parse_mmc(auStack_2c,param_1);
     if (iVar3 == 0) {
       iVar2 = 0x14;
     }
@@ -486,25 +452,14 @@ int param_1;
     if (iVar3 == 0) {
       memset_zero(local_68,0x28);
       mmc_parse_csd_fields(param_1,auStack_34,local_68);
-      cVar1 = *(char *)(param_1 + 8);
-      if ((cVar1 == '\x01') || (cVar1 == '\x05')) {
-        if (local_68[0] == '\x01') {
-          *(int *)(param_1 + 0x24) = 1 << local_60;
-          *(uint *)(param_1 + 0x1c) = (local_58 + 1) * ((uint)((1 << local_60) << 10) >> 9);
-        }
-        else {
-          mmc_calc_capacity(param_1,local_60,local_50,local_58);
-        }
+      /* eMMC only: card type is always '\x02' (MMC) or '\x06' (eMMC) */
+      uVar4 = 3;
+      if (*(char *)(param_1 + 8) != '\x06') {
+        mmc_calc_capacity(param_1,local_60,local_50,local_58);
       }
-      else {
-        uVar4 = 3;
-        if (cVar1 != '\x06') {
-          mmc_calc_capacity(param_1,local_60,local_50,local_58);
-        }
-        if (local_64 != '2') {
-          *(undefined1 *)(param_1 + 0x5f) = 2;
-          return 0;
-        }
+      if (local_64 != '2') {
+        *(undefined1 *)(param_1 + 0x5f) = 2;
+        return 0;
       }
       *(undefined1 *)(param_1 + 0x5f) = uVar4;
     }
@@ -570,22 +525,12 @@ LAB_08032e26:
     }
     break;
   }
-  /* SPI mode vs SD/MMC mode clock setup */
-  if (*(char *)(param_1 + 0x23) == '\x01') {
-    /* SPI mode: use clock divider */
+  /* eMMC mode clock setup */
+  local_18 = uVar3;
+  if (uVar2 <= uVar3) {
     local_18 = uVar2;
-    if (uVar3 < uVar2) {
-      local_18 = uVar3;
-    }
-    /* FUN_08034488 — clock tuning, stubbed (SPI not used for eMMC) */
   }
-  else {
-    local_18 = uVar3;
-    if (uVar2 <= uVar3) {
-      local_18 = uVar2;
-    }
-    sdcc_clock_setup(uVar4,&local_18,4);
-  }
+  sdcc_clock_setup(uVar4,&local_18,4);
   param_1[0x21] = local_18;
   return;
 }
@@ -633,13 +578,7 @@ int * param_1;
       iVar2 = 0;
     }
   }
-  else if ((cVar1 == '\x01') || (cVar1 == '\x05')) {
-    /* SD card speed setup — not used for eMMC.
-     * Stub the SD-specific init functions. */
-    param_1[0xd] = 1;
-    sdcc_set_bus_speed(iVar3,0);
-    iVar2 = 0;
-  }
+  /* SD card speed branch removed — eMMC only */
   /* Check card is in transfer state */
   iVar3 = sdcc_get_card_status(param_1);
   if (iVar3 != 4) {
@@ -875,57 +814,6 @@ LAB_08034cd8:
   return piVar2;
 }
 
-/* orig: 0x0803460c mmc_init_fallback — init without full card identification */
-undefined4 mmc_init_fallback(param_1)
-int param_1;
-{
-  int *piVar1;
-  undefined4 uVar2;
-  int iVar3;
-  int *piVar4;
-
-  piVar1 = (int *)mmc_get_slot_context();
-  uVar2 = 0;
-  if (piVar1 != (int *)0x0) {
-    piVar1[0x27] = (int)piVar1;
-    piVar4 = piVar1 + 3;
-    if ((*(char *)((int)piVar1 + 0x15) != '\x01') && (*(char *)((int)piVar1 + 0x15) != '\x02')) {
-      piVar1[0x29] = 0;
-      if ((char)piVar1[1] == '\0') {
-        memset_zero(piVar4,0x94);
-        *piVar4 = param_1;
-        piVar1[0x27] = (int)piVar1;
-        *piVar1 = param_1;
-        *(undefined1 *)(piVar1 + 1) = 1;
-        *(undefined1 *)(piVar1 + 0x26) = 0;
-      }
-      sdcc_enable_slot(param_1,1);
-      sdcc_qtimer_init();
-      mmc_set_bus_width(piVar4,5);
-      thunk_FUN_080199b4(1000);
-      sdcc_init_bases();
-      sdcc_set_bus_width_bit(param_1,0);
-      *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0xc) = 0;
-      sdcc_enable_clock(param_1);
-      *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x2c) = 0;
-      sdcc_enable_clock(param_1);
-      *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x38) = 0x18007ff;
-      *(uint *)((&DAT_0804e2c8)[param_1] + 4) = *(uint *)((&DAT_0804e2c8)[param_1] + 4) | 0x200000;
-      *(uint *)((&DAT_0804e2c8)[param_1] + 4) = *(uint *)((&DAT_0804e2c8)[param_1] + 4) & 0xfffff3ff;
-      sdcc_enable_clock(param_1);
-      *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x38) = 0x400000;
-      *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x3c) = 0;
-      *piVar4 = param_1;
-      *(undefined1 *)((int)piVar1 + 0x15) = 1;
-      iVar3 = sdcc_get_adma_mode();
-      piVar1[0x19] = 1;
-      piVar1[0x25] = iVar3;
-      sdcc_clock_setup(param_1,0,2);
-    }
-    uVar2 = 1;
-  }
-  return uVar2;
-}
 
 /* orig: 0x08034704 mmc_init_card — full card init with identification */
 undefined4 mmc_init_card(param_1)

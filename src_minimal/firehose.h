@@ -290,7 +290,6 @@ void mmc_release_slot();            /* 0x080335fc: mmc_release_slot */
 char mmc_classify_error();            /* 0x08033dfc: mmc_classify_error */
 int  mmc_identify_card();            /* 0x08033b30: mmc_identify_card */
 int  mmc_config_bus();            /* 0x080345b8: mmc_config_bus */
-undefined4 mmc_init_fallback();      /* 0x0803460c: mmc_init_fallback */
 undefined4 mmc_init_card();      /* 0x08034704: mmc_init_card */
 int *mmc_read_ext_csd();            /* 0x08034cb4: mmc_read_ext_csd */
 undefined4 mmc_setup_partitions();      /* 0x08034888: mmc_setup_partitions */
