@@ -84,11 +84,18 @@ static void led_off(int gpio)
     REG32(GPIO_IN_OUT_ADDR(gpio)) = 0;
 }
 
+static void msleep(unsigned int ms)
+{
+    /* Sleep timetick runs at 32768 Hz */
+    volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
+    unsigned int ticks = (ms * 32768U) / 1000U;
+    unsigned int start = *tick;
+    while ((*tick - start) < ticks);
+}
+
 static void spin_delay(void)
 {
-    /* ~0.5s at ~200MHz-ish OCIMEM speed */
-    volatile unsigned int i;
-    for (i = 0; i < 2000000; i++);
+    msleep(500);
 }
 
 static void blink(int gpio, int count)

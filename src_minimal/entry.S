@@ -47,7 +47,8 @@ _start:
 _thumb_entry:
 
     /*--------------------------------------------------------------
-     * Checkpoint macro: blink green LED once (~0.5s on, ~0.5s off)
+     * Checkpoint macro: blink green LED once (0.5s on, 0.5s off)
+     * Uses hardware sleep timetick (32768 Hz) for reliable timing.
      * Uses r4, r5 (caller-saved at this point, no C ABI yet)
      *--------------------------------------------------------------*/
     .macro checkpoint
@@ -59,20 +60,26 @@ _thumb_entry:
     ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     movs    r5, #GPIO_OUT_BIT
     str     r5, [r4]
-    /* Delay ~0.5s */
-    ldr     r5, =2000000
-99:
-    subs    r5, #1
-    bne     99b
+    /* Delay 0.5s using sleep timetick (16384 ticks = 500ms) */
+    ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
+    ldr     r5, [r4]            /* start tick */
+99: ldr     r6, [r4]
+    sub     r6, r6, r5
+    ldr     r7, =16384          /* 32768 Hz * 0.5s */
+    cmp     r6, r7
+    blo     99b
     /* Green OFF */
     ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     movs    r5, #0
     str     r5, [r4]
-    /* Delay ~0.5s gap */
-    ldr     r5, =2000000
-98:
-    subs    r5, #1
-    bne     98b
+    /* Delay 0.5s gap */
+    ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
+    ldr     r5, [r4]
+98: ldr     r6, [r4]
+    sub     r6, r6, r5
+    ldr     r7, =16384
+    cmp     r6, r7
+    blo     98b
     .endm
 
     /*--------------------------------------------------------------
@@ -527,23 +534,29 @@ ddr_config_and_init:
 
     pop     {r4-r6, pc}
 
-/* Error: DDR blob not loaded (first word mismatch) — fast red blinks */
+/* Error: DDR blob not loaded (first word mismatch) — fast red blinks (200ms) */
 .Lddr_blob_bad:
     ldr     r4, =GPIO_CFG_ADDR(LED_RED_GPIO)
     mov     r5, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
     str     r5, [r4]
+    ldr     r6, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
+    ldr     r3, =6554              /* 200ms at 32768 Hz */
 .Lddr_blink_loop:
     ldr     r4, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
     movs    r5, #GPIO_OUT_BIT
     str     r5, [r4]
-    ldr     r5, =500000
-97: subs    r5, #1
-    bne     97b
+    ldr     r5, [r6]
+97: ldr     r7, [r6]
+    sub     r7, r7, r5
+    cmp     r7, r3
+    blo     97b
     movs    r5, #0
     str     r5, [r4]
-    ldr     r5, =500000
-96: subs    r5, #1
-    bne     96b
+    ldr     r5, [r6]
+96: ldr     r7, [r6]
+    sub     r7, r7, r5
+    cmp     r7, r3
+    blo     96b
     b       .Lddr_blink_loop
 
 /*--------------------------------------------------------------
@@ -583,10 +596,14 @@ _vectors:
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     mov     r1, #0
     str     r1, [r0]
-    ldr     r2, =300000
+    ldr     r2, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
+    ldr     r5, =4915              /* 150ms at 32768 Hz */
+    ldr     r3, [r2]
 .Lexc_d1:
-    subs    r2, r2, #1
-    bne     .Lexc_d1
+    ldr     r4, [r2]
+    sub     r4, r4, r3
+    cmp     r4, r5
+    blo     .Lexc_d1
     /* Green ON, red OFF */
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     mov     r1, #GPIO_OUT_BIT
@@ -594,8 +611,10 @@ _vectors:
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
     mov     r1, #0
     str     r1, [r0]
-    ldr     r2, =300000
+    ldr     r3, [r2]
 .Lexc_d2:
-    subs    r2, r2, #1
-    bne     .Lexc_d2
+    ldr     r4, [r2]
+    sub     r4, r4, r3
+    cmp     r4, r5
+    blo     .Lexc_d2
     b       .Lexc_loop
