@@ -581,40 +581,20 @@ _vectors:
     wfi
     b       .Larm_hang
 
-/* Exception handler (ARM mode): fast alternating red/green blinks */
+/* Exception handler (ARM mode): both LEDs on solid = crash indicator.
+ * No timer needed — unmistakable signal (red+green = yellow/both). */
 .Lexception:
     ldr     r0, =GPIO_CFG_ADDR(LED_RED_GPIO)
     mov     r1, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
     str     r1, [r0]
     ldr     r0, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
     str     r1, [r0]
-.Lexc_loop:
-    /* Red ON, green OFF */
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
     mov     r1, #GPIO_OUT_BIT
     str     r1, [r0]
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
-    mov     r1, #0
-    str     r1, [r0]
-    ldr     r2, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
-    ldr     r5, =4915              /* 150ms at 32768 Hz */
-    ldr     r3, [r2]
-.Lexc_d1:
-    ldr     r4, [r2]
-    sub     r4, r4, r3
-    cmp     r4, r5
-    blo     .Lexc_d1
-    /* Green ON, red OFF */
-    ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     mov     r1, #GPIO_OUT_BIT
     str     r1, [r0]
-    ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
-    mov     r1, #0
-    str     r1, [r0]
-    ldr     r3, [r2]
-.Lexc_d2:
-    ldr     r4, [r2]
-    sub     r4, r4, r3
-    cmp     r4, r5
-    blo     .Lexc_d2
-    b       .Lexc_loop
+.Lexc_hang:
+    wfi
+    b       .Lexc_hang
