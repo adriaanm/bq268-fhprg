@@ -120,9 +120,9 @@
 /* TCSR register for chip version detection */
 #define TCSR_SOC_VERSION               0x01821000
 
-/* DDR blob function addresses */
-#define DDR_SET_PARAMS_ADDR            0x00222780
-#define DDR_INIT_ADDR                  0x002224cc
+/* DDR blob function addresses (bit 0 set = Thumb entry) */
+#define DDR_SET_PARAMS_ADDR            0x00222781
+#define DDR_INIT_ADDR                  0x002224cd
 
 /* DDR config destination in IMEM */
 #define DDR_CONFIG_IMEM_ADDR           0x08600190

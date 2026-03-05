@@ -142,16 +142,19 @@ _thumb_entry:
     /*--------------------------------------------------------------
      * 6. Init DDR
      *
-     * PBL already has BIMC clocks running (it loaded our code into
-     * OCIMEM via BIMC). Skip clock init and just:
-     *   a) Copy DDR config to IMEM, call ddr_set_params()
-     *   b) Call ddr_init() to program the DDR controller
+     * PBL already has BIMC core clocks running (it loaded our code
+     * into OCIMEM via BIMC), but not all DDR branch clocks.
+     * Enable the BIMC branch clocks, then call the DDR blob.
      *
-     * bimc_clock_init is available below but skipped — it writes
-     * to GPLL0/vote registers which can crash the CPU.
-     *
-     * See docs/ddr_init.md for full documentation.
+     * NOTE: We skip the full bimc_clock_init because it writes
+     * PLL config to 0x01821000 which is GPLL0_MODE — corrupting
+     * the running system PLL.  Only the branch enables (Phase 3)
+     * are safe.
      *--------------------------------------------------------------*/
+    bl      bimc_branch_clocks_enable
+
+    checkpoint              /* BLINK 3b: BIMC branches enabled */
+
     bl      ddr_config_and_init
 
     checkpoint              /* BLINK 4: DDR init done */
@@ -440,6 +443,38 @@ bimc_clock_init:
     bx      lr
 
 /*==============================================================
+ * bimc_branch_clocks_enable — Enable BIMC clock branches only
+ *
+ * Safe subset of bimc_clock_init: just enable the 8 BIMC CBCR
+ * branch clocks without touching any PLLs or RCGs.  PBL already
+ * has the clock source (GPLL0) configured and running.
+ *
+ * Clobbers: r0-r1
+ *==============================================================*/
+    .thumb_func
+bimc_branch_clocks_enable:
+    push    {lr}
+
+    ldr     r0, =GCC_BIMC_CBCR_7       /* 0x01832024 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_5       /* 0x0183201c */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_6       /* 0x01832020 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_0       /* 0x01831008 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_1       /* 0x0183100c */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_2       /* 0x01831010 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_3       /* 0x01831014 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_4       /* 0x0183101c */
+    bl      .Lcbcr_enable
+
+    pop     {pc}
+
+/*==============================================================
  * ddr_config_and_init — Copy DDR config to IMEM and call DDR blob
  *
  * 1. memcpy(0x08600190, ddr_config_data, 760)
@@ -459,6 +494,8 @@ ddr_config_and_init:
     ldr     r2, [r2]                   /* r2 = byte count (760) */
     bl      _memcpy32
 
+    checkpoint              /* BLINK 3c: config copied to IMEM */
+
     /* 2. Call ddr_set_params(config_addr, size) */
     ldr     r0, =DDR_CONFIG_IMEM_ADDR
     ldr     r1, =ddr_config_data_len
@@ -466,6 +503,8 @@ ddr_config_and_init:
     ldr     r4, =DDR_SET_PARAMS_ADDR
     blx     r4
     /* r0 = 1 on success, 0 on failure — could check but continue anyway */
+
+    checkpoint              /* BLINK 3d: ddr_set_params done */
 
     /* 3. Call ddr_init() */
     ldr     r0, =0                     /* clock speed param (stored but not critical) */

@@ -219,7 +219,7 @@ tmp/minimal_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
 	@mkdir -p tmp
 	$(MINIMAL_CC) $(MINIMAL_CFLAGS) -c $< -o $@
 
-tmp/minimal_%.o: src_minimal/%.S
+tmp/minimal_%.o: src_minimal/%.S src_minimal/msm8909.h
 	@mkdir -p tmp
 	arm-none-eabi-gcc -c -march=armv7-a -mthumb -mfloat-abi=soft \
 		-I src_minimal -DMINIMAL_EMBEDDED_PAYLOAD -DMINIMAL_NO_PAYLOAD -o $@ $<
