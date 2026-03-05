@@ -86,11 +86,20 @@ static void led_off(int gpio)
 
 static void msleep(unsigned int ms)
 {
-    /* Sleep timetick runs at 32768 Hz */
+    /* Try sleep timetick first (32768 Hz) */
     volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-    unsigned int ticks = (ms * 32768U) / 1000U;
-    unsigned int start = *tick;
-    while ((*tick - start) < ticks);
+    unsigned int t0 = *tick;
+    /* Quick check: is the timer actually ticking? */
+    volatile unsigned int i;
+    for (i = 0; i < 1000; i++);
+    if (*tick != t0) {
+        /* Timer is ticking — use it */
+        unsigned int ticks = (ms * 32768U) / 1000U;
+        while ((*tick - t0) < ticks);
+        return;
+    }
+    /* Fallback: CPU loop. ~5 cycles/iteration at ~400MHz = ~80k iter/ms */
+    for (i = 0; i < ms * 80000U; i++);
 }
 
 static void spin_delay(void)
@@ -193,10 +202,33 @@ void main(void)
     (void)aboot_payload_gz;
     (void)aboot_payload_gz_len;
 
-    /* Turn off red, turn on green = proof we reached main */
+    /* Turn off red = proof we reached main */
     led_init(LED_RED_GPIO);
     led_init(LED_GREEN_GPIO);
     led_off(LED_RED_GPIO);
+
+    /* Debug: test if sleep timetick still works in C.
+     * Read the timer value and blink based on whether it changes. */
+    {
+        volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
+        unsigned int t0 = *tick;
+        unsigned int t1;
+        /* Busy-wait with a CPU loop we know works */
+        volatile unsigned int i;
+        for (i = 0; i < 50000000; i++);
+        t1 = *tick;
+
+        if (t1 == t0) {
+            /* Timer NOT ticking — blink red 3x fast as warning */
+            for (i = 0; i < 3; i++) {
+                led_on(LED_RED_GPIO);
+                volatile unsigned int j; for (j = 0; j < 20000000; j++);
+                led_off(LED_RED_GPIO);
+                for (j = 0; j < 20000000; j++);
+            }
+        }
+    }
+
     led_on(LED_GREEN_GPIO);
 
     /* Pause 3s so user can see solid green = "in main()" */
