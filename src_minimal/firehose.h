@@ -221,79 +221,79 @@ extern char LAB_08028888;       /* callback for xml send-and-wait */
  *========================================================================*/
 
 /* ---- sdcc_regs.c ---- */
-void FUN_0800bbb4();            /* 0x0800bbb4: sdcc_set_transfer_mode */
-void FUN_0800bd20();            /* 0x0800bd20: sdcc_cleanup/configure */
-void FUN_0800bd78();            /* 0x0800bd78: sdcc_set_all_irq */
-uint FUN_0800bd8c();            /* 0x0800bd8c: sdcc_read_status */
-void FUN_0800bda0();            /* 0x0800bda0: sdcc_enable_clock */
-uint FUN_0800be44();            /* 0x0800be44: sdcc_read_present */
-uint FUN_0800be68();            /* 0x0800be68: sdcc_read_present_state */
-void FUN_0800be78();            /* 0x0800be78: sdcc_read_response */
-void FUN_0800bfac();            /* 0x0800bfac: sdcc_clear_status */
-void FUN_0800c008();            /* 0x0800c008: sdcc_set_block_count */
-void FUN_0800c018();            /* 0x0800c018: sdcc_set_block_size */
-void FUN_0800c0c4();            /* 0x0800c0c4: sdcc_set_cmd_arg */
-void FUN_0800c0d4();            /* 0x0800c0d4: sdcc_fire_cmd */
-void FUN_0800c11c();            /* 0x0800c11c: sdcc_set_irq_mask */
-void FUN_0800c12c();            /* 0x0800c12c: sdcc_set_transfer_ctrl */
-void FUN_0800c154();            /* 0x0800c154: sdcc_reset_data_line */
+void sdcc_set_transfer_mode();            /* 0x0800bbb4: sdcc_set_transfer_mode */
+void sdcc_cleanup();            /* 0x0800bd20: sdcc_cleanup/configure */
+void sdcc_set_all_irq();            /* 0x0800bd78: sdcc_set_all_irq */
+uint sdcc_read_status();            /* 0x0800bd8c: sdcc_read_status */
+void sdcc_enable_clock();            /* 0x0800bda0: sdcc_enable_clock */
+uint sdcc_read_present();            /* 0x0800be44: sdcc_read_present */
+uint sdcc_read_present_state();            /* 0x0800be68: sdcc_read_present_state */
+void sdcc_read_response();            /* 0x0800be78: sdcc_read_response */
+void sdcc_clear_status();            /* 0x0800bfac: sdcc_clear_status */
+void sdcc_set_block_count();            /* 0x0800c008: sdcc_set_block_count */
+void sdcc_set_block_size();            /* 0x0800c018: sdcc_set_block_size */
+void sdcc_set_cmd_arg();            /* 0x0800c0c4: sdcc_set_cmd_arg */
+void sdcc_fire_cmd();            /* 0x0800c0d4: sdcc_fire_cmd */
+void sdcc_set_irq_mask();            /* 0x0800c11c: sdcc_set_irq_mask */
+void sdcc_set_transfer_ctrl();            /* 0x0800c12c: sdcc_set_transfer_ctrl */
+void sdcc_reset_data_line();            /* 0x0800c154: sdcc_reset_data_line */
 /* Extra reg functions used by card_init */
-void FUN_0800c0a8();            /* 0x0800c0a8: sdcc_set_clock_divider */
-void FUN_0800bfe8();            /* 0x0800bfe8: sdcc_set_adma_addr_lo */
-void FUN_0800bff8();            /* 0x0800bff8: sdcc_set_adma_addr_hi */
-void FUN_0800bdbc();            /* 0x0800bdbc: sdcc_set_8bit_mode */
-void FUN_0800bdd8();            /* 0x0800bdd8: sdcc_trigger_vendor_reset */
-void FUN_0800bdf8();            /* 0x0800bdf8: sdcc_set_clock_mode */
-void FUN_0800be10();            /* 0x0800be10: sdcc_set_hs_mode */
-void FUN_0800be2c();            /* 0x0800be2c: sdcc_read_caps */
-byte FUN_0800be54();            /* 0x0800be54: sdcc_read_power_mode */
-void FUN_0800beb8();            /* 0x0800beb8: sdcc_wait_pll_lock */
-void FUN_0800bf18();            /* 0x0800bf18: sdcc_set_int_enable */
-void FUN_0800bf34();            /* 0x0800bf34: sdcc_set_int_signal */
-uint FUN_0800bf74();            /* 0x0800bf74: sdcc_read_clock_stable */
-void FUN_0800bf88();            /* 0x0800bf88: sdcc_set_led */
-void FUN_0800c028();            /* 0x0800c028: sdcc_set_dma_mode */
-void FUN_0800c058();            /* 0x0800c058: sdcc_setup_caps */
-void FUN_0800c104();            /* 0x0800c104: sdcc_set_bus_power */
-void FUN_0800c180();            /* 0x0800c180: sdcc_set_voltage */
-void FUN_0800bc64();            /* 0x0800bc64: sdcc_set_bus_width_bit */
-void FUN_0800bc84();            /* 0x0800bc84: sdcc_init_bases */
-void FUN_0800bccc();            /* 0x0800bccc: sdcc_set_flow_control */
-void FUN_0800bcec();            /* 0x0800bcec: sdcc_set_bus_speed */
+void sdcc_set_clock_divider();            /* 0x0800c0a8: sdcc_set_clock_divider */
+void sdcc_set_adma_addr_lo();            /* 0x0800bfe8: sdcc_set_adma_addr_lo */
+void sdcc_set_adma_addr_hi();            /* 0x0800bff8: sdcc_set_adma_addr_hi */
+void sdcc_set_8bit_mode();            /* 0x0800bdbc: sdcc_set_8bit_mode */
+void sdcc_trigger_vendor_reset();            /* 0x0800bdd8: sdcc_trigger_vendor_reset */
+void sdcc_set_clock_mode();            /* 0x0800bdf8: sdcc_set_clock_mode */
+void sdcc_set_hs_mode();            /* 0x0800be10: sdcc_set_hs_mode */
+void sdcc_read_caps();            /* 0x0800be2c: sdcc_read_caps */
+byte sdcc_read_power_mode();            /* 0x0800be54: sdcc_read_power_mode */
+void sdcc_wait_pll_lock();            /* 0x0800beb8: sdcc_wait_pll_lock */
+void sdcc_set_int_enable();            /* 0x0800bf18: sdcc_set_int_enable */
+void sdcc_set_int_signal();            /* 0x0800bf34: sdcc_set_int_signal */
+uint sdcc_read_clock_stable();            /* 0x0800bf74: sdcc_read_clock_stable */
+void sdcc_set_led();            /* 0x0800bf88: sdcc_set_led */
+void sdcc_set_dma_mode();            /* 0x0800c028: sdcc_set_dma_mode */
+void sdcc_setup_caps();            /* 0x0800c058: sdcc_setup_caps */
+void sdcc_set_bus_power();            /* 0x0800c104: sdcc_set_bus_power */
+void sdcc_set_voltage();            /* 0x0800c180: sdcc_set_voltage */
+void sdcc_set_bus_width_bit();            /* 0x0800bc64: sdcc_set_bus_width_bit */
+void sdcc_init_bases();            /* 0x0800bc84: sdcc_init_bases */
+void sdcc_set_flow_control();            /* 0x0800bccc: sdcc_set_flow_control */
+void sdcc_set_bus_speed();            /* 0x0800bcec: sdcc_set_bus_speed */
 
 /* ---- sdcc_helpers.c ---- */
-void FUN_0800bbec();            /* 0x0800bbec: ADMA bounce read */
-undefined8 FUN_0800bc20();      /* 0x0800bc20: ADMA bounce write */
-void FUN_080329f8();            /* 0x080329f8: sdcc_event_notify */
-undefined4 FUN_08032d8c();      /* 0x08032d8c: sdcc_post_write_cleanup */
-int  FUN_08034314();            /* 0x08034314: sdcc_fifo_write */
-undefined4 FUN_080343c0();      /* 0x080343c0: sdcc_dma_setup */
-undefined4 FUN_0803456c();      /* 0x0803456c: sdcc_wait_complete */
-int  FUN_08034a40();            /* 0x08034a40: mmc_switch_cmd6 */
-undefined4 FUN_08034b88();      /* 0x08034b88: sdcc_setup_data_xfer */
-undefined4 FUN_08034c14();      /* 0x08034c14: sdcc_adma_transfer */
-undefined4 FUN_08034eaa();      /* 0x08034eaa: sdcc_adma_write */
-void FUN_08034edc();            /* 0x08034edc: sdcc_pre_cmd_hook */
-int  FUN_08035040();            /* 0x08035040: sdcc_pre_write_setup */
-undefined4 FUN_080350ee();      /* 0x080350ee: sdcc_post_write_check */
-undefined4 FUN_08035134();      /* 0x08035134: sdcc_busy_wait */
-undefined4 FUN_08035188();      /* 0x08035188: sdcc_pio_transfer */
+void adma_bounce_read();            /* 0x0800bbec: ADMA bounce read */
+undefined8 adma_bounce_write();      /* 0x0800bc20: ADMA bounce write */
+void sdcc_event_notify();            /* 0x080329f8: sdcc_event_notify */
+undefined4 sdcc_post_write_cleanup();      /* 0x08032d8c: sdcc_post_write_cleanup */
+int  sdcc_fifo_write();            /* 0x08034314: sdcc_fifo_write */
+undefined4 sdcc_dma_setup();      /* 0x080343c0: sdcc_dma_setup */
+undefined4 sdcc_wait_complete();      /* 0x0803456c: sdcc_wait_complete */
+int  mmc_switch_cmd6();            /* 0x08034a40: mmc_switch_cmd6 */
+undefined4 sdcc_setup_data_xfer();      /* 0x08034b88: sdcc_setup_data_xfer */
+undefined4 sdcc_adma_transfer();      /* 0x08034c14: sdcc_adma_transfer */
+undefined4 sdcc_adma_write();      /* 0x08034eaa: sdcc_adma_write */
+void sdcc_pre_cmd_hook();            /* 0x08034edc: sdcc_pre_cmd_hook */
+int  sdcc_pre_write_setup();            /* 0x08035040: sdcc_pre_write_setup */
+undefined4 sdcc_post_write_check();      /* 0x080350ee: sdcc_post_write_check */
+undefined4 sdcc_busy_wait();      /* 0x08035134: sdcc_busy_wait */
+undefined4 sdcc_pio_transfer();      /* 0x08035188: sdcc_pio_transfer */
 uint sdcc_get_card_status();    /* 0x08034f80: send CMD13, return state */
 
 /* ---- card_init.c ---- */
-void FUN_08032a04();            /* 0x08032a04: clock source setup */
-void FUN_08032dcc();            /* 0x08032dcc: mmc_set_bus_width */
-int  FUN_08032eac();            /* 0x08032eac: mmc_set_speed */
-int  FUN_08033ca0();            /* 0x08033ca0: mmc_get_slot_context */
-void FUN_080335b4();            /* 0x080335b4: mmc_finalize_init */
-void FUN_080335fc();            /* 0x080335fc: mmc_release_slot */
-char FUN_08033dfc();            /* 0x08033dfc: mmc_classify_error */
-int  FUN_08033b30();            /* 0x08033b30: mmc_identify_card */
-int  FUN_080345b8();            /* 0x080345b8: mmc_config_bus */
-undefined4 FUN_0803460c();      /* 0x0803460c: mmc_init_fallback */
-undefined4 FUN_08034704();      /* 0x08034704: mmc_init_card */
-int *FUN_08034cb4();            /* 0x08034cb4: mmc_read_ext_csd */
-undefined4 FUN_08034888();      /* 0x08034888: mmc_setup_partitions */
+void sdcc_clock_setup();            /* 0x08032a04: clock source setup */
+void mmc_set_bus_width();            /* 0x08032dcc: mmc_set_bus_width */
+int  mmc_set_speed();            /* 0x08032eac: mmc_set_speed */
+int  mmc_get_slot_context();            /* 0x08033ca0: mmc_get_slot_context */
+void mmc_finalize_init();            /* 0x080335b4: mmc_finalize_init */
+void mmc_release_slot();            /* 0x080335fc: mmc_release_slot */
+char mmc_classify_error();            /* 0x08033dfc: mmc_classify_error */
+int  mmc_identify_card();            /* 0x08033b30: mmc_identify_card */
+int  mmc_config_bus();            /* 0x080345b8: mmc_config_bus */
+undefined4 mmc_init_fallback();      /* 0x0803460c: mmc_init_fallback */
+undefined4 mmc_init_card();      /* 0x08034704: mmc_init_card */
+int *mmc_read_ext_csd();            /* 0x08034cb4: mmc_read_ext_csd */
+undefined4 mmc_setup_partitions();      /* 0x08034888: mmc_setup_partitions */
 
 /* ---- xml.c ---- */
 int  xml_advance();             /* 0x08038db4: tokenizer state machine */
@@ -326,8 +326,8 @@ uint parse_sector_value();      /* 0x08028c10: parse sector num (stub) */
 /* ---- dispatch.c ---- */
 undefined4 firehose_dispatch(); /* 0x0802f130: command router */
 void dispatch_set_state();      /* 0x0802f838 */
-void FUN_0802f57c();            /* dispatch loop tick */
-void FUN_0802f900();            /* send-and-wait wrapper */
+void dispatch_loop_tick();            /* dispatch loop tick */
+void send_and_wait();            /* send-and-wait wrapper */
 
 /* ---- handlers.c (minimal: configure, program, read, digest stub) ---- */
 uint handle_configure();        /* 0x08022a00 */
@@ -404,9 +404,9 @@ uint bignum_divmod();           /* 0x0801be1c */
  *========================================================================*/
 
 /* libc-like */
-int *FUN_080060b0();            /* returns ctype table ptr */
+int *get_ctype_table();            /* returns ctype table ptr */
 uint FUN_080060c0();            /* __aeabi_uldivmod (64-bit div) */
-uint FUN_08031548();            /* bit_reverse for CRC */
+uint bit_reverse();            /* bit_reverse for CRC */
 longlong thunk_FUN_080071ec();  /* strtoll */
 void thunk_FUN_080199b4();      /* delay_us */
 void thunk_FUN_0800947c();
@@ -417,21 +417,21 @@ void thunk_FUN_0800947c();
 /* (Card init functions moved to card_init.c) */
 
 /* Transport/misc (outside closure) */
-int  FUN_08030b04();            /* transport_send */
-void FUN_08030320();            /* transport_config */
-void FUN_08030fa8();            /* transport_poll */
-void FUN_080303c4();            /* transport_helper */
-void FUN_08030614();            /* transport_helper */
-void FUN_0802fc0c();            /* transport_helper */
-uint FUN_0802fcd0();            /* transport_helper */
-void FUN_08015a50();            /* assert/abort */
-void FUN_0801a6a8();            /* UART helper */
-void FUN_080275c4();            /* hex dump log */
-void FUN_0801daf0();            /* validation reset */
-void FUN_080310a0();            /* raw USB receive */
-void FUN_0802b248();            /* DAL property set */
-void FUN_0802b6b4();            /* DAL device open */
-void FUN_0802d0b8();            /* PMIC status check */
+int  transport_send();            /* transport_send */
+void transport_config();            /* transport_config */
+void transport_poll();            /* transport_poll */
+void transport_helper_03c4();            /* transport_helper */
+void transport_helper_0614();            /* transport_helper */
+void transport_helper_fc0c();            /* transport_helper */
+uint transport_helper_fcd0();            /* transport_helper */
+void assert_abort();            /* assert/abort */
+void uart_helper();            /* UART helper */
+void hex_dump_log();            /* hex dump log */
+void validation_reset();            /* validation reset */
+void raw_usb_receive();            /* raw USB receive */
+void dal_property_set();            /* DAL property set */
+void dal_device_open();            /* DAL device open */
+void pmic_status_check();            /* PMIC status check */
 void qtimer_init();             /* timer init */
 
 /* end of firehose.h */

@@ -28,10 +28,10 @@ uint param_1; uint param_2; uint param_3; uint param_4;
     uStack_c = param_2;
     uStack_8 = param_3;
     uStack_4 = param_4;
-    FUN_08006d14(auStack_128, 0x100); /* memset(buf, 0, 256) */
-    FUN_08006418((char *)auStack_128, 0x100, (const char *)param_1, (va_list *)&uStack_c);
+    memset_zero(auStack_128, 0x100); /* memset(buf, 0, 256) */
+    vsnprintf_wrapper((char *)auStack_128, 0x100, (const char *)param_1, (va_list *)&uStack_c);
     /* vsnprintf_wrapper(buf, 256, fmt, &args) */
-    uVar2 = FUN_08006906("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>");
+    uVar2 = strlen("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>");
     xml_wr_init((int *)&DAT_08055f18,
                 (uint)"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>", uVar2, 0);
     xml_wr_open_tag((uint)&DAT_08055f18, (uint)&DAT_08027710); /* <data> */

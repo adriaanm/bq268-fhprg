@@ -115,7 +115,7 @@ undefined4 handle_configure()
 
   local_230 = DAT_0804cd58;
   local_2c = DAT_0804cd58;
-  FUN_08006d14(local_22c,0x200);
+  memset_zero(local_22c,0x200);
   lVar5 = CONCAT44(DAT_08055fbc,DAT_08055fb8);
   uVar1 = CONCAT44(DAT_08057ffc,DAT_08057ff8);
   uVar4 = 1;
@@ -340,18 +340,18 @@ int handle_program()
 
   local_2fc = DAT_0804cd58;
   local_2c = DAT_0804cd58;
-  FUN_08006d14(local_2ec,0x200);
+  memset_zero(local_2ec,0x200);
   iVar14 = 0x200;
   uVar13 = 0xffffffff;
   lVar2 = 0;
   local_310 = 0;
   uStack_30c = 0;
-  FUN_08006d14(auStack_ec,0x40);
-  FUN_08006d14(auStack_ac,0x40);
+  memset_zero(auStack_ec,0x40);
+  memset_zero(auStack_ac,0x40);
   local_314 = 0;
   local_300 = 1;
-  FUN_08006d14(auStack_6c,0x20);
-  FUN_08006d14(auStack_4c,0x20);
+  memset_zero(auStack_6c,0x20);
+  memset_zero(auStack_4c,0x20);
   bVar16 = true;
   iVar15 = 0;
   while (iVar4 = xml_advance(&DAT_08055ea0), iVar4 == 2) {
@@ -483,7 +483,7 @@ LAB_080247be:
                         sha256_hash(local_320,local_308,auStack_6c);
                         storage_read_sectors(local_31c,local_320,local_328,uStack_324);
                         sha256_hash(local_320,local_308,auStack_4c);
-                        uVar18 = FUN_08006898(auStack_6c,auStack_4c,0x20);
+                        uVar18 = memcmp(auStack_6c,auStack_4c,0x20);
                         uVar9 = (undefined4)((ulonglong)uVar18 >> 0x20);
                         if ((int)uVar18 != 0) {
                           pcVar6 = "Read back verify failed at sector %d,num sectors %d";
@@ -573,7 +573,7 @@ undefined4 handle_read()
   local_274 = DAT_0804cd58;
   local_2c = DAT_0804cd58;
   iVar8 = 0x200;
-  FUN_08006d14(auStack_26c,0x200);
+  memset_zero(auStack_26c,0x200);
   uVar9 = 0xffffffff;
   bVar1 = true;
   lVar10 = 0;
@@ -581,7 +581,7 @@ undefined4 handle_read()
   uStack_294 = 0;
   local_280 = 0;
   uStack_27c = 0;
-  FUN_08006d14(auStack_6c,0x40);
+  memset_zero(auStack_6c,0x40);
 LAB_08024be4:
   while( true ) {
     iVar5 = xml_advance(&DAT_08055ea0);

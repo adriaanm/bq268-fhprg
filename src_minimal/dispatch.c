@@ -26,7 +26,7 @@ undefined4 firehose_dispatch()
   iVar1 = DAT_0804cd58;
   local_18 = DAT_0804cd58;
   iVar2 = xml_advance();
-  FUN_08006d14(auStack_218,0x200);
+  memset_zero(auStack_218,0x200);
   if (iVar2 == 0) {
 LAB_done:
     uVar3 = 1;

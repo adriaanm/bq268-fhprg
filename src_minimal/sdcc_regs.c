@@ -15,7 +15,7 @@
 
 /* orig: 0x0800bbb4 sdcc_set_transfer_mode — configure transfer mode register.
  * param_2 points to a struct of shorts: [0]=multi_blk, [1]=dma_en, [2]=dir_read, [3]=auto_cmd, [5]=blk_cnt_en */
-void FUN_0800bbb4(param_1, param_2)
+void sdcc_set_transfer_mode(param_1, param_2)
 int param_1; ushort * param_2;
 {
   uint uVar1;
@@ -34,13 +34,13 @@ int param_1; ushort * param_2;
     uVar1 = uVar1 | 1;
   }
   *(uint *)((&DAT_0804e2c8)[param_1] + 0x2c) = uVar1;
-  FUN_0800bda0();
+  sdcc_enable_clock();
   return;
 }
 
 /* orig: 0x0800bd20 sdcc_cleanup — write command config register from struct.
  * param_2 = short[]: [0]=dpe, [1]=ccs_enable, [2]=data_present, [4]=idx_check, [5]=crc_check, [6]=resp_type, [8]=cmd_timeout */
-void FUN_0800bd20(param_1, param_2)
+void sdcc_cleanup(param_1, param_2)
 int param_1; short * param_2;
 {
   uint uVar1;
@@ -64,14 +64,14 @@ int param_1; short * param_2;
     }
     *(undefined4 *)((&DAT_0804e2c8)[param_1] + 8) = *(undefined4 *)(param_2 + 8);
     *(uint *)((&DAT_0804e2c8)[param_1] + 0xc) = uVar1;
-    FUN_0800bda0();
+    sdcc_enable_clock();
     return;
   }
   return;
 }
 
 /* orig: 0x0800bd78 sdcc_set_all_irq — set interrupt status to 0x18007ff (all bits) */
-void FUN_0800bd78(param_1)
+void sdcc_set_all_irq(param_1)
 int param_1;
 {
   *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x38) = 0x18007ff;
@@ -79,14 +79,14 @@ int param_1;
 }
 
 /* orig: 0x0800bd8c sdcc_read_status — read SDCC status register */
-undefined4 FUN_0800bd8c(param_1)
+undefined4 sdcc_read_status(param_1)
 int param_1;
 {
   return *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x34);
 }
 
 /* orig: 0x0800bda0 sdcc_enable_clock — busy-wait for clock stable (up to 1000 iterations) */
-void FUN_0800bda0(param_1)
+void sdcc_enable_clock(param_1)
 int param_1;
 {
   int iVar1;
@@ -104,14 +104,14 @@ int param_1;
 }
 
 /* orig: 0x0800be44 sdcc_read_present — read SDHCI normal interrupt status */
-undefined4 FUN_0800be44(param_1)
+undefined4 sdcc_read_present(param_1)
 int param_1;
 {
   return *(undefined4 *)((&DAT_0804e2d8)[param_1] + 0x30);
 }
 
 /* orig: 0x0800be68 sdcc_read_present_state — read SDHCI present state register */
-undefined4 FUN_0800be68(param_1)
+undefined4 sdcc_read_present_state(param_1)
 int param_1;
 {
   return *(undefined4 *)((&DAT_0804e2d8)[param_1] + 0x24);
@@ -119,7 +119,7 @@ int param_1;
 
 /* orig: 0x0800be78 sdcc_read_response — read 1 or 4 response words (R1 vs R2).
  * For R2 (param_3!=0), bytes are shifted to match CID/CSD format. */
-void FUN_0800be78(param_1, param_2, param_3)
+void sdcc_read_response(param_1, param_2, param_3)
 int param_1; uint * param_2; int param_3;
 {
   int iVar1;
@@ -144,7 +144,7 @@ int param_1; uint * param_2; int param_3;
 }
 
 /* orig: 0x0800bfac sdcc_clear_status — clear interrupt bits, poll until clear */
-void FUN_0800bfac(param_1, param_2)
+void sdcc_clear_status(param_1, param_2)
 int param_1; uint param_2;
 {
   uint uVar1;
@@ -154,7 +154,7 @@ int param_1; uint param_2;
   iVar2 = 100000;
   do {
     *(uint *)((&DAT_0804e2d8)[param_1] + 0x30) = param_2 & 0x7ff003f;
-    uVar1 = FUN_0800be44(param_1);
+    uVar1 = sdcc_read_present(param_1);
     if ((param_2 & 0x7ff003f & uVar1) == 0) {
       return;
     }
@@ -166,7 +166,7 @@ int param_1; uint param_2;
 }
 
 /* orig: 0x0800c008 sdcc_set_block_count — write SDHCI block count register */
-void FUN_0800c008(param_1, param_2)
+void sdcc_set_block_count(param_1, param_2)
 int param_1; undefined2 param_2;
 {
   *(undefined2 *)((&DAT_0804e2d8)[param_1] + 6) = param_2;
@@ -174,7 +174,7 @@ int param_1; undefined2 param_2;
 }
 
 /* orig: 0x0800c018 sdcc_set_block_size — write SDHCI block size register */
-void FUN_0800c018(param_1, param_2)
+void sdcc_set_block_size(param_1, param_2)
 int param_1; undefined2 param_2;
 {
   *(undefined2 *)((&DAT_0804e2d8)[param_1] + 4) = param_2;
@@ -182,7 +182,7 @@ int param_1; undefined2 param_2;
 }
 
 /* orig: 0x0800c0c4 sdcc_set_cmd_arg — write SDHCI argument register */
-void FUN_0800c0c4(param_1, param_2)
+void sdcc_set_cmd_arg(param_1, param_2)
 int param_1; undefined4 param_2;
 {
   *(undefined4 *)((&DAT_0804e2d8)[param_1] + 8) = param_2;
@@ -191,7 +191,7 @@ int param_1; undefined4 param_2;
 
 /* orig: 0x0800c0d4 sdcc_fire_cmd — write SDHCI command register to start command.
  * param_2 = byte[6]: [0]=cmd_index, [1]=cmd_type, [2]=data_present, [3]=idx_check, [4]=crc_check, [5]=resp_type */
-void FUN_0800c0d4(param_1, param_2)
+void sdcc_fire_cmd(param_1, param_2)
 int param_1; byte * param_2;
 {
   *(ushort *)((&DAT_0804e2d8)[param_1] + 0xe) =
@@ -201,7 +201,7 @@ int param_1; byte * param_2;
 }
 
 /* orig: 0x0800c11c sdcc_set_irq_mask — write SDHCI interrupt signal enable register */
-void FUN_0800c11c(param_1, param_2)
+void sdcc_set_irq_mask(param_1, param_2)
 int param_1; undefined1 param_2;
 {
   *(undefined1 *)((&DAT_0804e2d8)[param_1] + 0x2e) = param_2;
@@ -210,7 +210,7 @@ int param_1; undefined1 param_2;
 
 /* orig: 0x0800c12c sdcc_set_transfer_ctrl — write SDHCI transfer mode register.
  * param_2 = byte[5]: [0]=dma_en, [1]=blk_cnt_en, [2]=auto_cmd, [3]=direction, [4]=multi_blk */
-void FUN_0800c12c(param_1, param_2)
+void sdcc_set_transfer_ctrl(param_1, param_2)
 int param_1; byte * param_2;
 {
   *(ushort *)((&DAT_0804e2d8)[param_1] + 0xc) =
@@ -220,7 +220,7 @@ int param_1; byte * param_2;
 }
 
 /* orig: 0x0800c154 sdcc_reset_data_line — write and poll reset bit(s) */
-void FUN_0800c154(param_1, param_2)
+void sdcc_reset_data_line(param_1, param_2)
 int param_1; byte param_2;
 {
   int iVar1;
@@ -238,7 +238,7 @@ int param_1; byte param_2;
 }
 
 /* orig: 0x0800c0a8 sdcc_set_clock_divider — write clock control register */
-void FUN_0800c0a8(param_1, param_2)
+void sdcc_set_clock_divider(param_1, param_2)
 int param_1; uint param_2;
 {
   *(ushort *)((&DAT_0804e2d8)[param_1] + 0x2c) =
@@ -247,7 +247,7 @@ int param_1; uint param_2;
 }
 
 /* orig: 0x0800bfe8 sdcc_set_adma_addr_lo */
-void FUN_0800bfe8(param_1, param_2)
+void sdcc_set_adma_addr_lo(param_1, param_2)
 int param_1; undefined4 param_2;
 {
   *(undefined4 *)((&DAT_0804e2d8)[param_1] + 0x58) = param_2;
@@ -255,7 +255,7 @@ int param_1; undefined4 param_2;
 }
 
 /* orig: 0x0800bff8 sdcc_set_adma_addr_hi */
-void FUN_0800bff8(param_1, param_2)
+void sdcc_set_adma_addr_hi(param_1, param_2)
 int param_1; undefined4 param_2;
 {
   *(undefined4 *)((&DAT_0804e2d8)[param_1] + 0x5c) = param_2;
@@ -263,7 +263,7 @@ int param_1; undefined4 param_2;
 }
 
 /* orig: 0x0800bdbc sdcc_set_8bit_mode — set/clear bit 4 of FIFO+0x28 */
-void FUN_0800bdbc(param_1, param_2)
+void sdcc_set_8bit_mode(param_1, param_2)
 int param_1; int param_2;
 {
   byte bVar1;
@@ -278,7 +278,7 @@ int param_1; int param_2;
 }
 
 /* orig: 0x0800bdd8 sdcc_trigger_vendor_reset — set bits in vendor register +0x100 */
-void FUN_0800bdd8(param_1)
+void sdcc_trigger_vendor_reset(param_1)
 int param_1;
 {
   uint *puVar1;
@@ -292,7 +292,7 @@ int param_1;
 }
 
 /* orig: 0x0800bdf8 sdcc_set_clock_mode — modify clock control +0x3e bits */
-void FUN_0800bdf8(param_1)
+void sdcc_set_clock_mode(param_1)
 int param_1;
 {
   *(ushort *)((&DAT_0804e2d8)[param_1] + 0x3e) =
@@ -301,7 +301,7 @@ int param_1;
 }
 
 /* orig: 0x0800be10 sdcc_set_hs_mode — set/clear bit 2 of +0x2c */
-void FUN_0800be10(param_1, param_2)
+void sdcc_set_hs_mode(param_1, param_2)
 int param_1; char param_2;
 {
   *(byte *)((&DAT_0804e2d8)[param_1] + 0x2c) =
@@ -310,7 +310,7 @@ int param_1; char param_2;
 }
 
 /* orig: 0x0800be2c sdcc_read_caps — read capability registers (+0x40, +0x44) */
-void FUN_0800be2c(param_1, param_2)
+void sdcc_read_caps(param_1, param_2)
 int param_1; undefined4 * param_2;
 {
   *param_2 = *(undefined4 *)((&DAT_0804e2d8)[param_1] + 0x40);
@@ -319,14 +319,14 @@ int param_1; undefined4 * param_2;
 }
 
 /* orig: 0x0800be54 sdcc_read_power_mode — read low nibble of +0x29 */
-byte FUN_0800be54(param_1)
+byte sdcc_read_power_mode(param_1)
 int param_1;
 {
   return *(byte *)((&DAT_0804e2d8)[param_1] + 0x29) & 0xf;
 }
 
 /* orig: 0x0800beb8 sdcc_wait_pll_lock — wait for clock stable via +0xdc polling */
-void FUN_0800beb8(param_1)
+void sdcc_wait_pll_lock(param_1)
 int param_1;
 {
   undefined4 uVar1;
@@ -363,7 +363,7 @@ int param_1;
 }
 
 /* orig: 0x0800bf18 sdcc_set_int_enable — set/clear interrupt enable bits */
-void FUN_0800bf18(param_1, param_2, param_3)
+void sdcc_set_int_enable(param_1, param_2, param_3)
 int param_1; uint param_2; int param_3;
 {
   uint uVar1;
@@ -377,7 +377,7 @@ int param_1; uint param_2; int param_3;
 }
 
 /* orig: 0x0800bf34 sdcc_set_int_signal — set/clear interrupt signal bits with polling */
-void FUN_0800bf34(param_1, param_2, param_3)
+void sdcc_set_int_signal(param_1, param_2, param_3)
 int param_1; uint param_2; int param_3;
 {
   uint *puVar1;
@@ -407,14 +407,14 @@ int param_1; uint param_2; int param_3;
 }
 
 /* orig: 0x0800bf74 sdcc_read_clock_stable — check if internal clock is stable */
-uint FUN_0800bf74(param_1)
+uint sdcc_read_clock_stable(param_1)
 int param_1;
 {
   return ((uint)*(byte *)((&DAT_0804e2d8)[param_1] + 0x2c) << 0x1e) >> 0x1f;
 }
 
 /* orig: 0x0800bf88 sdcc_set_led — set/clear bit 1 of +0x10c */
-void FUN_0800bf88(param_1, param_2)
+void sdcc_set_led(param_1, param_2)
 int param_1; int param_2;
 {
   uint uVar1;
@@ -431,7 +431,7 @@ int param_1; int param_2;
 }
 
 /* orig: 0x0800c028 sdcc_set_dma_mode — configure DMA mode in +0x28 */
-void FUN_0800c028(param_1, param_2)
+void sdcc_set_dma_mode(param_1, param_2)
 int param_1; int param_2;
 {
   byte bVar1;
@@ -454,7 +454,7 @@ int param_1; int param_2;
 }
 
 /* orig: 0x0800c058 sdcc_setup_caps — configure vendor capability registers */
-void FUN_0800c058(param_1)
+void sdcc_setup_caps(param_1)
 int param_1;
 {
   uint uVar1;
@@ -484,7 +484,7 @@ int param_1;
 }
 
 /* orig: 0x0800c104 sdcc_set_bus_power — set/clear bit 0 of +0x29 */
-void FUN_0800c104(param_1, param_2)
+void sdcc_set_bus_power(param_1, param_2)
 int param_1; byte param_2;
 {
   *(byte *)((&DAT_0804e2d8)[param_1] + 0x29) =
@@ -493,7 +493,7 @@ int param_1; byte param_2;
 }
 
 /* orig: 0x0800c180 sdcc_set_voltage — write voltage bits of +0x29 */
-void FUN_0800c180(param_1, param_2)
+void sdcc_set_voltage(param_1, param_2)
 int param_1; byte param_2;
 {
   *(byte *)((&DAT_0804e2d8)[param_1] + 0x29) =
@@ -502,7 +502,7 @@ int param_1; byte param_2;
 }
 
 /* orig: 0x0800bc64 sdcc_set_bus_width_bit — set/clear bit 0 of +0x78 */
-void FUN_0800bc64(param_1, param_2)
+void sdcc_set_bus_width_bit(param_1, param_2)
 int param_1; int param_2;
 {
   uint uVar1;
@@ -519,7 +519,7 @@ int param_1; int param_2;
 }
 
 /* orig: 0x0800bc84 sdcc_init_bases — initialize register base addresses for slot 0 and 1 */
-void FUN_0800bc84()
+void sdcc_init_bases()
 {
   if (DAT_0804e2c4 != '\x01') {
     DAT_0804e2c8[0] = 0x7824000;
@@ -536,7 +536,7 @@ void FUN_0800bc84()
 }
 
 /* orig: 0x0800bccc sdcc_set_flow_control — set/clear bit 9 of config+4 */
-void FUN_0800bccc(param_1, param_2)
+void sdcc_set_flow_control(param_1, param_2)
 int param_1; int param_2;
 {
   uint uVar1;
@@ -549,12 +549,12 @@ int param_1; int param_2;
     uVar1 = uVar1 | 0x200;
   }
   *(uint *)((&DAT_0804e2c8)[param_1] + 4) = uVar1;
-  FUN_0800bda0();
+  sdcc_enable_clock();
   return;
 }
 
 /* orig: 0x0800bcec sdcc_set_bus_speed — set bus speed mode bits in config+4 */
-void FUN_0800bcec(param_1, param_2)
+void sdcc_set_bus_speed(param_1, param_2)
 int param_1; int param_2;
 {
   uint uVar1;
@@ -573,6 +573,6 @@ int param_1; int param_2;
   }
   *(uint *)((&DAT_0804e2c8)[param_1] + 4) =
        *(uint *)((&DAT_0804e2c8)[param_1] + 4) & 0xfffff3ff | uVar1;
-  FUN_0800bda0();
+  sdcc_enable_clock();
   return;
 }

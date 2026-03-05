@@ -32,7 +32,7 @@ uint crc32_update_byte(uint param_1, uint param_2)
             crc = crc >> 1;
         }
     }
-    return FUN_08031548(crc); /* bit_reverse */
+    return bit_reverse(crc); /* bit_reverse */
 }
 
 /* orig: 0x08013bb0 dal_device_dispatch — DAL device dispatch.

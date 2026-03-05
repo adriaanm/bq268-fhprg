@@ -23,28 +23,28 @@ int   snprintf(char *buf, size_t size, const char *fmt, ...);
 int   vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 
 /* String functions */
-#define FUN_08006906  strlen      /* orig: 0x08006906 */
-#define FUN_08006898  memcmp      /* orig: 0x08006898 */
+#define strlen  strlen      /* orig: 0x08006906 */
+#define memcmp  memcmp      /* orig: 0x08006898 */
 #define FUN_08006860  strchr      /* orig: 0x08006860 */
 #define FUN_08006874  strstr      /* orig: 0x08006874 */
 #define FUN_080068f0  strrchr     /* orig: 0x080068f0 */
 
 /* Memory functions */
 #define FUN_08006a30  memcpy      /* orig: 0x08006a30 */
-#define FUN_08006d14  memset_zero /* orig: 0x08006d14 — memset(p, 0, n) wrapper */
+#define memset_zero  memset_zero /* orig: 0x08006d14 — memset(p, 0, n) wrapper */
 #define FUN_08006bdc  memmove     /* orig: 0x08006bdc */
 
-/* The original FUN_08006d14 is memset(p, 0, n) — two-arg form */
+/* The original memset_zero is memset(p, 0, n) — two-arg form */
 static inline void memset_zero(void *p, unsigned int n) {
     memset(p, 0, n);
 }
 
 /* snprintf — the original firmware's snprintf_buf */
 #define snprintf_buf  snprintf    /* orig: 0x0800644c */
-#define FUN_08006418  vsnprintf_wrapper /* orig: 0x08006418 — vsnprintf(buf, n, fmt, va_list*) */
+#define vsnprintf_wrapper  vsnprintf_wrapper /* orig: 0x08006418 — vsnprintf(buf, n, fmt, va_list*) */
 
-/* The original FUN_08006418 takes a pointer to the va_list on stack.
- * In the decompiled code it's called as FUN_08006418(buf, size, fmt, &args).
+/* The original vsnprintf_wrapper takes a pointer to the va_list on stack.
+ * In the decompiled code it's called as vsnprintf_wrapper(buf, size, fmt, &args).
  * We provide a wrapper that matches this calling convention. */
 static inline int vsnprintf_wrapper(char *buf, unsigned int size,
                                      const char *fmt, va_list *ap) {
@@ -56,4 +56,4 @@ static inline int vsnprintf_wrapper(char *buf, unsigned int size,
 /* FUN_080060c0 is __aeabi_uldivmod — just use C / and % operators */
 
 /* ctype-like function used by XML tokenizer */
-/* FUN_080060b0 returns pointer to ctype table; we provide our own */
+/* get_ctype_table returns pointer to ctype table; we provide our own */

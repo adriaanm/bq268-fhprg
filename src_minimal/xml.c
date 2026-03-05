@@ -16,9 +16,9 @@ uint xml_send_and_wait(param_1, param_2, param_3)
 uint param_1; uint param_2; uint param_3;
 {
     DAT_08055f99 = '\0';
-    FUN_0802f900(param_1, param_3, (uint)&LAB_08028888, (uint)&DAT_08055f88);
+    send_and_wait(param_1, param_3, (uint)&LAB_08028888, (uint)&DAT_08055f88);
     while (DAT_08055f99 == '\0') {
-        FUN_0802f57c();
+        dispatch_loop_tick();
     }
     return 0;
 }
@@ -125,7 +125,7 @@ LAB_08038e30:
 LAB_08038ff2:
                 *(undefined1 *)(param_1 + 4) = uVar4;
             } else {
-                piVar5 = (int *)FUN_080060b0();
+                piVar5 = (int *)get_ctype_table();
                 bVar2 = *(byte *)(*piVar5 + uVar8);
 LAB_08038f3e:
                 if ((bVar2 & 1) == 0) {
@@ -135,7 +135,7 @@ LAB_08038f40:
             }
         }
         else if (cVar1 == '\x01') {
-            piVar5 = (int *)FUN_080060b0();
+            piVar5 = (int *)get_ctype_table();
             if (((*(byte *)(*piVar5 + uVar8) & 0x98) == 0) && (uVar8 != 0x3f)) {
                 if (uVar8 != 0x21) goto LAB_08038f40;
 LAB_08038e50:
@@ -153,7 +153,7 @@ LAB_08038efe:
             if (uVar8 == 0x3e) {
                 uVar4 = 3;
             } else {
-                piVar5 = (int *)FUN_080060b0();
+                piVar5 = (int *)get_ctype_table();
                 if ((*(byte *)(*piVar5 + uVar8) & 1) == 0) {
                     if ((*(byte *)(*piVar5 + uVar8) & 0x38) != 0) goto LAB_08038ff4;
                     if (uVar8 != 0x2f) goto LAB_08038f40;
@@ -173,7 +173,7 @@ LAB_08038f5c:
             param_1[9] = iVar7;
         }
         else if (cVar1 == '\x03') {
-            piVar5 = (int *)FUN_080060b0();
+            piVar5 = (int *)get_ctype_table();
             if ((*(byte *)(*piVar5 + uVar8) & 0x98) == 0) {
                 if (uVar8 == 0x3c) goto LAB_08038e30;
             } else {
@@ -193,12 +193,12 @@ LAB_08038f5c:
                 uVar4 = 6;
                 goto LAB_08038ff2;
             }
-            piVar5 = (int *)FUN_080060b0();
+            piVar5 = (int *)get_ctype_table();
             if ((*(byte *)(*piVar5 + uVar8) & 0x98) != 0) goto LAB_08038e4c;
             if (uVar8 == 0x21) goto LAB_08038e50;
         }
         else if (cVar1 == '\x06') {
-            piVar5 = (int *)FUN_080060b0();
+            piVar5 = (int *)get_ctype_table();
             if ((*(byte *)(*piVar5 + uVar8) & 0x98) != 0) {
                 uVar4 = 7;
                 goto LAB_08038efe;
@@ -221,7 +221,7 @@ LAB_08038f52:
                 uVar4 = 8;
                 goto LAB_08038ff2;
             }
-            piVar5 = (int *)FUN_080060b0();
+            piVar5 = (int *)get_ctype_table();
             bVar2 = *(byte *)(*piVar5 + uVar8);
             if ((bVar2 & 0x98) == 0) goto LAB_08038f3e;
             *(undefined1 *)(param_1 + 4) = 10;
@@ -405,7 +405,7 @@ int *param_1; uint param_2; uint param_3;
 
     if ((uint)param_1[5] <= (uint)param_1[3] &&
         (uint)((uint)param_1[2] <= (uint)param_1[4]) <= (uint)(param_1[5] - param_1[3])) {
-        uVar1 = FUN_08006418((char *)(param_1[4] + *param_1), param_1[2] - param_1[4], (const char *)param_2, (va_list *)param_3);
+        uVar1 = vsnprintf_wrapper((char *)(param_1[4] + *param_1), param_1[2] - param_1[4], (const char *)param_2, (va_list *)param_3);
         uVar2 = param_1[4];
         uVar3 = (param_1[3] - param_1[5]) - (uint)((uint)param_1[2] < uVar2);
         uVar4 = (int)uVar1 >> 0x1f;
@@ -433,7 +433,7 @@ int param_1; uint param_2; uint param_3; uint param_4; uint param_5; int param_6
     uint uVar2;
     bool bVar3;
 
-    uVar1 = FUN_08006906((char *)param_2);
+    uVar1 = strlen((char *)param_2);
     uVar2 = uVar1 + *(uint *)(param_1 + 0x10);
     uVar1 = *(int *)(param_1 + 0x14) + (uint)CARRY4(uVar1, *(uint *)(param_1 + 0x10)) +
              param_6 + (uint)(0xfffffffb < param_5) + (uint)CARRY4(uVar2, param_5 + 4);

@@ -29,7 +29,7 @@ static undefined4 clock_set_sdr_mode();
  * We provide stubs that are safe no-ops. */
 
 /* orig: 0x0800af10 — set GCC clock source mux */
-static void FUN_0800af10(param_1)
+static void gcc_clock_mux_set(param_1)
 undefined4 param_1;
 {
   /* GCC clock source select — already configured */
@@ -38,7 +38,7 @@ undefined4 param_1;
 }
 
 /* orig: 0x0800af38 — set GCC clock divider with source */
-static void FUN_0800af38(param_1, param_2)
+static void gcc_clock_divider_set(param_1, param_2)
 undefined4 param_1; undefined4 param_2;
 {
   /* GCC clock divider + source — already configured */
@@ -58,13 +58,13 @@ extern uint _DAT_004a1000;
 /* ---- Simple utility functions ---- */
 
 /* orig: 0x08032acc — get ADMA transfer mode (always 0x20 = ADMA2) */
-static undefined4 FUN_08032acc()
+static undefined4 sdcc_get_adma_mode()
 {
   return 0x20;
 }
 
 /* orig: 0x08032ad0 — get max clock speed for slot */
-static undefined4 FUN_08032ad0(param_1)
+static undefined4 sdcc_get_max_clock(param_1)
 int param_1;
 {
   if (param_1 != 0) {
@@ -74,7 +74,7 @@ int param_1;
 }
 
 /* orig: 0x08032b0c — enable SDCC clock for slot */
-static undefined4 FUN_08032b0c(param_1)
+static undefined4 sdcc_enable_slot(param_1)
 uint param_1;
 {
   /* This writes to GCC SDCC clock registers.
@@ -84,7 +84,7 @@ uint param_1;
 }
 
 /* orig: 0x08032b64 — init qtimer and enable global timer */
-static void FUN_08032b64()
+static void sdcc_qtimer_init()
 {
   qtimer_init();
   _DAT_004a1000 = 1;
@@ -92,7 +92,7 @@ static void FUN_08032b64()
 }
 
 /* orig: 0x08032b7c — release a partition slot entry */
-static void FUN_08032b7c(param_1)
+static void sdcc_release_partition(param_1)
 int * param_1;
 {
   /* Clear the partition table entry and increment free counter */
@@ -107,7 +107,7 @@ int * param_1;
 
 /* orig: 0x08032a04 — configure clock source for slot.
  * param_3: 1=disable, 2=reset, 4=set speed */
-void FUN_08032a04(param_1, param_2, param_3)
+void sdcc_clock_setup(param_1, param_2, param_3)
 int param_1; uint * param_2; int param_3;
 {
   uint uVar3;
@@ -127,13 +127,13 @@ int param_1; uint * param_2; int param_3;
   if (param_2 != (uint *)0x0) {
     uVar3 = *param_2;
     if (uVar3 < 0x191) {
-      FUN_0800af10(1);
+      gcc_clock_mux_set(1);
     }
     else if (uVar3 < 0x6591) {
-      FUN_0800af10(2);
+      gcc_clock_mux_set(2);
     }
     else if (uVar3 <= 52000) {
-      FUN_0800af10(3);
+      gcc_clock_mux_set(3);
     }
     else {
       undefined4 uVar1;
@@ -144,14 +144,14 @@ int param_1; uint * param_2; int param_3;
       else if (param_1 == 0) {
         uVar1 = 0x2b368;
         uVar2 = 1;
-        FUN_0800af38(uVar1,uVar2);
+        gcc_clock_divider_set(uVar1,uVar2);
         return;
       }
       else {
         uVar1 = 200000;
       }
       uVar2 = (param_1 == 0) ? 1 : 2;
-      FUN_0800af38(uVar1,uVar2);
+      gcc_clock_divider_set(uVar1,uVar2);
       return;
     }
   }
@@ -159,7 +159,7 @@ int param_1; uint * param_2; int param_3;
 }
 
 /* orig: 0x08032f98 — set bus speed mode register */
-static undefined4 FUN_08032f98(param_1, param_2)
+static undefined4 sdcc_set_bus_speed_mode(param_1, param_2)
 undefined4 param_1; undefined4 param_2;
 {
   int iVar1;
@@ -181,7 +181,7 @@ undefined4 param_1; undefined4 param_2;
   default:
     return 0;
   }
-  FUN_0800bcec(param_1,uVar2);
+  sdcc_set_bus_speed(param_1,uVar2);
   return 1;
 }
 
@@ -275,7 +275,7 @@ undefined4 * param_1; int param_2;
 }
 
 /* orig: 0x0803351c — parse EXT_CSD byte stream into structured fields */
-static undefined4 FUN_0803351c(param_1, param_2)
+static undefined4 mmc_parse_ext_csd(param_1, param_2)
 byte * param_1; short * param_2;
 {
   byte bVar1;
@@ -356,7 +356,7 @@ int param_1; int param_2;
 }
 
 /* orig: 0x08033aac — send CMD10 (SEND_CID) and parse */
-static int FUN_08033aac(param_1)
+static int mmc_send_cid(param_1)
 int param_1;
 {
   int iVar1;
@@ -383,7 +383,7 @@ int param_1;
 }
 
 /* orig: 0x0803321e — extract CSD capacity/timing fields (stubbed) */
-static void FUN_0803321e(param_1, param_2, param_3)
+static void mmc_parse_csd_fields(param_1, param_2, param_3)
 int param_1; undefined1 * param_2; char * param_3;
 {
   /* CSD field extraction into local struct.
@@ -394,7 +394,7 @@ int param_1; undefined1 * param_2; char * param_3;
 }
 
 /* orig: 0x08033d0a — calculate capacity from CSD fields (stubbed) */
-static void FUN_08033d0a(param_1, param_2, param_3, param_4)
+static void mmc_calc_capacity(param_1, param_2, param_3, param_4)
 int param_1; int param_2; int param_3; int param_4;
 {
   /* Capacity calculation from CSD c_size/c_size_mult/read_bl_len.
@@ -406,7 +406,7 @@ int param_1; int param_2; int param_3; int param_4;
 /* ---- Main card init functions ---- */
 
 /* orig: 0x08033ca0 mmc_get_slot_context — get per-slot context struct */
-int FUN_08033ca0(param_1)
+int mmc_get_slot_context(param_1)
 uint param_1;
 {
   if (2 < param_1) {
@@ -416,7 +416,7 @@ uint param_1;
 }
 
 /* orig: 0x080345b8 mmc_config_bus — send CMD2 and parse CSD to get RCA */
-int FUN_080345b8(param_1)
+int mmc_config_bus(param_1)
 int param_1;
 {
   undefined2 uVar1;
@@ -454,7 +454,7 @@ int param_1;
 }
 
 /* orig: 0x08033b30 mmc_identify_card — send CMD9, extract CSD capacity fields */
-int FUN_08033b30(param_1)
+int mmc_identify_card(param_1)
 int param_1;
 {
   char cVar1;
@@ -485,7 +485,7 @@ int param_1;
     iVar3 = sdcc_send_cmd(param_1,&local_40);
     if (iVar3 == 0) {
       memset_zero(local_68,0x28);
-      FUN_0803321e(param_1,auStack_34,local_68);
+      mmc_parse_csd_fields(param_1,auStack_34,local_68);
       cVar1 = *(char *)(param_1 + 8);
       if ((cVar1 == '\x01') || (cVar1 == '\x05')) {
         if (local_68[0] == '\x01') {
@@ -493,13 +493,13 @@ int param_1;
           *(uint *)(param_1 + 0x1c) = (local_58 + 1) * ((uint)((1 << local_60) << 10) >> 9);
         }
         else {
-          FUN_08033d0a(param_1,local_60,local_50,local_58);
+          mmc_calc_capacity(param_1,local_60,local_50,local_58);
         }
       }
       else {
         uVar4 = 3;
         if (cVar1 != '\x06') {
-          FUN_08033d0a(param_1,local_60,local_50,local_58);
+          mmc_calc_capacity(param_1,local_60,local_50,local_58);
         }
         if (local_64 != '2') {
           *(undefined1 *)(param_1 + 0x5f) = 2;
@@ -513,7 +513,7 @@ int param_1;
 }
 
 /* orig: 0x08032dcc mmc_set_bus_width — configure clock speed based on card type */
-void FUN_08032dcc(param_1, param_2, param_3, param_4)
+void mmc_set_bus_width(param_1, param_2, param_3, param_4)
 undefined4 * param_1; undefined4 param_2; undefined4 param_3; uint param_4;
 {
   char cVar1;
@@ -525,7 +525,7 @@ undefined4 * param_1; undefined4 param_2; undefined4 param_3; uint param_4;
   uVar4 = *param_1;
   cVar1 = *(char *)(param_1 + 2);
   local_18 = param_4;
-  uVar2 = FUN_08032ad0(uVar4);
+  uVar2 = sdcc_get_max_clock(uVar4);
   uVar3 = 20000;
   switch(param_2) {
   case 0:
@@ -584,14 +584,14 @@ LAB_08032e26:
     if (uVar2 <= uVar3) {
       local_18 = uVar2;
     }
-    FUN_08032a04(uVar4,&local_18,4);
+    sdcc_clock_setup(uVar4,&local_18,4);
   }
   param_1[0x21] = local_18;
   return;
 }
 
 /* orig: 0x08032eac mmc_set_speed — switch to high-speed mode after init */
-int FUN_08032eac(param_1)
+int mmc_set_speed(param_1)
 int * param_1;
 {
   char cVar1;
@@ -620,12 +620,12 @@ int * param_1;
     param_1[9] = 0x200;
     *(uint *)((&DAT_0804e2c8)[*param_1] + 0x2c) =
          *(uint *)((&DAT_0804e2c8)[*param_1] + 0x2c) & 0xfffe000f | 0x2000;
-    FUN_0800bda0();
+    sdcc_enable_clock();
   }
   cVar1 = (char)param_1[2];
   if ((cVar1 == '\x02') || (cVar1 == '\x06')) {
     if (*(byte *)((int)param_1 + 0x5d) < 4) {
-      FUN_08032f98(iVar3,0);
+      sdcc_set_bus_speed_mode(iVar3,0);
     }
     else {
       /* FUN_08032fd0 — DDR mode init. For eMMC on MSM8909 we typically
@@ -637,7 +637,7 @@ int * param_1;
     /* SD card speed setup — not used for eMMC.
      * Stub the SD-specific init functions. */
     param_1[0xd] = 1;
-    FUN_0800bcec(iVar3,0);
+    sdcc_set_bus_speed(iVar3,0);
     iVar2 = 0;
   }
   /* Check card is in transfer state */
@@ -649,7 +649,7 @@ int * param_1;
 }
 
 /* orig: 0x080335b4 mmc_finalize_init — disable clock and clear device state */
-void FUN_080335b4(param_1)
+void mmc_finalize_init(param_1)
 int param_1;
 {
   int *piVar1;
@@ -660,8 +660,8 @@ int param_1;
   if (*(char *)(param_1 + 9) != '\0') {
     if ((char)piVar1[1] != '\0') {
       *(uint *)(&DAT_0804e2c8)[iVar2] = *(uint *)(&DAT_0804e2c8)[iVar2] & 0xfffffffe;
-      FUN_0800bda0();
-      FUN_08032b0c(iVar2,0);
+      sdcc_enable_clock();
+      sdcc_enable_slot(iVar2,0);
       *(undefined1 *)(piVar1 + 1) = 0;
     }
     *(undefined1 *)(param_1 + 8) = 0;
@@ -672,7 +672,7 @@ int param_1;
 }
 
 /* orig: 0x080335fc mmc_release_slot — release device handle and partition entries */
-void FUN_080335fc(param_1)
+void mmc_release_slot(param_1)
 undefined4 * param_1;
 {
   int *piVar1;
@@ -684,13 +684,13 @@ undefined4 * param_1;
       iVar2 = *(int *)*piVar1;
       for (piVar1 = &DAT_08059efc; piVar1 < (int *)0x805a071; piVar1 = piVar1 + 3) {
         if (((int *)*piVar1 != (int *)0x0) && (*(int *)*piVar1 == iVar2)) {
-          FUN_08032b7c(piVar1);
+          sdcc_release_partition(piVar1);
         }
         if (DAT_0804e2a8 == 0x20) break;
       }
     }
     else {
-      FUN_08032b7c(piVar1);
+      sdcc_release_partition(piVar1);
     }
     *param_1 = 0;
   }
@@ -699,7 +699,7 @@ undefined4 * param_1;
 
 /* orig: 0x08033dfc mmc_classify_error — identify card type after reset.
  * Sends CMD0, CMD1/ACMD41 sequence to detect MMC vs SD vs SDHC. */
-char FUN_08033dfc(param_1)
+char mmc_classify_error(param_1)
 int * param_1;
 {
   int iVar1;
@@ -721,24 +721,24 @@ int * param_1;
     return 0;
   }
   *(uint *)(&DAT_0804e2c8)[uVar2] = *(uint *)(&DAT_0804e2c8)[uVar2] | 1;
-  FUN_0800bda0();
+  sdcc_enable_clock();
   if (*(char *)(*param_1 + 0x8c) == '\0') {
     *(uint *)((&DAT_0804e2c8)[uVar2] + 4) = *(uint *)((&DAT_0804e2c8)[uVar2] + 4) | 0x100;
-    FUN_0800bda0();
-    FUN_0800bccc(uVar2,0);
+    sdcc_enable_clock();
+    sdcc_set_flow_control(uVar2,0);
     thunk_FUN_080199b4(1000);
-    FUN_0800bccc(uVar2,1);
+    sdcc_set_flow_control(uVar2,1);
     thunk_FUN_080199b4(1000);
     *(uint *)((&DAT_0804e2c8)[uVar2] + 4) =
          *(uint *)((&DAT_0804e2c8)[uVar2] + 4) & 0xffff3fff | 0x8000;
-    FUN_0800bda0();
+    sdcc_enable_clock();
   }
   else {
-    FUN_0800bf88(uVar2,0);
+    sdcc_set_led(uVar2,0);
     thunk_FUN_080199b4(1000);
-    FUN_0800bf88(uVar2,1);
+    sdcc_set_led(uVar2,1);
   }
-  FUN_08032dcc((undefined4 *)*param_1,0);
+  mmc_set_bus_width((undefined4 *)*param_1,0);
   uVar2 = sdcc_get_slot_status(uVar2);
   if ((uVar2 & 1) != 0) {
     /* MMC detection path */
@@ -832,7 +832,7 @@ int * param_1;
 }
 
 /* orig: 0x08034888 mmc_setup_partitions — check if partition entry exists */
-undefined4 FUN_08034888(param_1)
+undefined4 mmc_setup_partitions(param_1)
 int param_1;
 {
   int *piVar1;
@@ -849,7 +849,7 @@ int param_1;
 }
 
 /* orig: 0x08034cb4 mmc_read_ext_csd — allocate partition table entry */
-int * FUN_08034cb4(param_1, param_2)
+int * mmc_read_ext_csd(param_1, param_2)
 short param_1; int param_2;
 {
   int iVar1;
@@ -864,7 +864,7 @@ short param_1; int param_2;
   piVar2 = (int *)0x0;
 LAB_08034cd8:
   if (piVar2 != (int *)0x0) {
-    iVar1 = FUN_08033ca0((int)param_1);
+    iVar1 = mmc_get_slot_context((int)param_1);
     if (iVar1 == 0) {
       return (int *)0x0;
     }
@@ -876,7 +876,7 @@ LAB_08034cd8:
 }
 
 /* orig: 0x0803460c mmc_init_fallback — init without full card identification */
-undefined4 FUN_0803460c(param_1)
+undefined4 mmc_init_fallback(param_1)
 int param_1;
 {
   int *piVar1;
@@ -884,7 +884,7 @@ int param_1;
   int iVar3;
   int *piVar4;
 
-  piVar1 = (int *)FUN_08033ca0();
+  piVar1 = (int *)mmc_get_slot_context();
   uVar2 = 0;
   if (piVar1 != (int *)0x0) {
     piVar1[0x27] = (int)piVar1;
@@ -899,28 +899,28 @@ int param_1;
         *(undefined1 *)(piVar1 + 1) = 1;
         *(undefined1 *)(piVar1 + 0x26) = 0;
       }
-      FUN_08032b0c(param_1,1);
-      FUN_08032b64();
-      FUN_08032dcc(piVar4,5);
+      sdcc_enable_slot(param_1,1);
+      sdcc_qtimer_init();
+      mmc_set_bus_width(piVar4,5);
       thunk_FUN_080199b4(1000);
-      FUN_0800bc84();
-      FUN_0800bc64(param_1,0);
+      sdcc_init_bases();
+      sdcc_set_bus_width_bit(param_1,0);
       *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0xc) = 0;
-      FUN_0800bda0(param_1);
+      sdcc_enable_clock(param_1);
       *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x2c) = 0;
-      FUN_0800bda0(param_1);
+      sdcc_enable_clock(param_1);
       *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x38) = 0x18007ff;
       *(uint *)((&DAT_0804e2c8)[param_1] + 4) = *(uint *)((&DAT_0804e2c8)[param_1] + 4) | 0x200000;
       *(uint *)((&DAT_0804e2c8)[param_1] + 4) = *(uint *)((&DAT_0804e2c8)[param_1] + 4) & 0xfffff3ff;
-      FUN_0800bda0(param_1);
+      sdcc_enable_clock(param_1);
       *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x38) = 0x400000;
       *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x3c) = 0;
       *piVar4 = param_1;
       *(undefined1 *)((int)piVar1 + 0x15) = 1;
-      iVar3 = FUN_08032acc();
+      iVar3 = sdcc_get_adma_mode();
       piVar1[0x19] = 1;
       piVar1[0x25] = iVar3;
-      FUN_08032a04(param_1,0,2);
+      sdcc_clock_setup(param_1,0,2);
     }
     uVar2 = 1;
   }
@@ -928,7 +928,7 @@ int param_1;
 }
 
 /* orig: 0x08034704 mmc_init_card — full card init with identification */
-undefined4 FUN_08034704(param_1)
+undefined4 mmc_init_card(param_1)
 int param_1;
 {
   int *piVar1;
@@ -939,7 +939,7 @@ int param_1;
   undefined4 local_28;
 
   local_28 = 0;
-  piVar1 = (int *)FUN_08033ca0();
+  piVar1 = (int *)mmc_get_slot_context();
   if (piVar1 == (int *)0x0) {
     uVar3 = 0;
   }
@@ -959,38 +959,38 @@ int param_1;
       *(undefined1 *)(piVar1 + 1) = 1;
       *(undefined1 *)(piVar1 + 0x26) = 1;
     }
-    FUN_08032b0c(param_1,1);
-    FUN_08032b64();
-    local_28 = FUN_08032ad0(param_1);
-    FUN_08032a04(param_1,&local_28,4);
-    FUN_08032dcc(piVar4,5);
+    sdcc_enable_slot(param_1,1);
+    sdcc_qtimer_init();
+    local_28 = sdcc_get_max_clock(param_1);
+    sdcc_clock_setup(param_1,&local_28,4);
+    mmc_set_bus_width(piVar4,5);
     thunk_FUN_080199b4(1000);
-    FUN_0800bc84();
+    sdcc_init_bases();
     *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0xc) = 0;
-    FUN_0800bda0(param_1);
+    sdcc_enable_clock(param_1);
     *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x2c) = 0;
-    FUN_0800bda0(param_1);
+    sdcc_enable_clock(param_1);
     *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x38) = 0x18007ff;
     *(uint *)((&DAT_0804e2c8)[param_1] + 4) = *(uint *)((&DAT_0804e2c8)[param_1] + 4) | 0x200000;
     *(uint *)((&DAT_0804e2c8)[param_1] + 4) = *(uint *)((&DAT_0804e2c8)[param_1] + 4) & 0xfffff3ff;
-    FUN_0800bda0(param_1);
+    sdcc_enable_clock(param_1);
     *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x38) = 0x400000;
     *(undefined4 *)((&DAT_0804e2c8)[param_1] + 0x3c) = 0;
     *piVar4 = param_1;
     *(undefined1 *)((int)piVar1 + 0x15) = 1;
-    iVar2 = FUN_08032acc();
+    iVar2 = sdcc_get_adma_mode();
     piVar1[0x19] = 1;
     piVar1[0x25] = iVar2;
     *(uint *)(&DAT_0804e2c8)[param_1] = *(uint *)(&DAT_0804e2c8)[param_1] | 1;
-    FUN_0800bda0();
-    FUN_0800bc64(param_1,1);
-    FUN_0800c154(param_1,1);
-    FUN_0800c058(param_1);
-    FUN_0800be2c(param_1,piVar1 + 0x2d);
+    sdcc_enable_clock();
+    sdcc_set_bus_width_bit(param_1,1);
+    sdcc_reset_data_line(param_1,1);
+    sdcc_setup_caps(param_1);
+    sdcc_read_caps(param_1,piVar1 + 0x2d);
     /* FUN_08034508 — clock tuning, safe to skip if already in SDR mode */
-    FUN_0800bf18(param_1,0x7ff003f,0);
-    FUN_0800bf34(param_1,0x7ff003f,1);
-    FUN_0800bfac(param_1,0x7ff003f);
+    sdcc_set_int_enable(param_1,0x7ff003f,0);
+    sdcc_set_int_signal(param_1,0x7ff003f,1);
+    sdcc_clear_status(param_1,0x7ff003f);
     *(byte *)((int)piVar1 + 0x99) = (byte)((uint)(piVar1[0x2e] << 0x1d) >> 0x1f);
     bVar5 = -1 < piVar1[0x2d] << 0xc;
     if (bVar5) {
@@ -999,7 +999,7 @@ int param_1;
     else {
       *(undefined1 *)((int)piVar1 + 0x9a) = 1;
     }
-    FUN_0800bdbc(param_1,!bVar5);
+    sdcc_set_8bit_mode(param_1,!bVar5);
 LAB_08034876:
     uVar3 = 1;
   }

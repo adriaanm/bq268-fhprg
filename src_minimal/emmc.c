@@ -80,8 +80,8 @@ uint param_1;
  *          7=busy timeout, 0xb=R1 error bits set
  *
  * Two paths:
- *   SPI mode (card[0x23]==1): uses FUN_0800be68/FUN_0800c11c register ops
- *   SD/MMC mode: uses FUN_08034b88 data setup, then reads response
+ *   SPI mode (card[0x23]==1): uses sdcc_read_present_state/sdcc_set_irq_mask register ops
+ *   SD/MMC mode: uses sdcc_setup_data_xfer data setup, then reads response
  */
 int sdcc_send_cmd(param_1, param_2)
 int * param_1; int * param_2;
@@ -105,13 +105,13 @@ int * param_1; int * param_2;
   /* SPI mode path — talks to controller via register polling */
   if ((char)param_1[0x23] != '\x01') {
     iVar7 = 0;
-    FUN_08034edc(); /* sdcc_pre_cmd_hook */
+    sdcc_pre_cmd_hook(); /* sdcc_pre_cmd_hook */
     if (*param_2 == 0) {
       /* CMD0 (GO_IDLE_STATE): poll until card responds */
       iVar7 = *param_1; /* slot number */
       uVar8 = 0;
       while ((uVar4 = uVar8 + 1, uVar8 < 800 &&
-              (uVar8 = FUN_0800bd8c(iVar7), (uVar8 & 0x80) == 0)))
+              (uVar8 = sdcc_read_status(iVar7), (uVar8 & 0x80) == 0)))
       {
         thunk_FUN_080199b4(10); /* delay 10us */
         uVar8 = uVar4;
@@ -119,7 +119,7 @@ int * param_1; int * param_2;
       if (uVar4 < 800) {
         *(undefined4 *)((&DAT_0804e2c8)[iVar7] + 0x38) = 0x80;
         while (uVar4 < 800) {
-          uVar8 = FUN_0800bd8c(iVar7);
+          uVar8 = sdcc_read_status(iVar7);
           if ((uVar8 & 0x80) == 0) {
             return 0;
           }
@@ -132,7 +132,7 @@ int * param_1; int * param_2;
     else {
       /* Non-CMD0: set up data transfer if needed */
       if ((char)param_2[2] != '\0') {
-        iVar3 = FUN_08034b88(param_1,param_2); /* sdcc_setup_data_xfer */
+        iVar3 = sdcc_setup_data_xfer(param_1,param_2); /* sdcc_setup_data_xfer */
         if (iVar3 != 0) {
           return iVar3;
         }
@@ -157,10 +157,10 @@ int * param_1; int * param_2;
       }
       /* Wait for busy if requested */
       if ((param_2[7] != 0) && (iVar7 == 0)) {
-        iVar7 = FUN_08035134(param_1); /* sdcc_busy_wait */
+        iVar7 = sdcc_busy_wait(param_1); /* sdcc_busy_wait */
       }
-      FUN_08006d14(&local_28,0x14); /* memset(clean, 0, 20) */
-      FUN_0800bd20(*param_1,&local_28); /* sdcc_cleanup */
+      memset_zero(&local_28,0x14); /* memset(clean, 0, 20) */
+      sdcc_cleanup(*param_1,&local_28); /* sdcc_cleanup */
     }
     return iVar7;
   }
@@ -175,7 +175,7 @@ int * param_1; int * param_2;
   local_2c = 0;
   /* Wait for command line to be free (present state register bits 0-1) */
   do {
-    uVar4 = FUN_0800be68(iVar3); /* sdcc_read_present_state */
+    uVar4 = sdcc_read_present_state(iVar3); /* sdcc_read_present_state */
     if ((uVar4 & 3) == 0) goto LAB_08032cc4;
     thunk_FUN_080199b4(100); /* delay 100us */
     uVar8 = uVar8 + 100;
@@ -183,8 +183,8 @@ int * param_1; int * param_2;
   iVar7 = 3; /* timeout waiting for cmd line */
 LAB_08032cc4:
   if (iVar7 == 0) {
-    FUN_0800c11c(iVar3,0xf);     /* sdcc_set_irq_mask(slot, ALL) */
-    FUN_0800c0c4(iVar3,param_2[1]); /* sdcc_set_cmd_arg(slot, arg) */
+    sdcc_set_irq_mask(iVar3,0xf);     /* sdcc_set_irq_mask(slot, ALL) */
+    sdcc_set_cmd_arg(iVar3,param_2[1]); /* sdcc_set_cmd_arg(slot, arg) */
     /* Build command register value */
     uVar2 = local_30;
     bVar9 = (param_2[9] & 3U) != 0; /* DMA/ADMA flag */
@@ -207,28 +207,28 @@ LAB_08032cc4:
       }
     }
     _GHIDRA_FIELD(local_2c, 0, ushort) = CONCAT11(cVar6,(undefined1)local_2c);
-    FUN_0800c0d4(iVar3,&local_30); /* sdcc_fire_cmd(slot, &cmd_reg) */
+    sdcc_fire_cmd(iVar3,&local_30); /* sdcc_fire_cmd(slot, &cmd_reg) */
     /* Wait for command completion */
-    iVar7 = FUN_0803456c(iVar3,1,&local_28); /* sdcc_wait_complete(slot, CMD, &status) */
+    iVar7 = sdcc_wait_complete(iVar3,1,&local_28); /* sdcc_wait_complete(slot, CMD, &status) */
     if (iVar7 == 0) {
-      FUN_0800bfac(iVar3,1); /* sdcc_clear_status(slot, CMD) */
+      sdcc_clear_status(iVar3,1); /* sdcc_clear_status(slot, CMD) */
       /* Read response if expected */
       if (cVar6 != '\0') {
         param_2[3] = 0;
         param_2[4] = 0;
         param_2[5] = 0;
         param_2[6] = 0;
-        FUN_0800be78(iVar3,param_2 + 3,(char)param_2[2] == '\x04');
+        sdcc_read_response(iVar3,param_2 + 3,(char)param_2[2] == '\x04');
         /* sdcc_read_response(slot, &resp[3], is_R2) */
       }
       /* If busy wait requested and NOT in DMA mode, wait for data complete */
       if ((param_2[7] != 0) && (!bVar9)) {
-        iVar7 = FUN_0803456c(iVar3,2,&local_28); /* wait for DATA complete */
+        iVar7 = sdcc_wait_complete(iVar3,2,&local_28); /* wait for DATA complete */
         if (iVar7 != 0) {
           param_2[8] = local_28;
           return 7; /* busy timeout */
         }
-        FUN_0800bfac(iVar3,2); /* sdcc_clear_status(slot, DATA) */
+        sdcc_clear_status(iVar3,2); /* sdcc_clear_status(slot, DATA) */
       }
       iVar7 = 0;
     }
@@ -301,7 +301,7 @@ undefined4 * param_1; int * param_2; undefined4 param_3; uint param_4;
     local_38 = (int)(uVar4 << 0x1e) >> 0x1f; /* bit 1 of flags: reliable write */
     iVar6 = 0;
     /* Pre-write DMA/buffer setup */
-    iVar1 = FUN_08035040(param_1,local_38 + 1,param_4);
+    iVar1 = sdcc_pre_write_setup(param_1,local_38 + 1,param_4);
     if (iVar1 == 0) {
       param_1[4] = 0x14;
       return 0x14;
@@ -320,11 +320,11 @@ undefined4 * param_1; int * param_2; undefined4 param_3; uint param_4;
     /* Reliable write: set multi-block flag */
     if ((int)(uVar4 << 0x1e) < 0) {
       local_3c = 0x101; /* multi-block write */
-      FUN_0800bbb4(*param_1,&local_40); /* sdcc_set_transfer_mode */
+      sdcc_set_transfer_mode(*param_1,&local_40); /* sdcc_set_transfer_mode */
     }
     /* Send the write command (CMD24/CMD25) */
     if ((int)(uVar4 << 0x1d) < 0) {
-      iVar2 = FUN_08034eaa(); /* sdcc_adma_write — ADMA path */
+      iVar2 = sdcc_adma_write(); /* sdcc_adma_write — ADMA path */
     }
     else {
       iVar2 = sdcc_send_cmd(param_1,param_2);
@@ -347,24 +347,24 @@ undefined4 * param_1; int * param_2; undefined4 param_3; uint param_4;
         iVar6 = (**(code **)(iVar5 + 0xac))(iVar5,local_2c,iVar1,uVar3);
         if (iVar6 == 0) {
           if ((uVar4 & 1) != 0) {
-            FUN_0800bbb4(*param_1,&local_40);
+            sdcc_set_transfer_mode(*param_1,&local_40);
           }
-          iVar8 = FUN_080350ee(param_1); /* sdcc_post_write_check */
+          iVar8 = sdcc_post_write_check(param_1); /* sdcc_post_write_check */
         }
         if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) goto LAB_0803376e;
       }
       /* PIO/SDMA transfer path */
       if ((int)(uVar4 << 0x1e) < 0) {
-        iVar8 = FUN_08034c14(iVar5,local_2c,iVar1); /* ADMA transfer */
+        iVar8 = sdcc_adma_transfer(iVar5,local_2c,iVar1); /* ADMA transfer */
       }
       else {
         _GHIDRA_FIELD(local_40, 0, uint24_t) = (uint3)(ushort)local_40;
-        FUN_0800bbb4(*param_1,&local_40);
-        iVar8 = FUN_08035188(iVar5,local_2c,iVar1); /* PIO transfer */
+        sdcc_set_transfer_mode(*param_1,&local_40);
+        iVar8 = sdcc_pio_transfer(iVar5,local_2c,iVar1); /* PIO transfer */
       }
       local_40 = 0;
       local_3c = 0;
-      FUN_0800bbb4(*param_1,&local_40); /* clear transfer mode */
+      sdcc_set_transfer_mode(*param_1,&local_40); /* clear transfer mode */
     }
 LAB_0803376e:
     /* Post-write: send stop command if needed (CMD12 for multi-block) */
@@ -374,7 +374,7 @@ LAB_0803376e:
     else {
       uVar3 = 1; /* need CMD12 STOP */
     }
-    iVar1 = FUN_08032d8c(param_1,local_38 + 1,uVar3); /* post-write cleanup */
+    iVar1 = sdcc_post_write_cleanup(param_1,local_38 + 1,uVar3); /* post-write cleanup */
     /* ADMA completion callback */
     if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) {
       if ((int)(uVar4 << 0x1e) < 0) {
@@ -404,17 +404,17 @@ LAB_0803376e:
     uVar7 = param_4;
   }
   iVar8 = uVar4 * uVar7; /* total bytes */
-  local_38 = FUN_0800be44(uVar3); /* sdcc_read_present */
-  if (((local_38 & 0x7ff003f) != 0) && (FUN_0800bfac(uVar3), (local_38 & 0x7ff0000) != 0)) {
-    FUN_0800c154(uVar3,6); /* sdcc_reset_data_line */
+  local_38 = sdcc_read_present(uVar3); /* sdcc_read_present */
+  if (((local_38 & 0x7ff003f) != 0) && (sdcc_clear_status(uVar3), (local_38 & 0x7ff0000) != 0)) {
+    sdcc_reset_data_line(uVar3,6); /* sdcc_reset_data_line */
   }
   /* Set up DMA if in DMA mode */
   if (*(char *)((int)param_1 + 0x8e) == '\x01') {
-    FUN_080343c0(uVar3,local_2c,iVar8); /* sdcc_dma_setup */
+    sdcc_dma_setup(uVar3,local_2c,iVar8); /* sdcc_dma_setup */
   }
   /* Set block size and block count in controller */
-  FUN_0800c018(uVar3,uVar4 & 0xffff);  /* sdcc_set_block_size */
-  FUN_0800c008(uVar3,uVar7 & 0xffff);  /* sdcc_set_block_count */
+  sdcc_set_block_size(uVar3,uVar4 & 0xffff);  /* sdcc_set_block_size */
+  sdcc_set_block_count(uVar3,uVar7 & 0xffff);  /* sdcc_set_block_count */
   /* Build transfer mode register */
   local_60 = 0;
   if (param_2[9] << 0x1e < 0) {
@@ -426,10 +426,10 @@ LAB_0803376e:
   local_60 = (uint3)(ushort)local_60;
   local_60 = (1 << 24) | local_60; /* direction = write */
   local_5c = (uint)*(byte *)((int)param_1 + 0x8e); /* DMA mode */
-  FUN_0800c12c(*param_1,&local_60); /* sdcc_set_transfer_ctrl */
+  sdcc_set_transfer_ctrl(*param_1,&local_60); /* sdcc_set_transfer_ctrl */
   /* Send the write command */
   if (param_2[9] << 0x1d < 0) {
-    iVar1 = FUN_08034eaa(); /* ADMA path */
+    iVar1 = sdcc_adma_write(); /* ADMA path */
   }
   else {
     iVar1 = sdcc_send_cmd(param_1,param_2);
@@ -438,18 +438,18 @@ LAB_0803376e:
     uVar9 = 2; /* wait for DATA complete */
     if (*(char *)((int)param_1 + 0x8e) == '\0') {
       /* PIO mode: push data through FIFO */
-      iVar1 = FUN_08034314(param_1,param_2,local_2c,iVar8); /* sdcc_fifo_write */
+      iVar1 = sdcc_fifo_write(param_1,param_2,local_2c,iVar8); /* sdcc_fifo_write */
       if (iVar1 != 0) goto LAB_080338ba;
     }
     else {
       uVar9 = 0x2000002; /* DMA + DATA complete */
     }
     /* Wait for transfer completion */
-    iVar1 = FUN_0803456c(uVar3,uVar9,&local_38); /* sdcc_wait_complete */
+    iVar1 = sdcc_wait_complete(uVar3,uVar9,&local_38); /* sdcc_wait_complete */
     if (iVar1 == 0) {
       iVar1 = 0;
       /* Multi-block: send CMD12 STOP_TRANSMISSION */
-      if ((((int)(local_38 << 0x1e) < 0) && (FUN_0800bfac(uVar3,2), -1 < param_2[9] << 0x1d)) &&
+      if ((((int)(local_38 << 0x1e) < 0) && (sdcc_clear_status(uVar3,2), -1 < param_2[9] << 0x1d)) &&
          (1 < uVar7)) {
         local_60 = 0xc;  /* CMD12 */
         local_58 = 1;     /* R1B response */
@@ -458,18 +458,18 @@ LAB_0803376e:
         local_3c = 0;
         iVar1 = sdcc_send_cmd(param_1,&local_60);
       }
-      FUN_080329f8(4,0); /* sdcc_event_notify(WRITE_DONE) */
+      sdcc_event_notify(4,0); /* sdcc_event_notify(WRITE_DONE) */
       if ((param_2[9] << 0x1e < 0) && (*(char *)((int)param_1 + 0x8e) == '\x01')) {
-        FUN_080329f8(1,local_2c,iVar8); /* notify DMA complete */
-        FUN_080329f8(4,0);
+        sdcc_event_notify(1,local_2c,iVar8); /* notify DMA complete */
+        sdcc_event_notify(4,0);
       }
-      FUN_0800c154(uVar3,6); /* sdcc_reset_data_line */
+      sdcc_reset_data_line(uVar3,6); /* sdcc_reset_data_line */
       return iVar1;
     }
     param_2[8] = local_38; /* store error status */
   }
 LAB_080338ba:
-  FUN_0800be44(uVar3); /* read & clear present state */
+  sdcc_read_present(uVar3); /* read & clear present state */
   return iVar1;
 }
 
@@ -517,7 +517,7 @@ int * param_1;
 
   if ((param_1 != (int *)0x0) && (*param_1 != 0)) {
     local_10 = param_1;
-    FUN_080335fc(&local_10); /* mmc_release_slot */
+    mmc_release_slot(&local_10); /* mmc_release_slot */
     return 0;
   }
   return 0x14;
@@ -588,7 +588,7 @@ undefined4 * param_1; int param_2; int param_3;
             /* Busy timeout — keep waiting */
             if ((local_34 & 0xfdff8000) == 0) {
               do {
-                iVar1 = FUN_08035134(puVar2); /* sdcc_busy_wait */
+                iVar1 = sdcc_busy_wait(puVar2); /* sdcc_busy_wait */
               } while (iVar1 == 7);
               return iVar1;
             }
@@ -637,7 +637,7 @@ uint *param_1; char *param_2;
         (2 < *puVar3) || (param_2 == (char *)0x0)) {
         return 0x14;
     }
-    FUN_08006d14(param_2, 0x40); /* memset(info, 0, 64) */
+    memset_zero(param_2, 0x40); /* memset(info, 0, 64) */
     *param_2 = (char)puVar3[2]; /* card type */
     *(uint *)(param_2 + 0xc) = puVar3[9]; /* sector size */
     uVar2 = sdcc_get_slot_status(*(uint *)*param_1);
@@ -792,7 +792,7 @@ int * param_1;
   else {
     /* Restore current partition field first if needed */
     if ((*(int *)(iVar3 + 4) != 0) &&
-       (iVar1 = FUN_08034a40(iVar3,(uint)*(byte *)(iVar3 + 0x78) << 0xb | 0x3b30000), iVar1 != 0)) {
+       (iVar1 = mmc_switch_cmd6(iVar3,(uint)*(byte *)(iVar3 + 0x78) << 0xb | 0x3b30000), iVar1 != 0)) {
       /* CMD6 SWITCH: Access=3 (write), Index=0xB3 (PARTITION_CONFIG),
        * Value=current partition << 3, Cmd_set=0 */
       return iVar1;
@@ -806,7 +806,7 @@ int * param_1;
      *   bits[2:0] = PARTITION_ACCESS (which partition to access)
      *   bits[5:3] = BOOT_PARTITION_ENABLE
      *   bit[6]    = BOOT_ACK */
-    iVar1 = FUN_08034a40(iVar3,(*(uint *)(iVar3 + 4) | uVar4 << 3) << 8 | 0x3b30000);
+    iVar1 = mmc_switch_cmd6(iVar3,(*(uint *)(iVar3 + 4) | uVar4 << 3) << 8 | 0x3b30000);
     if (iVar1 == 0) {
       *(char *)(iVar3 + 0x78) = (char)uVar4; /* update cached partition */
       return 0;
@@ -1027,7 +1027,7 @@ int * param_1;
    * Arg format: 0x03B30000 | (boot_config | partition_access) << 8
    * boot_config = dev+0x78 current config, shifted left 3 bits
    * partition_access = requested partition index */
-  iVar2 = FUN_08034a40(iVar3,(uVar4 | (uint)*(byte *)(iVar3 + 0x78) << 3) << 8 | 0x3b30000);
+  iVar2 = mmc_switch_cmd6(iVar3,(uVar4 | (uint)*(byte *)(iVar3 + 0x78) << 3) << 8 | 0x3b30000);
   if (iVar2 == 0) {
     *(uint *)(iVar3 + 4) = uVar4; /* cache new partition */
   }
@@ -1063,24 +1063,24 @@ int param_1; undefined4 param_2;
      * SD card init via FUN_080348b8/FUN_080340e4. In the compiled binary,
      * this path is always MMC. */
     if (true) {
-      iVar2 = FUN_08034704(param_1); /* mmc_init_card */
+      iVar2 = mmc_init_card(param_1); /* mmc_init_card */
     }
     else {
-      iVar2 = FUN_0803460c(); /* fallback init */
+      iVar2 = mmc_init_fallback(); /* fallback init */
     }
     if (iVar2 == 0) {
       return 0;
     }
-    iVar2 = FUN_08033ca0(param_1); /* mmc_get_slot_context */
+    iVar2 = mmc_get_slot_context(param_1); /* mmc_get_slot_context */
     if (iVar2 != 0) {
       iVar4 = iVar2 + 0xc;
-      local_20 = (int)FUN_08034cb4(param_1,param_2); /* mmc_read_ext_csd */
+      local_20 = (int)mmc_read_ext_csd(param_1,param_2); /* mmc_read_ext_csd */
       if (local_20 == 0) {
-        iVar2 = FUN_08034888(iVar4); /* mmc_setup_partitions */
+        iVar2 = mmc_setup_partitions(iVar4); /* mmc_setup_partitions */
         if (iVar2 != 0) {
           return local_20;
         }
-        FUN_080335b4(iVar4); /* mmc_finalize_init */
+        mmc_finalize_init(iVar4); /* mmc_finalize_init */
         return local_20;
       }
       /* Error handling: classify and potentially recover */
@@ -1090,22 +1090,22 @@ int param_1; undefined4 param_2;
         if (cVar1 == '\x05') { return local_20; }
         if (cVar1 == '\x02') { return local_20; }
         if (cVar1 == '\x06') { return local_20; }
-        cVar1 = FUN_08033dfc(local_20); /* mmc_classify_error */
+        cVar1 = mmc_classify_error(local_20); /* mmc_classify_error */
         *(char *)(iVar2 + 0x14) = cVar1;
         *(char *)(iVar2 + 0x24) = cVar1;
         if (cVar1 != '\0') {
           if (cVar1 == '\x04') goto LAB_08034086;
-          iVar3 = FUN_080345b8(iVar4); /* mmc_config_bus */
+          iVar3 = mmc_config_bus(iVar4); /* mmc_config_bus */
           if (iVar3 == 0) {
             if (*(char *)(iVar2 + 0x98) == '\0') {
               *(uint *)((&DAT_0804e2c8)[param_1] + 4) =
                    *(uint *)((&DAT_0804e2c8)[param_1] + 4) | 0x1000;
-              FUN_0800bda0(); /* sdcc_enable_clock */
+              sdcc_enable_clock(); /* sdcc_enable_clock */
             }
-            iVar3 = FUN_08033b30(iVar4); /* mmc_identify_card */
+            iVar3 = mmc_identify_card(iVar4); /* mmc_identify_card */
             if (iVar3 == 0) {
-              FUN_08032dcc(iVar4,1); /* mmc_set_bus_width */
-              iVar4 = FUN_08032eac(iVar4); /* mmc_set_speed */
+              mmc_set_bus_width(iVar4,1); /* mmc_set_bus_width */
+              iVar4 = mmc_set_speed(iVar4); /* mmc_set_speed */
               if (iVar4 == 0) {
                 *(undefined1 *)(iVar2 + 0x15) = 2;
                 *(undefined1 *)(iVar2 + 0xa0) = 0;
@@ -1123,7 +1123,7 @@ LAB_080340c6:
         return 0;
       }
 LAB_08034086:
-      FUN_080335fc(&local_20); /* mmc_release_slot */
+      mmc_release_slot(&local_20); /* mmc_release_slot */
       return local_20;
     }
   }
@@ -1172,8 +1172,8 @@ int param_1; int param_2; uint param_3; uint param_4;
     local_30 = DAT_0804cd58;
     uStack_8 = param_3;
     uStack_4 = param_4;
-    FUN_08006d14(auStack_130, 0x100);
-    uVar2 = FUN_08006906("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>");
+    memset_zero(auStack_130, 0x100);
+    uVar2 = strlen("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>");
     xml_wr_init((int *)&DAT_08055f18, (uint)"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>", uVar2, 0);
     xml_wr_open_tag((uint)&DAT_08055f18, (uint)&DAT_08037180); /* <data> */
     xml_wr_tag_name((uint)&DAT_08055f18, (uint)"response");
