@@ -7,6 +7,8 @@
  */
 #include "firehose.h"
 
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
+
 /*------------------------------------------------------------------------
  * XML Parser
  *------------------------------------------------------------------------*/
@@ -484,3 +486,5 @@ int param_1;
     *(uint *)(param_1 + 0x68) = *(uint *)(param_1 + 0x48);
     *(uint *)(param_1 + 0x6c) = *(uint *)(param_1 + 0x4c);
 }
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */

@@ -7,6 +7,8 @@
  */
 #include "firehose.h"
 
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
+
 /* orig: 0x08027674 firehose_log — format message and send as XML log element.
  *
  * Builds: <?xml ...?><data><log value="message"/></data>
@@ -132,3 +134,5 @@ uint parse_sector_value()
 {
     return 0;
 }
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */

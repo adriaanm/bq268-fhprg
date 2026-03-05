@@ -7,6 +7,8 @@
  */
 #include "firehose.h"
 
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
+
 /* orig: 0x0802f130 firehose_dispatch — main XML command router.
  *
  * Called in a loop by the main firehose state machine. Each call:
@@ -101,3 +103,5 @@ int param_1;
   }
   return;
 }
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */

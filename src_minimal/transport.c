@@ -13,6 +13,8 @@
  */
 #include "firehose.h"
 
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
+
 /* orig: 0x08021ca4 usb_read_complete — called when USB read finishes.
  * In the original, calls transport_read_data() then returns 0. */
 int usb_read_complete()
@@ -60,3 +62,5 @@ undefined4 param_1; uint param_2;
 {
     return 0;
 }
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */

@@ -507,8 +507,8 @@ undefined4 * param_1; int param_2; undefined4 param_3; int param_4;
      (2 < *puVar3)) {
     iVar2 = 0x14;
   }
-  /* >>> WP CHECK — same as in mmc_write_sectors <<< */
-  else if (*(char *)(puVar3[0x24] + 0xa0) == '\0') {
+  /* >>> WP CHECK REMOVED — allow writes regardless of EXT_CSD[160] <<< */
+  else if (1) {
     cVar1 = (char)puVar3[2]; /* card type */
     if (cVar1 == '\0') {
       iVar2 = 0x15; /* no card */
@@ -646,10 +646,7 @@ uint *param_1; int param_2; uint param_3; int param_4;
         (2 < *puVar3)) {
         return 0x14;
     }
-    /* >>> THE WP CHECK — EXT_CSD byte 160 <<< */
-    if (*(char *)(puVar3[0x24] + 0xa0) != '\0') {
-        return 0x1b;   /* write protected! */
-    }
+    /* >>> WP CHECK REMOVED — allow writes regardless of EXT_CSD[160] <<< */
     cVar1 = (char)puVar3[2];
     if (cVar1 == '\0') {
         return 0x15;
@@ -921,6 +918,7 @@ LAB_08034086:
   return 0;
 }
 
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
 /*========================================================================
  * XML response helpers (logically part of the response layer, but
  * live in the same source file as the eMMC driver in the original)
@@ -1032,5 +1030,7 @@ uint param_1; uint param_2;
     xml_wr_reset((int)&DAT_08055f18);
     return uVar1;
 }
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */
 
 /* str_find_replace (0x0803725c) — REMOVED, only used by handle_patch */

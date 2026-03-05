@@ -10,6 +10,8 @@
  */
 #include "firehose.h"
 
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
+
 /*========================================================================
  * Extra globals used by handlers
  *========================================================================*/
@@ -538,7 +540,6 @@ LAB_08024840:
 }
 
 
-
 /* orig: 0x08024b04 handle_read */
 undefined4 handle_read()
 {
@@ -705,3 +706,5 @@ LAB_08024bde:
   }
   goto LAB_08024be4;
 }
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */
