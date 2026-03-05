@@ -496,6 +496,20 @@ ddr_config_and_init:
 
     checkpoint              /* BLINK 3c: config copied to IMEM */
 
+    /* Verify DDR blob was loaded to IMEM by reading first word */
+    ldr     r0, =0x00220000
+    ldr     r1, [r0]            /* data abort here → blob not loaded */
+    ldr     r2, =0xe321f0d6     /* expected first instruction */
+    cmp     r1, r2
+    bne     .Lddr_blob_bad
+
+    /* Verify DDR data region is writable */
+    ldr     r0, =0x00223024
+    ldr     r1, [r0]            /* read current value */
+    str     r1, [r0]            /* write it back (data abort if not writable) */
+
+    checkpoint              /* BLINK 3c2: DDR blob verified in IMEM */
+
     /* 2. Call ddr_set_params(config_addr, size) */
     ldr     r0, =DDR_CONFIG_IMEM_ADDR
     ldr     r1, =ddr_config_data_len
@@ -513,18 +527,75 @@ ddr_config_and_init:
 
     pop     {r4-r6, pc}
 
+/* Error: DDR blob not loaded (first word mismatch) — fast red blinks */
+.Lddr_blob_bad:
+    ldr     r4, =GPIO_CFG_ADDR(LED_RED_GPIO)
+    mov     r5, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
+    str     r5, [r4]
+.Lddr_blink_loop:
+    ldr     r4, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
+    movs    r5, #GPIO_OUT_BIT
+    str     r5, [r4]
+    ldr     r5, =500000
+97: subs    r5, #1
+    bne     97b
+    movs    r5, #0
+    str     r5, [r4]
+    ldr     r5, =500000
+96: subs    r5, #1
+    bne     96b
+    b       .Lddr_blink_loop
+
 /*--------------------------------------------------------------
  * Minimal exception vector table
- * All exceptions just hang (infinite loop).
+ * Exceptions blink both LEDs rapidly to signal a crash.
+ * Vector table MUST be ARM mode (entered without BX).
  *--------------------------------------------------------------*/
     .balign 32
     .global _vectors
+    .arm
 _vectors:
-    b       .Lhang      /* Reset */
-    b       .Lhang      /* Undefined */
-    b       .Lhang      /* SVC */
-    b       .Lhang      /* Prefetch abort */
-    b       .Lhang      /* Data abort */
-    b       .Lhang      /* Reserved */
-    b       .Lhang      /* IRQ */
-    b       .Lhang      /* FIQ */
+    b       .Larm_hang      /* Reset */
+    b       .Lexception     /* Undefined */
+    b       .Larm_hang      /* SVC */
+    b       .Lexception     /* Prefetch abort */
+    b       .Lexception     /* Data abort */
+    b       .Larm_hang      /* Reserved */
+    b       .Larm_hang      /* IRQ */
+    b       .Larm_hang      /* FIQ */
+
+.Larm_hang:
+    wfi
+    b       .Larm_hang
+
+/* Exception handler (ARM mode): fast alternating red/green blinks */
+.Lexception:
+    ldr     r0, =GPIO_CFG_ADDR(LED_RED_GPIO)
+    mov     r1, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
+    str     r1, [r0]
+    ldr     r0, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
+    str     r1, [r0]
+.Lexc_loop:
+    /* Red ON, green OFF */
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
+    mov     r1, #GPIO_OUT_BIT
+    str     r1, [r0]
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    mov     r1, #0
+    str     r1, [r0]
+    ldr     r2, =300000
+.Lexc_d1:
+    subs    r2, r2, #1
+    bne     .Lexc_d1
+    /* Green ON, red OFF */
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    mov     r1, #GPIO_OUT_BIT
+    str     r1, [r0]
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
+    mov     r1, #0
+    str     r1, [r0]
+    ldr     r2, =300000
+.Lexc_d2:
+    subs    r2, r2, #1
+    bne     .Lexc_d2
+    b       .Lexc_loop
