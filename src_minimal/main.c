@@ -84,13 +84,41 @@ static void led_off(int gpio)
     REG32(GPIO_IN_OUT_ADDR(gpio)) = 0;
 }
 
+/* ARM Generic Timer (CNTPCT) — reads the 64-bit physical counter.
+ * Runs at CNTFRQ, typically 19.2 MHz on Qualcomm MSM8909.
+ * Unlike the sleep timetick, this frequency is fixed and doesn't
+ * change with DDR init or clock reconfiguration. */
+static unsigned int qtimer_get_freq(void)
+{
+    unsigned int freq;
+    __asm__ volatile("mrc p15, 0, %0, c14, c0, 0" : "=r" (freq));
+    return freq;
+}
+
+static unsigned long long qtimer_get_cnt(void)
+{
+    unsigned int lo, hi;
+    __asm__ volatile("mrrc p15, 0, %0, %1, c14" : "=r" (lo), "=r" (hi));
+    return ((unsigned long long)hi << 32) | lo;
+}
+
+static void msleep(unsigned int ms)
+{
+    unsigned int freq = qtimer_get_freq();
+    if (freq == 0) {
+        /* Timer not configured — fall back to CPU loop */
+        volatile unsigned int i;
+        for (i = 0; i < ms * 4000U; i++);
+        return;
+    }
+    unsigned long long ticks = ((unsigned long long)ms * freq) / 1000;
+    unsigned long long start = qtimer_get_cnt();
+    while ((qtimer_get_cnt() - start) < ticks);
+}
+
 static void spin_delay(void)
 {
-    /* Pure CPU loop — ~5 cycles/iteration.
-     * CPU likely on CXO (19.2 MHz) since we don't configure APCS PLL.
-     * 4M iters ≈ 1s at 19.2MHz, ≈ 25ms at 800MHz */
-    volatile unsigned int i;
-    for (i = 0; i < 4000000; i++);
+    msleep(500);
 }
 
 static void blink(int gpio, int count)
