@@ -30,28 +30,14 @@ volatile uint DAT_004a3000 __attribute__((section(".mmio_timer"))) = 0;
 char DAT_08027710[] = "data";       /* XML wrapper: <data>...</data> */
 char DAT_08027718[] = "log";        /* XML tag: <log .../> */
 
-/* handlers.c strings */
-char DAT_08022e28[] = "8909";       /* target name string */
-char DAT_08022ea0[] = "eMMC";       /* MemoryName in configure response */
-char DAT_08023360[] = "true";       /* rawmode attribute */
-char DAT_0802387c[] = "%s";         /* digest prefix format */
-char DAT_08023880[] = "%04X";       /* CRC32 hex format */
-char DAT_080238b0[] = "%02X";       /* SHA hash byte format */
-char DAT_08023e4c[] = "DISK";       /* filename compare for peek */
-char DAT_08023e98[] = "%llu";       /* partition info format */
-char DAT_08023eb4[] = ".";          /* attribute name for str_find_replace */
-char DAT_08024130[] = "%s";         /* peek output format */
-char DAT_08024444[] = "off";        /* power command compare */
-char DAT_08024e68[] = "true";       /* rawmode attribute (setbootable) */
+/* handlers.c strings (only those used by kept handlers) */
+char DAT_08022e28[] = "8909";       /* target name (configure) */
+char DAT_08022ea0[] = "eMMC";       /* MemoryName (configure) */
+char DAT_08024e68[] = "true";       /* rawmode attr (read) */
 
 /* dispatch.c strings */
 char DAT_0802f2e8[] = "data";       /* XML wrapper tag match */
-char DAT_0802f334[] = "ufs";        /* storagextras: UFS */
-char DAT_0802f338[] = "emmc";       /* storagextras: eMMC */
 char DAT_0802f354[] = "read";       /* command tag match */
-char DAT_0802f394[] = "peek";       /* command tag match */
-char DAT_0802f39c[] = "poke";       /* command tag match */
-char DAT_0802f3a4[] = "nop";        /* command tag match */
 char DAT_0802f3a8[] = "?xml";       /* XML declaration match */
 
 /* emmc.c / send_xml_response strings */

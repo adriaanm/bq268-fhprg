@@ -167,25 +167,11 @@ extern char DAT_080391ec[];     /* "\"" */
 /* --- Handler string literals (defined in globals.c) --- */
 extern char DAT_08022e28[];     /* "8909" (target name) */
 extern char DAT_08022ea0[];     /* "eMMC" (memory name) */
-extern char DAT_08023360[];     /* "true" (rawmode) */
-extern char DAT_0802387c[];     /* "%s" (digest prefix) */
-extern char DAT_08023880[];     /* "%04X" (CRC hex) */
-extern char DAT_080238b0[];     /* "%02X" (hash byte) */
-extern char DAT_08023e4c[];     /* "DISK" (peek filename) */
-extern char DAT_08023e98[];     /* "%llu" (partition info) */
-extern char DAT_08023eb4[];     /* "." (attribute name) */
-extern char DAT_08024130[];     /* "%s" (peek output) */
-extern char DAT_08024444[];     /* "off" (power command) */
-extern char DAT_08024e68[];     /* "true" (setbootable rawmode) */
+extern char DAT_08024e68[];     /* "true" (rawmode) */
 
 /* --- Dispatch string literals (defined in globals.c) --- */
 extern char DAT_0802f2e8[];     /* "data" (wrapper tag for dispatch) */
-extern char DAT_0802f334[];     /* "ufs" */
-extern char DAT_0802f338[];     /* "emmc" */
 extern char DAT_0802f354[];     /* "read" */
-extern char DAT_0802f394[];     /* "peek" */
-extern char DAT_0802f39c[];     /* "poke" */
-extern char DAT_0802f3a4[];     /* "nop" */
 extern char DAT_0802f3a8[];     /* "?xml" */
 
 /* --- Dispatch state --- */
@@ -343,24 +329,13 @@ void dispatch_set_state();      /* 0x0802f838 */
 void FUN_0802f57c();            /* dispatch loop tick */
 void FUN_0802f900();            /* send-and-wait wrapper */
 
-/* ---- handlers.c ---- */
+/* ---- handlers.c (minimal: configure, program, read, digest stub) ---- */
 uint handle_configure();        /* 0x08022a00 */
 int  handle_program();          /* 0x08024484 */
 uint handle_read();             /* 0x08024b04 */
-uint handle_benchmark();        /* 0x08022650 */
-uint handle_erase();            /* 0x08022ec8 */
-uint handle_firmwarewrite();    /* 0x08022ffc */
-uint handle_getstorageinfo();   /* 0x080238b8 */
-uint handle_nop();              /* 0x080239d0 */
-uint handle_patch();            /* 0x080239dc */
-uint handle_peek();             /* 0x08023f64 */
-uint handle_poke();             /* 0x08024134 */
-uint handle_power();            /* 0x08024350 */
-uint handle_setbootable();      /* 0x08024efc */
-uint handle_storagextras();     /* 0x08025054 */
 int  handler_validate_attr();   /* 0x08022178 */
 int  handler_poll_usb();        /* 0x08022440 */
-undefined4 handler_digest_cmd();/* 0x080233ec */
+undefined4 handler_digest_cmd();/* 0x080233ec: stub, v2 */
 
 /* ---- emmc.c ---- */
 uint sdcc_get_device();         /* 0x08032ae4: get device from slot table */
@@ -382,23 +357,14 @@ int  mmc_ensure_partition();    /* 0x08034fb0: select correct partition */
 uint handle_response();         /* 0x0803707c: send XML response */
 uint send_xml_response();       /* 0x08037084: build & send response */
 uint flush_xml_to_usb();        /* 0x080371b8: flush xml to USB */
-uint str_find_replace();        /* 0x0803725c: find/replace in buffer */
 
 /* ---- storage.c ---- */
 uint storage_write_sectors();   /* 0x080381d8: write entry from handlers */
 uint storage_select_partition();/* 0x08038206 */
 uint parse_uint_from_str();     /* 0x0803823e */
-int  safe_strlcat();            /* 0x08038282 */
 int  strncasecmp_fh();          /* 0x080382fa: case-insensitive cmp */
 uint storage_read_sectors();    /* 0x08038014 */
-uint storage_select_and_read(); /* 0x0803803c */
-uint storage_select_all();      /* 0x08037c40 */
-uint storage_erase_partition(); /* 0x08037c56 */
-uint storage_commit();          /* 0x08037c88 */
-uint storage_fw_update();       /* 0x08037cb0 */
-void storage_log_drive_info();  /* 0x08037e88 */
 uint storage_get_sector_count();/* 0x08037f64 */
-uint storage_log_partition_info(); /* 0x08037f88 */
 
 /* ---- transport.c ---- */
 int  usb_read_complete();       /* 0x08021ca4 */
@@ -450,14 +416,7 @@ void thunk_FUN_0800947c();
 
 /* (Card init functions moved to card_init.c) */
 
-/* Response/digest builders (outside closure, called from handlers) */
-uint FUN_0803649c();            /* digest_finalize */
-void FUN_080364e4();            /* digest_init */
-uint FUN_08036ee8();            /* digest_update */
-int  FUN_0803805c();            /* storage_set_extra_param */
-
 /* Transport/misc (outside closure) */
-int  FUN_08027328();            /* hw_reinit */
 int  FUN_08030b04();            /* transport_send */
 void FUN_08030320();            /* transport_config */
 void FUN_08030fa8();            /* transport_poll */
@@ -473,11 +432,6 @@ void FUN_080310a0();            /* raw USB receive */
 void FUN_0802b248();            /* DAL property set */
 void FUN_0802b6b4();            /* DAL device open */
 void FUN_0802d0b8();            /* PMIC status check */
-uint FUN_08019a70();            /* CRC32 table update */
 void qtimer_init();             /* timer init */
-void FUN_0801352e();            /* bignum_add */
-void FUN_08038338();            /* bignum_sub */
-void FUN_08019d98();            /* bignum_compare */
-/* handler_validate_attr declared above in handlers section */
 
 /* end of firehose.h */

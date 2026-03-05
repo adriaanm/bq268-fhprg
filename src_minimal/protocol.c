@@ -120,21 +120,7 @@ uint param_1; int param_2;
   return;
 }
 
-/* orig: 0x080288b0 eval_sector_expression — arithmetic expression evaluator.
- *
- * Implements a shunting-yard algorithm to parse expressions like
- * "NUM_DISK_SECTORS-1" or "1024*512". Supports +, -, *, /, parentheses.
- *
- * Since we control the client and always send plain sector numbers,
- * this is stubbed. The full implementation is ~250 lines in
- * src/fhprg/fhprg_8026f54.c at 0x080288b0.
- */
-undefined4 eval_sector_expression(param_1, param_2)
-int param_1; uint * param_2;
-{
-    /* Stub: client sends plain numbers, no expressions to evaluate */
-    return 0;
-}
+/* eval_sector_expression (0x080288b0) — REMOVED, only used by handle_patch */
 
 /* orig: 0x08028c10 parse_sector_value — parse sector number from XML attribute.
  *

@@ -1,5 +1,9 @@
 # Minimal Firehose Programmer (src_minimal/)
 
+## CRITICAL: Scope
+
+**This programmer only does full read/write of entire partitions.** No patching, no peeking, no erasing individual ranges. The Go client in `client/` sends: configure, program, read, getsha256digest (stubbed for now), and that's it.
+
 ## Context
 
 The WP bypass patch doesn't work — writes don't persist despite bypassing the software WP check. We need to understand the full write path to find what else is blocking writes. The full decompilation is ~60K LoC / 1880 functions — too large to review meaningfully.

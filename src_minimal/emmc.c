@@ -1242,29 +1242,4 @@ uint param_1; uint param_2;
     return uVar1;
 }
 
-/* orig: 0x0803725c str_find_replace — find and replace substring in buffer.
- * Only works when replacement is shorter or equal to original. */
-uint str_find_replace(param_1, param_2, param_3)
-int param_1; int param_2; int param_3;
-{
-    int iVar1;
-    uint uVar2;
-    uint uVar3;
-    int iVar4;
-
-    if (((param_1 != 0) && (param_2 != 0)) && (param_3 != 0)) {
-        iVar1 = strlen((char *)param_1);
-        uVar2 = strlen((char *)param_2);
-        uVar3 = strlen((char *)param_3);
-        if (uVar3 <= uVar2) {
-            iVar4 = param_1 + iVar1;
-            while ((param_1 = (int)strstr((char *)param_1, (char *)param_2)), param_1 != 0) {
-                bounded_memcpy(param_1, iVar1, param_3, uVar3);
-                param_1 = param_1 + uVar3;
-                bounded_memmove(param_1, iVar1, (uVar2 - uVar3) + param_1, iVar4 - param_1);
-            }
-            return 1;
-        }
-    }
-    return 0;
-}
+/* str_find_replace (0x0803725c) — REMOVED, only used by handle_patch */

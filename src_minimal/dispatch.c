@@ -1,8 +1,7 @@
-/* dispatch.c — Firehose command router.
+/* dispatch.c — Firehose command router (minimal: read/write only).
  *
- * Parses incoming XML commands and dispatches to handler functions.
- * The dispatcher is the main loop entry point: it reads one XML element,
- * matches the tag name, and calls the corresponding handler.
+ * Only dispatches: configure, program, read, getsha256digest.
+ * All other tags get a NAK response.
  *
  * Source: src/fhprg/fhprg_802efa4.c
  */
@@ -29,7 +28,7 @@ undefined4 firehose_dispatch()
   iVar2 = xml_advance();
   FUN_08006d14(auStack_218,0x200);
   if (iVar2 == 0) {
-LAB_0802f176:
+LAB_done:
     uVar3 = 1;
   }
   else {
@@ -37,111 +36,52 @@ LAB_0802f176:
       /* Close tag — check if it's the wrapper element */
       xml_get_tag_name(&DAT_08055ea0,auStack_218,0x200,0);
       iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f2e8);
-      if (iVar2 != 0) goto LAB_0802f176;
+      if (iVar2 != 0) goto LAB_done;
     }
     else if (iVar2 == 1) {
       /* Open tag — dispatch by name */
       iVar2 = xml_tag_match(&DAT_08055ea0,"configure");
       if (iVar2 != 0) {
         uVar3 = handle_configure();
-        goto LAB_0802f2a6;
+        goto LAB_ret;
       }
       iVar2 = xml_tag_match(&DAT_08055ea0,"program");
       if (iVar2 != 0) {
         uVar3 = handle_program();
-        goto LAB_0802f2a6;
-      }
-      iVar2 = xml_tag_match(&DAT_08055ea0,"firmwarewrite");
-      if (iVar2 != 0) {
-        uVar3 = handle_firmwarewrite();
-        goto LAB_0802f2a6;
-      }
-      iVar2 = xml_tag_match(&DAT_08055ea0,"patch");
-      if (iVar2 != 0) {
-        uVar3 = handle_patch();
-        goto LAB_0802f2a6;
-      }
-      iVar2 = xml_tag_match(&DAT_08055ea0,"setbootablestoragedrive");
-      if (iVar2 != 0) {
-        uVar3 = handle_setbootable();
-        goto LAB_0802f2a6;
-      }
-      iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f334);
-      if ((iVar2 != 0) || (iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f338), iVar2 != 0)) {
-        uVar3 = handle_storagextras();
-        goto LAB_0802f2a6;
-      }
-      iVar2 = xml_tag_match(&DAT_08055ea0,"power");
-      if (iVar2 != 0) {
-        uVar3 = handle_power();
-        goto LAB_0802f2a6;
-      }
-      iVar2 = xml_tag_match(&DAT_08055ea0,"benchmark");
-      if (iVar2 != 0) {
-        uVar3 = handle_benchmark();
-        goto LAB_0802f2a6;
+        goto LAB_ret;
       }
       iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f354);
       if (iVar2 != 0) {
         uVar3 = handle_read();
-        goto LAB_0802f2a6;
+        goto LAB_ret;
       }
-      iVar2 = xml_tag_match(&DAT_08055ea0,"getstorageinfo");
+      iVar2 = xml_tag_match(&DAT_08055ea0,"getsha256digest");
       if (iVar2 != 0) {
-        uVar3 = handle_getstorageinfo();
-        goto LAB_0802f2a6;
+        uVar3 = handler_digest_cmd();
+        goto LAB_ret;
       }
-      iVar2 = xml_tag_match(&DAT_08055ea0,"getcrc16digest");
+      /* Ignore ?xml, data, patches wrapper tags silently */
+      iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f3a8);
+      if (iVar2 != 0) goto LAB_continue;
+      iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f2e8);
+      if (iVar2 != 0) goto LAB_continue;
+      iVar2 = xml_tag_match(&DAT_08055ea0,"patches");
+      if (iVar2 != 0) goto LAB_continue;
+      /* Anything else: log warning and NAK */
+      iVar2 = xml_get_tag_name(&DAT_08055ea0,auStack_218,0x200,0);
       if (iVar2 == 0) {
-        iVar2 = xml_tag_match(&DAT_08055ea0,"getsha256digest");
-        if (iVar2 == 0) {
-          iVar2 = xml_tag_match(&DAT_08055ea0,"erase");
-          if (iVar2 != 0) {
-            uVar3 = handle_erase();
-            goto LAB_0802f2a6;
-          }
-          iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f394);
-          if (iVar2 != 0) {
-            uVar3 = handle_peek();
-            goto LAB_0802f2a6;
-          }
-          iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f39c);
-          if (iVar2 != 0) {
-            uVar3 = handle_poke();
-            goto LAB_0802f2a6;
-          }
-          iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f3a4);
-          if (iVar2 != 0) {
-            uVar3 = handle_nop();
-            goto LAB_0802f2a6;
-          }
-          iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f3a8);
-          if (((iVar2 == 0) && (iVar2 = xml_tag_match(&DAT_08055ea0,&DAT_0802f2e8), iVar2 == 0)) &&
-             (iVar2 = xml_tag_match(&DAT_08055ea0,"patches"), iVar2 == 0)) {
-            iVar2 = xml_get_tag_name(&DAT_08055ea0,auStack_218,0x200,0);
-            if (iVar2 == 0) {
-              firehose_log("WARNING: Ignoring unrecognized tag too long to display. Continuing.");
-            }
-            else {
-              firehose_log("WARNING: Ignoring unrecognized tag \'%s\'. Continuing.",auStack_218);
-            }
-            uVar3 = handle_response(1);
-            goto LAB_0802f2a6;
-          }
-          goto LAB_0802f2a4;
-        }
-        uVar3 = 0;
+        firehose_log("WARNING: Ignoring unrecognized tag too long to display. Continuing.");
       }
       else {
-        uVar3 = 1;
+        firehose_log("WARNING: Ignoring unrecognized tag \'%s\'. Continuing.",auStack_218);
       }
-      uVar3 = handler_digest_cmd(uVar3);
-      goto LAB_0802f2a6;
+      uVar3 = handle_response(0);
+      goto LAB_ret;
     }
-LAB_0802f2a4:
+LAB_continue:
     uVar3 = 0;
   }
-LAB_0802f2a6:
+LAB_ret:
   if (local_18 != iVar1) {
     stack_canary_fail();
   }
