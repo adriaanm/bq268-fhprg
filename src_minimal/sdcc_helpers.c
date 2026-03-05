@@ -82,7 +82,7 @@ int param_1; int param_2; int * param_3;
   int local_18;
   undefined4 local_14;
 
-  local_20 = (&DAT_0804e2c8)[param_1] + 0x34;
+  local_20 = (int)((&DAT_0804e2c8)[param_1] + 0x34);
   local_1c = 0x4000;
   local_18 = *param_3;
   local_14 = 0x1a;
@@ -410,7 +410,7 @@ int * param_1; uint * param_2; int param_3;
         }
         else {
           local_20 = param_3;
-          FUN_0800bbec(iVar4,param_2,&local_20);
+          FUN_0800bbec(iVar4,(int)param_2,&local_20);
           param_2 = (uint *)((int)param_2 + (param_3 - local_20));
           param_3 = local_20;
         }
@@ -626,7 +626,7 @@ int * param_1;
   uVar2 = 0;
   do {
     if (0x7ffff < uVar2) {
-      if ((true) && (iVar4 = sdcc_get_card_status(param_1), iVar4 == 4)) {
+      if ((true) && (iVar4 = sdcc_get_card_status((int)param_1), iVar4 == 4)) {
 LAB_0803517c:
         uVar3 = 0;
       }
@@ -691,7 +691,7 @@ LAB_08035218:
         if (bVar9) goto LAB_08035218;
         if (0x1f < param_3) {
           local_28 = param_3;
-          FUN_0800bc20(iVar7,param_2,&local_28);
+          FUN_0800bc20(iVar7,(int)param_2,&local_28);
           iVar1 = local_28;
           param_2 = param_2 + (param_3 - local_28);
           uVar6 = FUN_0800bd8c(iVar7);

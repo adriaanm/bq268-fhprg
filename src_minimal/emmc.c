@@ -1074,7 +1074,7 @@ int param_1; undefined4 param_2;
     iVar2 = FUN_08033ca0(param_1); /* mmc_get_slot_context */
     if (iVar2 != 0) {
       iVar4 = iVar2 + 0xc;
-      local_20 = FUN_08034cb4(param_1,param_2); /* mmc_read_ext_csd */
+      local_20 = (int)FUN_08034cb4(param_1,param_2); /* mmc_read_ext_csd */
       if (local_20 == 0) {
         iVar2 = FUN_08034888(iVar4); /* mmc_setup_partitions */
         if (iVar2 != 0) {
@@ -1119,7 +1119,7 @@ int param_1; undefined4 param_2;
           *(int *)(iVar2 + 0x1c) = iVar3;
         }
 LAB_080340c6:
-        mmc_close_handle(local_20);
+        mmc_close_handle((int *)local_20);
         return 0;
       }
 LAB_08034086:

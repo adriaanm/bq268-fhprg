@@ -604,7 +604,7 @@ int * param_1;
   undefined4 local_2c;
 
   iVar3 = *param_1;
-  iVar2 = cmd7_select_card(param_1,1);
+  iVar2 = cmd7_select_card((int)param_1,1);
   if (iVar2 != 0) {
     return iVar2;
   }
@@ -738,7 +738,7 @@ int * param_1;
     thunk_FUN_080199b4(1000);
     FUN_0800bf88(uVar2,1);
   }
-  FUN_08032dcc(*param_1,0);
+  FUN_08032dcc((undefined4 *)*param_1,0);
   uVar2 = sdcc_get_slot_status(uVar2);
   if ((uVar2 & 1) != 0) {
     /* MMC detection path */

@@ -405,7 +405,7 @@ int *param_1; uint param_2; uint param_3;
 
     if ((uint)param_1[5] <= (uint)param_1[3] &&
         (uint)((uint)param_1[2] <= (uint)param_1[4]) <= (uint)(param_1[5] - param_1[3])) {
-        uVar1 = FUN_08006418(param_1[4] + *param_1, param_1[2] - param_1[4], param_2, (va_list *)param_3);
+        uVar1 = FUN_08006418((char *)(param_1[4] + *param_1), param_1[2] - param_1[4], (const char *)param_2, (va_list *)param_3);
         uVar2 = param_1[4];
         uVar3 = (param_1[3] - param_1[5]) - (uint)((uint)param_1[2] < uVar2);
         uVar4 = (int)uVar1 >> 0x1f;

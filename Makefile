@@ -189,7 +189,14 @@ fhprg-regen:
 # ── minimal (stripped-down firehose for analysis) ────────────────────────────
 MINIMAL_CC     = clang
 MINIMAL_CFLAGS = --target=arm-none-eabi -mthumb -march=armv7-a -mfloat-abi=soft \
-                 -mno-movt -Oz -fomit-frame-pointer -std=gnu89 -Wno-everything \
+                 -mno-movt -Oz -fomit-frame-pointer -std=gnu89 \
+                 -Wall -Wextra \
+                 -Wunused-function -Wunused-variable \
+                 -Warray-bounds -Wformat -Wformat-security \
+                 -Wimplicit-function-declaration \
+                 -Wno-unused-parameter -Wno-sign-compare \
+                 -Wno-missing-field-initializers -Wno-old-style-definition \
+                 -Wno-deprecated-non-prototype \
                  -ffreestanding -ffunction-sections -fdata-sections \
                  -I src_minimal
 MINIMAL_SRC = $(wildcard src_minimal/*.c)
