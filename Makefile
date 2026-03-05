@@ -202,7 +202,7 @@ MINIMAL_CFLAGS = --target=arm-none-eabi -mthumb -march=armv7-a -mfloat-abi=soft 
 MINIMAL_SRC = $(wildcard src_minimal/*.c)
 MINIMAL_OBJ = $(patsubst src_minimal/%.c,tmp/minimal_%.o,$(MINIMAL_SRC))
 
-.PHONY: minimal minimal-clean
+.PHONY: minimal minimal-link minimal-clean
 
 tmp/minimal_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
 	@mkdir -p tmp
@@ -214,6 +214,10 @@ minimal: $(MINIMAL_OBJ)
 	@arm-none-eabi-nm -u $(MINIMAL_OBJ) | sort -u | head -40
 	@echo "[*] Function count:"
 	@grep -rc 'orig: 0x' src_minimal/*.c || true
+
+minimal-link: $(MINIMAL_OBJ)
+	@echo "[*] Link step requires a linker script (TBD)"
+	@echo "[*] Hash fixup: python3 tools/fix_hashes.py tmp/minimal.bin tmp/minimal_hashed.bin"
 
 minimal-clean:
 	rm -f tmp/minimal_*.o
