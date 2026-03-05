@@ -142,20 +142,19 @@ _thumb_entry:
     /*--------------------------------------------------------------
      * 6. Init DDR
      *
-     * Three phases:
-     *   a) Enable BIMC clocks (GCC PLL + branch clocks)
-     *   b) Copy DDR config to IMEM, call ddr_set_params()
-     *   c) Call ddr_init() to program the DDR controller
+     * PBL already has BIMC clocks running (it loaded our code into
+     * OCIMEM via BIMC). Skip clock init and just:
+     *   a) Copy DDR config to IMEM, call ddr_set_params()
+     *   b) Call ddr_init() to program the DDR controller
+     *
+     * bimc_clock_init is available below but skipped — it writes
+     * to GPLL0/vote registers which can crash the CPU.
      *
      * See docs/ddr_init.md for full documentation.
      *--------------------------------------------------------------*/
-    bl      bimc_clock_init
-
-    checkpoint              /* BLINK 4: BIMC clocks done */
-
     bl      ddr_config_and_init
 
-    checkpoint              /* BLINK 5: DDR init done */
+    checkpoint              /* BLINK 4: DDR init done */
 
     /*--------------------------------------------------------------
      * 7. Enable GCC SDCC1 clocks
@@ -211,7 +210,7 @@ _thumb_entry:
     tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
     bmi     .Lapps_wait
 
-    checkpoint              /* BLINK 6: SDCC clocks done */
+    checkpoint              /* BLINK 5: SDCC clocks done */
 
     /*--------------------------------------------------------------
      * 9. Jump to C main
