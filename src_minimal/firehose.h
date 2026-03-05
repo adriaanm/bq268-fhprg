@@ -148,40 +148,54 @@ extern int  DAT_08058484;       /* ack_raw_data_every_num_packets */
 extern int  DAT_08055fd4;       /* storage device index offset */
 extern char DAT_08055e90;       /* device extra state base */
 
-/* --- String literals (in .rodata of original binary) --- */
-extern char DAT_08027710;       /* "data" (log wrapper) */
-extern char DAT_08027718;       /* "log" */
-extern char DAT_08037180;       /* "data" (response wrapper) */
-extern char DAT_08037194;       /* "NAK" */
-extern char DAT_080371a0;       /* "ACK" */
-extern char DAT_080371a4;       /* "%s" */
-extern char DAT_080371a8;       /* "%d" */
-extern char DAT_080371ac;       /* "%llu" */
-extern char DAT_080371b4;       /* "%c" */
-extern char DAT_080390e0;       /* " />" */
-extern char DAT_080390fc;       /* "<%s" */
-extern char DAT_08039108;       /* "<%s " */
-extern char DAT_080391e8;       /* " %s=\"" */
-extern char DAT_080391ec;       /* "\"" */
+/* --- String literals (defined in globals.c) --- */
+extern char DAT_08027710[];     /* "data" (log wrapper) */
+extern char DAT_08027718[];     /* "log" */
+extern char DAT_08037180[];     /* "data" (response wrapper) */
+extern char DAT_08037194[];     /* "NAK" */
+extern char DAT_080371a0[];     /* "ACK" */
+extern char DAT_080371a4[];     /* "%s" */
+extern char DAT_080371a8[];     /* "%d" */
+extern char DAT_080371ac[];     /* "%llu" */
+extern char DAT_080371b4[];     /* "%c" */
+extern char DAT_080390e0[];     /* " />" */
+extern char DAT_080390fc[];     /* "<%s" */
+extern char DAT_08039108[];     /* "<%s>" */
+extern char DAT_080391e8[];     /* " %s=\"" */
+extern char DAT_080391ec[];     /* "\"" */
 
-/* --- Dispatch string literals --- */
-extern char DAT_0802f2e8;       /* "data" (wrapper tag for dispatch) */
-extern char DAT_0802f334;       /* "storagextras" variant 1 */
-extern char DAT_0802f338;       /* "storagextras" variant 2 */
-extern char DAT_0802f354;       /* "read" */
-extern char DAT_0802f394;       /* "peek" */
-extern char DAT_0802f39c;       /* "poke" */
-extern char DAT_0802f3a4;       /* "nop" */
-extern char DAT_0802f3a8;       /* (unknown dispatch tag) */
+/* --- Handler string literals (defined in globals.c) --- */
+extern char DAT_08022e28[];     /* "8909" (target name) */
+extern char DAT_08022ea0[];     /* "eMMC" (memory name) */
+extern char DAT_08023360[];     /* "true" (rawmode) */
+extern char DAT_0802387c[];     /* "%s" (digest prefix) */
+extern char DAT_08023880[];     /* "%04X" (CRC hex) */
+extern char DAT_080238b0[];     /* "%02X" (hash byte) */
+extern char DAT_08023e4c[];     /* "DISK" (peek filename) */
+extern char DAT_08023e98[];     /* "%llu" (partition info) */
+extern char DAT_08023eb4[];     /* "." (attribute name) */
+extern char DAT_08024130[];     /* "%s" (peek output) */
+extern char DAT_08024444[];     /* "off" (power command) */
+extern char DAT_08024e68[];     /* "true" (setbootable rawmode) */
+
+/* --- Dispatch string literals (defined in globals.c) --- */
+extern char DAT_0802f2e8[];     /* "data" (wrapper tag for dispatch) */
+extern char DAT_0802f334[];     /* "ufs" */
+extern char DAT_0802f338[];     /* "emmc" */
+extern char DAT_0802f354[];     /* "read" */
+extern char DAT_0802f394[];     /* "peek" */
+extern char DAT_0802f39c[];     /* "poke" */
+extern char DAT_0802f3a4[];     /* "nop" */
+extern char DAT_0802f3a8[];     /* "?xml" */
 
 /* --- Dispatch state --- */
-extern uint DAT_0804d3a4;       /* dispatch execution state */
+extern char DAT_0804d3a4;       /* dispatch execution state (0=idle, 1=pending, 2=executing) */
 
-/* --- SDCC/eMMC globals --- */
-extern uint DAT_0804e2ac;       /* SDCC slot status table */
-extern uint DAT_0804e2b8;       /* SDCC device handle table */
+/* --- SDCC/eMMC globals (defined in globals.c) --- */
+extern int  DAT_0804e2ac[2];    /* SDCC slot status table */
+extern uint DAT_0804e2b8[2];    /* SDCC device handle table */
 extern char DAT_0804e2c4;       /* SDCC bases initialized flag */
-extern uint DAT_0804e2c8;       /* SDCC register base table */
+extern uint DAT_0804e2c8[2];    /* SDCC register base table */
 extern uint DAT_0804e2d0;       /* SDCC register base table (alt) */
 extern uint DAT_0804e2d8;       /* SDCC FIFO base table */
 extern uint DAT_0804e2e0;       /* SDCC FIFO base table (alt) */

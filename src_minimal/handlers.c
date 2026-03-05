@@ -21,19 +21,8 @@ extern char DAT_08058481;       /* always_validate flag */
 extern char DAT_08058482;       /* verbose flag */
 extern int  DAT_08058484;       /* ack_raw_data_every_num_packets */
 extern int  DAT_08055fd4;       /* storage device index offset */
-extern char DAT_08022e28;       /* target name string */
-extern char DAT_08022ea0;       /* memory name string */
-extern char DAT_08023360;       /* "false" string for rawmode */
-extern char DAT_0802387c;       /* "%s" format for digest prefix */
-extern char DAT_08023880;       /* "%08X" format for CRC digest */
-extern char DAT_080238b0;       /* "%02X" format for hash byte */
-extern char DAT_08023e4c;       /* "DISK" filename compare string */
-extern char DAT_08023e98;       /* format string for partition info */
-extern char DAT_08023eb4;       /* attribute name string */
-extern char DAT_08024130;       /* "%s" format for peek output */
-extern char DAT_08024444;       /* "off" string for power command */
-extern char DAT_08024e68;       /* "true" string for rawmode */
-extern uint DAT_004a3000;       /* memory-mapped timer register */
+/* Handler-specific string externs now in firehose.h */
+extern volatile uint DAT_004a3000; /* memory-mapped timer register */
 #define _DAT_004a3000 DAT_004a3000
 extern char DAT_08055e90;       /* device extra state base */
 extern uint DAT_0803d71c;       /* CRC32 lookup table */
