@@ -67,6 +67,67 @@
 #define GPLL1_LOCK_BIT              (1 << 17)   /* GPLL1_STATUS bit 17 */
 
 /*========================================================================
+ * GCC BIMC (DDR Memory Controller) clocks
+ *
+ * These registers must be configured before accessing the BIMC DDR
+ * controller at 0x0044c000.  Derived from reverse-engineering the
+ * original firehose programmer's FUN_0800ac84.
+ *========================================================================*/
+
+/* BIMC PLL (PLL1) — provides DDR controller clock */
+#define GCC_BIMC_PLL_MODE              (CLK_CTL_BASE + 0x21000)  /* 0x01821000 — shares with GPLL0? */
+#define GCC_BIMC_PLL_MODE_ALT          (CLK_CTL_BASE + 0x45000)  /* vote register */
+#define BIMC_PLL_CONFIG_BASE           0x01821000
+#define BIMC_PLL_L_VAL                 41         /* 0x29 */
+#define BIMC_PLL_CONFIG_CTL            0x4001055b
+#define BIMC_PLL_ALPHA_H               0xaa000000
+#define BIMC_PLL_ALPHA_L               0x000000aa
+
+/* PLL MODE register bits */
+#define PLL_BYPASSNL                   (1 << 1)
+#define PLL_RESET_N                    (1 << 2)
+#define PLL_OUTCTRL                    (1 << 0)
+#define PLL_LOCK_DET                   (1 << 31)
+
+/* GCC BIMC clock branch registers (CBCR) */
+#define GCC_BIMC_CBCR_0                (CLK_CTL_BASE + 0x31008)  /* 0x01831008 */
+#define GCC_BIMC_CBCR_1                (CLK_CTL_BASE + 0x3100C)  /* 0x0183100c */
+#define GCC_BIMC_CBCR_2                (CLK_CTL_BASE + 0x31010)  /* 0x01831010 */
+#define GCC_BIMC_CBCR_3                (CLK_CTL_BASE + 0x31014)  /* 0x01831014 */
+#define GCC_BIMC_CBCR_4                (CLK_CTL_BASE + 0x3101C)  /* 0x0183101c */
+#define GCC_BIMC_CBCR_5                (CLK_CTL_BASE + 0x3201C)  /* 0x0183201c */
+#define GCC_BIMC_CBCR_6                (CLK_CTL_BASE + 0x32020)  /* 0x01832020 */
+#define GCC_BIMC_CBCR_7                (CLK_CTL_BASE + 0x32024)  /* 0x01832024 */
+
+/* GCC BIMC RCG (Root Clock Generator) */
+#define GCC_BIMC_DDR_CMD_RCGR          (CLK_CTL_BASE + 0x32004)  /* 0x01832004 */
+#define GCC_BIMC_DDR_CFG_RCGR          (CLK_CTL_BASE + 0x32008)  /* 0x01832008 */
+#define GCC_BIMC_MISC                  (CLK_CTL_BASE + 0x31018)  /* 0x01831018 */
+#define GCC_BIMC_GFX_CMD_RCGR         (CLK_CTL_BASE + 0x37000)  /* 0x01837000 */
+#define GCC_BIMC_GFX_CFG_RCGR         (CLK_CTL_BASE + 0x37004)  /* 0x01837004 */
+
+/* GCC PLL USER_CTL registers */
+#define GCC_GPLL0_USER_CTL             (CLK_CTL_BASE + 0x36004)  /* 0x01836004 */
+#define GCC_BIMC_PLL_USER_CTL          (CLK_CTL_BASE + 0x45004)  /* 0x01845004 */
+
+/* GCC reset registers (written to 0 during clock init) */
+#define GCC_RESET_0                    (CLK_CTL_BASE + 0x00000)  /* 0x01800000 */
+#define GCC_RESET_1                    (CLK_CTL_BASE + 0x13010)  /* 0x01813010 */
+#define GCC_RESET_2                    (CLK_CTL_BASE + 0x1B000)  /* 0x0181b000 */
+#define GCC_RESET_3                    (CLK_CTL_BASE + 0x70000)  /* 0x01870000 */
+#define GCC_GPLL0_MODE_ALT             (CLK_CTL_BASE + 0x36000)  /* 0x01836000 */
+
+/* TCSR register for chip version detection */
+#define TCSR_SOC_VERSION               0x01821000
+
+/* DDR blob function addresses */
+#define DDR_SET_PARAMS_ADDR            0x00222780
+#define DDR_INIT_ADDR                  0x002224cc
+
+/* DDR config destination in IMEM */
+#define DDR_CONFIG_IMEM_ADDR           0x08600190
+
+/*========================================================================
  * SDCC1 (SD/eMMC Controller) data registers
  *
  * Reference: lk_src/platform/msm8909/include/platform/iomap.h

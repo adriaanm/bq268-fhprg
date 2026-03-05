@@ -203,8 +203,8 @@ MINIMAL_CFLAGS = --target=arm-none-eabi -mthumb -march=armv7-a -mfloat-abi=soft 
 MINIMAL_SRC = $(wildcard src_minimal/*.c)
 MINIMAL_OBJ = $(patsubst src_minimal/%.c,tmp/minimal_%.o,$(MINIMAL_SRC))
 
-# Assembly sources (entry point, DDR blobs, payload)
-MINIMAL_ASM_SRC = src_minimal/entry.S src_minimal/ddr_blob.S src_minimal/aboot_payload.S
+# Assembly sources (entry point, DDR blobs, DDR config, payload)
+MINIMAL_ASM_SRC = src_minimal/entry.S src_minimal/ddr_blob.S src_minimal/ddr_config.S src_minimal/aboot_payload.S
 MINIMAL_ASM_OBJ = $(patsubst src_minimal/%.S,tmp/minimal_%.o,$(MINIMAL_ASM_SRC))
 
 MINIMAL_LIBGCC = $(shell arm-none-eabi-gcc -mthumb -march=armv7-a -mfloat-abi=soft --print-libgcc-file-name)

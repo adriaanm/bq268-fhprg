@@ -103,11 +103,86 @@ static void blink(int gpio, int count)
 }
 
 /*========================================================================
+ * ICB config — BIMC QoS/arbitration registers
+ *
+ * These 32 writes replace FUN_0800d330 + DAL framework.
+ * They configure BIMC bus arbitration for DDR slave ports.
+ * May not be required for basic DDR access, but included for safety.
+ *========================================================================*/
+static void icb_config(void)
+{
+    REG32(0x00449210) = 0x00000001;
+    REG32(0x00450230) = 0x00000000;
+
+    /* Slave port arbitration config */
+    REG32(0x00408210) = 0x00000012;
+    REG32(0x0040c210) = 0x00000012;
+    REG32(0x00410210) = 0x00000012;
+    REG32(0x00414210) = 0x00000012;
+    REG32(0x00418210) = 0x80000012;
+    REG32(0x0041c210) = 0x00000012;
+    REG32(0x00420210) = 0x00000012;
+
+    /* DDR0 priority + bandwidth */
+    REG32(0x00408270) = 0x00043210;
+    REG32(0x00408274) = 0x00043210;
+    REG32(0x00408a04) = 0x00000014;
+    REG32(0x00408a08) = 0x00000064;
+    REG32(0x00408a24) = 0x0000ffce;
+    REG32(0x00408a28) = 0x0000ff9c;
+    REG32(0x00408a40) = 0x80000000;
+    REG32(0x00408300) = 0x01000000;
+    REG32(0x00408800) = 0x02000000;
+    REG32(0x00408a00) = 0xfc000001;
+
+    /* DDR1 priority + bandwidth (mirror of DDR0) */
+    REG32(0x00410a04) = 0x00000014;
+    REG32(0x00410a08) = 0x00000064;
+    REG32(0x00410a24) = 0x0000ffce;
+    REG32(0x00410a28) = 0x0000ff9c;
+    REG32(0x00410a40) = 0x80000000;
+    REG32(0x00410300) = 0x01000000;
+    REG32(0x00410800) = 0x02000000;
+    REG32(0x00410a00) = 0xfc000001;
+
+    /* BIMC global segment config */
+    REG32(0x00400904) = 0x00000206;
+    REG32(0x00400908) = 0x00600060;
+    REG32(0x0040090c) = 0x00270027;
+    REG32(0x00400940) = 0x00000010;
+    REG32(0x00400900) = 0x00000001;
+}
+
+/*========================================================================
+ * DDR memory test — write/read pattern to verify DDR is working
+ *========================================================================*/
+static int ddr_test(void)
+{
+    volatile unsigned int *ddr = (volatile unsigned int *)SDRAM_START_ADDR;
+
+    ddr[0] = 0xDEADBEEF;
+    ddr[1] = 0xCAFEBABE;
+    ddr[2] = 0x12345678;
+    ddr[3] = 0x00000000;
+    __asm__ volatile ("dsb" ::: "memory");
+
+    if (ddr[0] != 0xDEADBEEF) return 0;
+    if (ddr[1] != 0xCAFEBABE) return 0;
+    if (ddr[2] != 0x12345678) return 0;
+    if (ddr[3] != 0x00000000) return 0;
+    return 1;
+}
+
+/*========================================================================
  * main — entry point from assembly
+ *
+ * At this point entry.S has already:
+ *   - Initialized BIMC clocks
+ *   - Copied DDR config and called ddr_set_params + ddr_init
+ *   - Enabled SDCC1 clocks
  *========================================================================*/
 void main(void)
 {
-    int ret;
     (void)aboot_payload_gz;
     (void)aboot_payload_gz_len;
 
@@ -115,7 +190,21 @@ void main(void)
     led_init(LED_RED_GPIO);
     led_off(LED_RED_GPIO);
 
-    /* Hang here — just testing entry→main transition */
+    led_init(LED_GREEN_GPIO);
+
+    /* Apply ICB config (BIMC bus arbitration) */
+    icb_config();
+
+    /* Test DDR memory */
+    if (ddr_test()) {
+        /* DDR works! Blink green 3 times fast */
+        blink(LED_GREEN_GPIO, 3);
+    } else {
+        /* DDR failed — solid red */
+        led_on(LED_RED_GPIO);
+    }
+
+    /* Hang — DDR test complete */
     while (1);
 }
 
