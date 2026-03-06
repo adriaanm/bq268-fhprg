@@ -500,7 +500,7 @@ ddr_set_params_only:
 ddr_init_only:
     push    {r4, lr}
 
-    ldr     r0, =0x61A80               /* clock speed = 400 MHz (GPLL0/2 = 800/2) */
+    ldr     r0, =0x82208               /* clock speed = 533 MHz (original uses this) */
     ldr     r4, =DDR_INIT_ADDR
     blx     r4
 
@@ -541,10 +541,10 @@ ddr_init_only:
     .arm
 _vectors:
     b       .Larm_hang      /* Reset */
-    b       .Lexception     /* Undefined */
+    b       .Lexc_undef     /* Undefined */
     b       .Larm_hang      /* SVC */
-    b       .Lexception     /* Prefetch abort */
-    b       .Lexception     /* Data abort */
+    b       .Lexc_prefetch  /* Prefetch abort */
+    b       .Lexc_data      /* Data abort */
     b       .Larm_hang      /* Reserved */
     b       .Larm_hang      /* IRQ */
     b       .Larm_hang      /* FIQ */
@@ -553,22 +553,30 @@ _vectors:
     wfi
     b       .Larm_hang
 
-/* Exception handler (ARM mode): diagnostic blink using DFSR.
- * Pattern: 3×red, 1×green, N×red (fault code), 1×green, 2s pause, repeat.
- * The green blinks delimit the fault code so you just count red blinks
- * between the two green flashes.
- * Fault types (DFSR[3:0]):
- *   1 = alignment, 5 = translation (section), 7 = translation (page),
- *   8 = external abort, 13 = permission (section), 15 = permission (page)
- * Uses HW timetick (32768 Hz) — CPU loops are invisible at 800 MHz. */
-.Lexception:
-    /* Read fault status registers */
-    mrc     p15, 0, r8, c5, c0, 0   /* DFSR */
-    mrc     p15, 0, r9, c6, c0, 0   /* DFAR (saved for future use) */
+/* Exception type entry points — set preamble count in r12, then fall through.
+ * Preamble count tells you the exception type:
+ *   1×red = undefined instruction (N = meaningless)
+ *   2×red = prefetch abort (N = IFSR[3:0])
+ *   3×red = data abort (N = DFSR[3:0])
+ * Full pattern: P×red, 1×green, N×red, 1×green, 2s pause, repeat. */
+.Lexc_undef:
+    mov     r12, #1
+    mov     r10, #0                  /* no meaningful fault code */
+    b       .Lexc_common
 
-    /* Extract fault type: DFSR[3:0] */
+.Lexc_prefetch:
+    mov     r12, #2
+    mrc     p15, 0, r8, c5, c0, 1   /* IFSR */
+    and     r10, r8, #0xF
+    b       .Lexc_common
+
+.Lexc_data:
+    mov     r12, #3
+    mrc     p15, 0, r8, c5, c0, 0   /* DFSR */
+    mrc     p15, 0, r9, c6, c0, 0   /* DFAR */
     and     r10, r8, #0xF
 
+.Lexc_common:
     /* Configure LEDs */
     ldr     r0, =GPIO_CFG_ADDR(LED_RED_GPIO)
     mov     r1, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
@@ -586,8 +594,8 @@ _vectors:
     ldr     r5, =9830               /* 300ms at 32768 Hz */
 
 .Lexc_repeat:
-    /* --- Preamble: 3× red blinks --- */
-    mov     r11, #3
+    /* --- Preamble: P× red blinks (P = exception type in r12) --- */
+    mov     r11, r12
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
 .Lexc_pre:
     mov     r1, #GPIO_OUT_BIT
