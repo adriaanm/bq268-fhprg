@@ -504,7 +504,7 @@ ddr_set_params_only:
 ddr_init_only:
     push    {r4, lr}
 
-    ldr     r0, =0                     /* clock speed param */
+    ldr     r0, =0x82208               /* clock speed = 533 MHz (from DAT_0804d270) */
     ldr     r4, =DDR_INIT_ADDR
     blx     r4
 
