@@ -174,14 +174,17 @@ _thumb_entry:
      *
      * PBL already has BIMC core clocks running (it loaded our code
      * into OCIMEM via BIMC), but not all DDR branch clocks.
-     * Enable the BIMC branch clocks, then call the DDR blob.
+     * bimc_clock_init does:
+     *   Phase 1-2: Reset clocks, configure PLL USER_CTL
+     *   Phase 3: Enable 8 BIMC branch clocks (CBCR)
+     *   Phase 4: SKIPPED (would corrupt GPLL0)
+     *   Phase 5: Switch BIMC DDR RCG to GPLL0/2 (400 MHz)
+     *   Phase 6: Switch GFX RCG to GPLL0/5 (160 MHz)
      *
-     * NOTE: We skip the full bimc_clock_init because it writes
-     * PLL config to 0x01821000 which is GPLL0_MODE — corrupting
-     * the running system PLL.  Only the branch enables (Phase 3)
-     * are safe.
+     * The DDR RCG switch (Phase 5) is CRITICAL — without it,
+     * ddr_init hangs because the DDR controller has no clock.
      *--------------------------------------------------------------*/
-    bl      bimc_branch_clocks_enable
+    bl      bimc_clock_init
 
     checkpoint              /* GREEN #4: BIMC branches enabled */
 
@@ -276,8 +279,15 @@ _memcpy32:
  * bimc_clock_init — Enable GCC clocks for the BIMC DDR controller
  *
  * Replaces FUN_0800ac84 from the original programmer.
- * Programs GCC PLL and branch clock registers so that the BIMC
- * controller at 0x0044c000 is accessible.
+ * Phases:
+ *   1. Clear GCC reset registers
+ *   2. Configure PLL USER_CTL (GPLL0 + BIMC PLL)
+ *   3. Enable 8 BIMC branch clocks (CBCR)
+ *   4. SKIPPED — PLL reconfig at 0x01821000 = GPLL0_MODE
+ *   5. Switch BIMC DDR RCG to GPLL0, div=2 (400 MHz DDR clock)
+ *   6. Switch GFX RCG to GPLL0, div=5 (160 MHz)
+ *
+ * Phase 5 (DDR RCG switch) is CRITICAL for ddr_init to work.
  *
  * Clobbers: r0-r5
  *==============================================================*/
@@ -351,59 +361,15 @@ bimc_clock_init:
     ldr     r0, =GCC_BIMC_CBCR_4       /* 0x0183101c */
     bl      .Lcbcr_enable
 
-    /* --- Phase 4: Enable BIMC PLL1 --- */
-    /* PLL config registers at BIMC_PLL_CONFIG_BASE (0x01821000) */
-    ldr     r0, =BIMC_PLL_CONFIG_BASE
+    /* --- Phase 4: SKIPPED ---
+     * The original FUN_0800ac84 does NOT reconfigure a PLL here.
+     * BIMC_PLL_CONFIG_BASE (0x01821000) is actually GPLL0_MODE —
+     * writing PLL config here corrupts the running system PLL.
+     * Source=1 in the RCG below selects GPLL0, which is already
+     * locked from step 5 of the main flow.
+     */
 
-    /* Write config_ctl (+0x04) */
-    ldr     r1, =BIMC_PLL_CONFIG_CTL   /* 0x4001055b */
-    str     r1, [r0, #0x04]
-
-    /* Write alpha_l (+0x08) */
-    ldr     r1, =BIMC_PLL_ALPHA_L      /* 0x000000aa */
-    str     r1, [r0, #0x08]
-
-    /* Write alpha_h (+0x0c) */
-    ldr     r1, =BIMC_PLL_ALPHA_H      /* 0xaa000000 */
-    str     r1, [r0, #0x0c]
-
-    /* Write L value into user_ctl (+0x10) */
-    ldr     r1, =BIMC_PLL_L_VAL        /* 41 */
-    str     r1, [r0, #0x10]
-
-    /* PLL lock sequence: MODE |= BYPASSNL, wait, MODE |= RESET_N, poll lock, MODE |= OUTCTRL */
-    ldr     r1, [r0]                   /* read current MODE */
-    bic     r1, r1, #0xFF             /* clear low bits */
-    orr     r1, r1, #PLL_BYPASSNL     /* bit 1 */
-    str     r1, [r0]
-    dsb
-
-    /* Wait ~5us at ~200 MHz = ~1000 cycles */
-    ldr     r2, =1000
-.Lpll_wait1:
-    subs    r2, #1
-    bne     .Lpll_wait1
-
-    orr     r1, r1, #(PLL_BYPASSNL | PLL_RESET_N)  /* bits 2:1 */
-    str     r1, [r0]
-    dsb
-
-    /* Poll for PLL lock (bit 31) — timeout ~50us */
-    ldr     r2, =100000
-.Lpll_lock_wait:
-    ldr     r3, [r0]
-    tst     r3, r3                    /* check bit 31 (N flag) */
-    bmi     .Lpll_locked
-    subs    r2, #1
-    bne     .Lpll_lock_wait
-    /* Timeout — continue anyway */
-.Lpll_locked:
-
-    orr     r1, r1, #(PLL_BYPASSNL | PLL_RESET_N | PLL_OUTCTRL)  /* bits 2:1:0 */
-    str     r1, [r0]
-    dsb
-
-    /* --- Phase 5: Switch BIMC DDR RCG to PLL1, div=2 --- */
+    /* --- Phase 5: Switch BIMC DDR RCG to GPLL0, div=2 --- */
     ldr     r0, =GCC_BIMC_DDR_CFG_RCGR /* 0x01832008 */
     ldr     r1, [r0]
     ldr     r2, =0xFFFFC8E0
