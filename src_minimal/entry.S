@@ -664,33 +664,30 @@ _vectors:
 /*==============================================================
  * DDR blob callback stubs
  *
- * The DDR init blob contains thunks that call back to fixed
- * addresses in the programmer's code space:
- *   0x002203dc → thunk to 0x08006bdc (memcpy)
- *   0x00220410 → thunk to 0x08006d14 (memset_zero)
+ * The DDR init blob contains ARM-mode "ldr pc" thunks that call
+ * back to fixed addresses.  The target address encodes the
+ * expected ISA mode via bit 0 (0=ARM, 1=Thumb):
  *
- * These MUST be Thumb functions at exactly those addresses,
- * otherwise ddr_init crashes by jumping into unrelated code.
+ *   0x08006b04 — memmove       (ARM,   thunk at 0x00220420)
+ *   0x08006bdc — memcpy        (ARM,   thunk at 0x002203dc)
+ *   0x08006c40 — fast_memcpy   (ARM,   thunk at 0x00220418)
+ *   0x08006d14 — memset_zero   (THUMB, thunk at 0x00220410, target=0x08006d15)
+ *   0x08007edc — get_ttb       (ARM,   thunk at 0x002203e4)
  *
- * Full callback list (from DDR blob thunk scan):
- *   0x08006b04 — memmove (overlap-safe copy)
- *   0x08006bdc — memcpy
- *   0x08006c40 — fast_memcpy (aligned 32-byte chunk copy)
- *   0x08006d14 — memset_zero
- *   0x08007edc — get_ttb (returns TTBR0 & 0xFFFFC000)
+ * Callbacks MUST match the mode expected by the thunk, otherwise
+ * the CPU interprets the wrong instruction encoding → crashes.
  *==============================================================*/
 
     .section .ddr_cb_memmove, "ax", %progbits
-    .thumb
+    .arm
     .balign 4
     .global ddr_memmove
-    .thumb_func
 ddr_memmove:
-    /* memmove(r0=dest, r1=src, r2=len) — overlap-safe copy */
-    push    {r4, lr}
-    cbz     r2, 2f
+    /* memmove(r0=dest, r1=src, r2=len) — overlap-safe copy, ARM mode */
+    cmp     r2, #0
+    bxeq    lr
     cmp     r0, r1
-    bls     .Lmemmove_fwd          /* dest <= src: forward copy */
+    bls     1f
     /* Backward copy (dest > src, might overlap) */
     add     r0, r0, r2
     add     r1, r1, r2
@@ -698,28 +695,26 @@ ddr_memmove:
     strb    r3, [r0, #-1]!
     subs    r2, r2, #1
     bne     3b
-    b       2f
-.Lmemmove_fwd:
+    bx      lr
 1:  ldrb    r3, [r1], #1
     strb    r3, [r0], #1
     subs    r2, r2, #1
     bne     1b
-2:  pop     {r4, pc}
+    bx      lr
 
     .section .ddr_cb_memcpy, "ax", %progbits
-    .thumb
+    .arm
     .balign 4
     .global ddr_memcpy
-    .thumb_func
 ddr_memcpy:
-    /* memcpy(r0=dest, r1=src, r2=len) — simple byte copy */
-    push    {r4, lr}
-    cbz     r2, 2f
+    /* memcpy(r0=dest, r1=src, r2=len) — simple byte copy, ARM mode */
+    cmp     r2, #0
+    bxeq    lr
 1:  ldrb    r3, [r1], #1
     strb    r3, [r0], #1
     subs    r2, r2, #1
     bne     1b
-2:  pop     {r4, pc}
+    bx      lr
 
     .section .ddr_cb_memset, "ax", %progbits
     .thumb
@@ -727,38 +722,35 @@ ddr_memcpy:
     .global ddr_memset_zero
     .thumb_func
 ddr_memset_zero:
-    /* memset_zero(r0=dest, r1=len) — zero fill */
-    push    {r4, lr}
+    /* memset_zero(r0=dest, r1=len) — zero fill, THUMB mode */
     movs    r2, #0
-    cbz     r1, 2f
+    cmp     r1, #0
+    beq     2f
 1:  strb    r2, [r0], #1
     subs    r1, r1, #1
     bne     1b
-2:  pop     {r4, pc}
+2:  bx      lr
 
     .section .ddr_cb_fast_memcpy, "ax", %progbits
-    .thumb
+    .arm
     .balign 4
     .global ddr_fast_memcpy
-    .thumb_func
 ddr_fast_memcpy:
-    /* fast_memcpy(r0=dest, r1=src, r2=len) — aligned copy */
-    /* Original uses 32-byte chunks; simple byte copy is fine for us */
-    push    {r4, lr}
-    cbz     r2, 2f
+    /* fast_memcpy(r0=dest, r1=src, r2=len) — ARM mode */
+    cmp     r2, #0
+    bxeq    lr
 1:  ldrb    r3, [r1], #1
     strb    r3, [r0], #1
     subs    r2, r2, #1
     bne     1b
-2:  pop     {r4, pc}
+    bx      lr
 
     .section .ddr_cb_get_ttb, "ax", %progbits
-    .thumb
+    .arm
     .balign 4
     .global ddr_get_ttb
-    .thumb_func
 ddr_get_ttb:
-    /* get_ttb() — returns TTBR0 & 0xFFFFC000 */
+    /* get_ttb() — returns TTBR0 & 0xFFFFC000, ARM mode */
     mrc     p15, 0, r0, c2, c0, 0  /* read TTBR0 */
     bic     r0, r0, #0x3F00
     bic     r0, r0, #0x00FF        /* r0 &= 0xFFFFC000 */
