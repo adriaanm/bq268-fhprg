@@ -5,10 +5,11 @@
  *   1. Set VBAR (exception vector base)
  *   2. Set up stack pointer
  *   3. Copy .data, zero BSS
- *   4. Enable GPLL0 PLL via vote register
- *   5. Init DDR (call blob at 0x00222780)
- *   6. Enable GCC SDCC1 clocks (RCG + AHB + APPS branches)
- *   7. Branch to C main()
+ *   4. Set up early page table (IO + OCIMEM, no DDR)
+ *   5. Enable GPLL0 PLL via vote register
+ *   6. Early clock init (BIMC AHB clock)
+ *   7. DDR init: ddr_set_params → bimc_clock_init → icb_config → ddr_init
+ *   8. Branch to C main()
  *
  * Register definitions from lk_src/platform/msm8909/.
  */
@@ -83,33 +84,64 @@ _thumb_entry:
     .endm
 
     /*--------------------------------------------------------------
-     * CPU-loop checkpoint: for use after ddr_set_params may have
-     * stopped the sleep timetick.  Uses a pure CPU loop for delay.
-     * ~4M iterations ≈ visible at any reasonable CPU frequency.
+     * checkpoint_cpu: uses HW sleep timetick (same as checkpoint).
+     * Originally used CPU loops, but at 800 MHz (after GPLL0) those
+     * are too fast to see (~10ms).  The 32768 Hz timetick is clock-
+     * independent and confirmed working.  Keeping the name to avoid
+     * churn in the checkpoint comments.
      *--------------------------------------------------------------*/
     .macro checkpoint_cpu
+    /* Configure green LED as output */
     ldr     r4, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
     mov     r5, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
     str     r5, [r4]
+    /* Green ON */
     ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     movs    r5, #GPIO_OUT_BIT
     str     r5, [r4]
-    ldr     r6, =4000000
-96: subs    r6, r6, #1
-    bne     96b
+    /* Delay 0.5s using sleep timetick (16384 ticks = 500ms) */
+    ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
+    ldr     r5, [r4]            /* start tick */
+96: ldr     r6, [r4]
+    sub     r6, r6, r5
+    ldr     r7, =16384          /* 32768 Hz * 0.5s */
+    cmp     r6, r7
+    blo     96b
+    /* Green OFF */
     ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     movs    r5, #0
     str     r5, [r4]
-    ldr     r6, =4000000
-95: subs    r6, r6, #1
-    bne     95b
+    /* Delay 0.5s gap */
+    ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
+    ldr     r5, [r4]
+95: ldr     r6, [r4]
+    sub     r6, r6, r5
+    ldr     r7, =16384
+    cmp     r6, r7
+    blo     95b
     .endm
 
     /*--------------------------------------------------------------
-     * 1. Exception vectors — point VBAR at a minimal vector table
+     * 1. Exception vectors + DACR
+     *
+     * Set VBAR for our exception handler.
+     * Set DACR to 0x55555555 (Client mode for all domains) —
+     * the original programmer does this early (FUN_08007ef0).
+     * PBL may leave a restrictive DACR that blocks some domains.
      *--------------------------------------------------------------*/
     ldr     r0, =_vectors
     mcr     p15, 0, r0, c12, c0, 0     /* VBAR = _vectors */
+
+    /* Keep MMU ON (PBL's page table provides device-memory attributes).
+     * Set DACR to Manager — bypasses all domain permission checks. */
+    ldr     r0, =0xFFFFFFFF
+    mcr     p15, 0, r0, c3, c0, 0      /* DACR = all Manager */
+
+    /* Set TTBCR.N=0 so TTBR0 covers all 4GB (16KB table).
+     * PBL may have N>0, making high addresses (0x80000000+) use TTBR1.
+     * We need TTBR0 to cover DDR at 0x80000000. */
+    movs    r0, #0
+    mcr     p15, 0, r0, c2, c0, 2      /* TTBCR = 0 (N=0) */
     isb
 
     checkpoint              /* GREEN #1: VBAR done */
@@ -149,7 +181,19 @@ _thumb_entry:
     checkpoint              /* GREEN #2: stack + data + BSS done */
 
     /*--------------------------------------------------------------
-     * 5. Enable GPLL0 (800 MHz) via vote register
+     * 5. Set up early page table
+     *
+     * Map 128MB IO (0x000-0x07F), OCIMEM (0x080), SYSTEM_IMEM (0x086)
+     * with correct Device/Normal attributes.  Don't map DDR yet.
+     * This ensures all peripheral regions are accessible regardless
+     * of what PBL's page table covers.
+     *--------------------------------------------------------------*/
+    bl      setup_early_page_table
+
+    checkpoint              /* GREEN #3: page table done */
+
+    /*--------------------------------------------------------------
+     * 6. Enable GPLL0 (800 MHz) via vote register
      *
      * LK uses the vote register (APCS_GPLL_ENA_VOTE) with BIT(0)
      * and polls GPLL0_MODE BIT(30) for lock.  The direct MODE
@@ -167,96 +211,55 @@ _thumb_entry:
     tst     r1, #GPLL0_LOCK_BIT    /* BIT(30) */
     beq     .Lgpll0_wait
 
-    checkpoint              /* GREEN #3: GPLL0 locked */
+    checkpoint              /* GREEN #4: GPLL0 locked */
 
     /*--------------------------------------------------------------
-     * 6. Init DDR
+     * 7. Early clock init (FUN_0800a790 equivalent)
      *
-     * bimc_clock_init (branches + RCG switch) must be done BEFORE
-     * ddr_set_params — the DDR blob modifies BIMC state that
-     * blocks the RCG switch if done afterward.
-     * ICB config must be BEFORE ddr_init (original order).
-     *
-     *   a) bimc_clock_init (branches + RCG + MISC)
-     *   b) ddr_set_params
-     *   c) ICB config (BIMC bus arbitration)
-     *   d) ddr_init
+     * The original programmer calls this BEFORE any DDR work.
+     * Writes 1 to GCC register 0x01830038 — likely enables the
+     * BIMC config/AHB clock needed for register access at 0x004xxxxx.
+     * Also sets initial bits in PLL USER_CTL registers.
      *--------------------------------------------------------------*/
-    bl      bimc_clock_init
+    ldr     r0, =0x01830038
+    movs    r1, #1
+    str     r1, [r0]
 
-    checkpoint              /* GREEN #4: BIMC clocks configured */
+    /* Set bit 8 in APCS_CLOCK_BRANCH_ENA_VOTE (0x01845004) */
+    ldr     r0, =0x01845004
+    ldr     r1, [r0]
+    ldr     r2, =0x0003f7ff
+    and     r1, r1, r2
+    orr     r1, r1, #0x100
+    str     r1, [r0]
 
+    /* Set bit 6 in GCC_GPLL0_USER_CTL (0x01836004) */
+    ldr     r0, =0x01836004
+    ldr     r1, [r0]
+    ldr     r2, =0x0003f7ff
+    and     r1, r1, r2
+    orr     r1, r1, #0x40
+    str     r1, [r0]
+    dsb
+
+    checkpoint_cpu          /* GREEN #5: early clock init done */
+
+    /*--------------------------------------------------------------
+     * 8. DDR init sequence — matches original sbl1_hw_init order:
+     *    ddr_set_params → bimc_clock_init → icb_config → ddr_init
+     *--------------------------------------------------------------*/
     bl      ddr_set_params_only
+    checkpoint_cpu          /* GREEN #6: ddr_set_params done */
 
-    checkpoint_cpu          /* GREEN #5: ddr_set_params done */
+    bl      bimc_clock_init
+    checkpoint_cpu          /* GREEN #7: bimc_clock_init done */
 
-    /* ICB config (BIMC QoS registers at 0x004xxxxx) REMOVED —
-     * writing those registers hangs, probably not accessible at
-     * this point.  Moved to main.c after DDR init. */
+    bl      icb_config
+    checkpoint_cpu          /* GREEN #8: icb_config done */
 
     bl      ddr_init_only
+    checkpoint_cpu          /* GREEN #9: ddr_init done */
 
-    checkpoint_cpu          /* GREEN #6: DDR init done */
-
-    /*--------------------------------------------------------------
-     * 7. Enable GCC SDCC1 clocks
-     *
-     * Sequence (from lk_src/platform/msm_shared/clock_lib2.c):
-     *   a) Configure RCG: set source + divider in CFG_RCGR
-     *   b) Trigger CMD_RCGR update, wait for completion
-     *   c) Enable AHB branch clock, wait for CLK_OFF to clear
-     *   d) Enable APPS branch clock, wait for CLK_OFF to clear
-     *
-     * Initial clock: CXO (19.2 MHz), no divider.
-     * The eMMC driver will reconfigure for higher speeds later.
-     *--------------------------------------------------------------*/
-
-    /* a) Configure RCG: source = CXO, divider = 1 */
-    ldr     r0, =SDCC1_CFG_RCGR
-    ldr     r1, [r0]
-    bic     r1, r1, #CFG_SRC_SEL_MASK  /* clear source select */
-    bic     r1, r1, #CFG_SRC_DIV_MASK  /* clear divider = div 1 */
-    /* SRC_CXO = 0, so no need to OR in source */
-    str     r1, [r0]
-
-    /* b) Trigger CMD_RCGR update */
-    ldr     r0, =SDCC1_CMD_RCGR
-    ldr     r1, [r0]
-    orr     r1, r1, #CMD_UPDATE_BIT
-    str     r1, [r0]
-    dsb
-.Lcmd_wait:
-    ldr     r1, [r0]
-    tst     r1, #CMD_UPDATE_BIT
-    bne     .Lcmd_wait
-
-    /* c) Enable SDCC1 AHB branch clock */
-    ldr     r0, =SDCC1_AHB_CBCR
-    ldr     r1, [r0]
-    orr     r1, r1, #CBCR_BRANCH_ENABLE_BIT
-    str     r1, [r0]
-    dsb
-.Lahb_wait:
-    ldr     r1, [r0]
-    tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
-    bmi     .Lahb_wait
-
-    /* d) Enable SDCC1 APPS branch clock */
-    ldr     r0, =SDCC1_APPS_CBCR
-    ldr     r1, [r0]
-    orr     r1, r1, #CBCR_BRANCH_ENABLE_BIT
-    str     r1, [r0]
-    dsb
-.Lapps_wait:
-    ldr     r1, [r0]
-    tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
-    bmi     .Lapps_wait
-
-    checkpoint_cpu          /* GREEN #7: SDCC clocks done */
-
-    /*--------------------------------------------------------------
-     * 9. Jump to C main
-     *--------------------------------------------------------------*/
     bl      main
 
     /* Should not return, but hang if it does */
@@ -506,7 +509,7 @@ ddr_set_params_only:
 ddr_init_only:
     push    {r4, lr}
 
-    ldr     r0, =0x82208               /* clock speed = 533 MHz (from DAT_0804d270) */
+    ldr     r0, =0x61A80               /* clock speed = 400 MHz (GPLL0/2 = 800/2) */
     ldr     r4, =DDR_INIT_ADDR
     blx     r4
 
@@ -559,23 +562,72 @@ _vectors:
     wfi
     b       .Larm_hang
 
-/* Exception handler (ARM mode): both LEDs on solid = crash indicator.
- * No timer needed — unmistakable signal (red+green = yellow/both). */
+/* Exception handler (ARM mode): diagnostic blink using DFSR.
+ * Reads DFSR[3:0] (fault status) and blinks red N times, then pauses.
+ * Count the red blinks to identify the fault type:
+ *   1 = alignment, 5 = translation (section), 7 = translation (page),
+ *   8 = external abort, 13 = permission (section), 15 = permission (page)
+ * Uses HW timetick (32768 Hz) — CPU loops are invisible at 800 MHz. */
 .Lexception:
+    /* Read fault status registers */
+    mrc     p15, 0, r8, c5, c0, 0   /* DFSR */
+    mrc     p15, 0, r9, c6, c0, 0   /* DFAR (saved for future use) */
+
+    /* Extract fault type: DFSR[3:0] */
+    and     r10, r8, #0xF
+
+    /* Configure LEDs */
     ldr     r0, =GPIO_CFG_ADDR(LED_RED_GPIO)
     mov     r1, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
     str     r1, [r0]
     ldr     r0, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
     str     r1, [r0]
+    /* Green OFF */
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    mov     r1, #0
+    str     r1, [r0]
+
+    ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
+    ldr     r5, =6554               /* 200ms at 32768 Hz */
+    ldr     r12, =49152             /* 1.5s at 32768 Hz */
+
+.Lexc_repeat:
+    /* Blink red r10 times */
+    mov     r11, r10
+    cmp     r11, #0
+    beq     .Lexc_pause
+
+.Lexc_blink_n:
+    /* Red ON */
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
     mov     r1, #GPIO_OUT_BIT
     str     r1, [r0]
-    ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
-    mov     r1, #GPIO_OUT_BIT
+    /* HW delay 200ms */
+    ldr     r6, [r4]
+3:  ldr     r7, [r4]
+    sub     r7, r7, r6
+    cmp     r7, r5
+    blo     3b
+    /* Red OFF */
+    mov     r1, #0
     str     r1, [r0]
-.Lexc_hang:
-    wfi
-    b       .Lexc_hang
+    /* HW delay 200ms */
+    ldr     r6, [r4]
+4:  ldr     r7, [r4]
+    sub     r7, r7, r6
+    cmp     r7, r5
+    blo     4b
+    subs    r11, r11, #1
+    bne     .Lexc_blink_n
+
+.Lexc_pause:
+    /* Long pause (1.5s) to separate groups */
+    ldr     r6, [r4]
+5:  ldr     r7, [r4]
+    sub     r7, r7, r6
+    cmp     r7, r12
+    blo     5b
+    b       .Lexc_repeat
 
 /*==============================================================
  * DDR blob callback stubs
