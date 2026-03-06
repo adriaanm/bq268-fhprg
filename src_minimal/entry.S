@@ -554,8 +554,10 @@ _vectors:
     b       .Larm_hang
 
 /* Exception handler (ARM mode): diagnostic blink using DFSR.
- * Reads DFSR[3:0] (fault status) and blinks red N times, then pauses.
- * Count the red blinks to identify the fault type:
+ * Pattern: 3×red, 1×green, N×red (fault code), 1×green, 2s pause, repeat.
+ * The green blinks delimit the fault code so you just count red blinks
+ * between the two green flashes.
+ * Fault types (DFSR[3:0]):
  *   1 = alignment, 5 = translation (section), 7 = translation (page),
  *   8 = external abort, 13 = permission (section), 15 = permission (page)
  * Uses HW timetick (32768 Hz) — CPU loops are invisible at 800 MHz. */
@@ -573,52 +575,81 @@ _vectors:
     str     r1, [r0]
     ldr     r0, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
     str     r1, [r0]
-    /* Green OFF */
+    /* Both OFF */
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     mov     r1, #0
     str     r1, [r0]
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
+    str     r1, [r0]
 
     ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
-    ldr     r5, =6554               /* 200ms at 32768 Hz */
-    ldr     r12, =49152             /* 1.5s at 32768 Hz */
+    ldr     r5, =9830               /* 300ms at 32768 Hz */
 
 .Lexc_repeat:
-    /* Blink red r10 times */
-    mov     r11, r10
-    cmp     r11, #0
-    beq     .Lexc_pause
-
-.Lexc_blink_n:
-    /* Red ON */
+    /* --- Preamble: 3× red blinks --- */
+    mov     r11, #3
     ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
+.Lexc_pre:
     mov     r1, #GPIO_OUT_BIT
     str     r1, [r0]
-    /* HW delay 200ms */
+    bl      .Lexc_delay
+    mov     r1, #0
+    str     r1, [r0]
+    bl      .Lexc_delay
+    subs    r11, r11, #1
+    bne     .Lexc_pre
+
+    /* --- Delimiter: 1× green blink --- */
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    mov     r1, #GPIO_OUT_BIT
+    str     r1, [r0]
+    bl      .Lexc_delay
+    mov     r1, #0
+    str     r1, [r0]
+    bl      .Lexc_delay
+
+    /* --- Fault code: N× red blinks (N = DFSR[3:0]) --- */
+    mov     r11, r10
+    cmp     r11, #0
+    beq     .Lexc_end_delim         /* skip if fault code = 0 */
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_RED_GPIO)
+.Lexc_code:
+    mov     r1, #GPIO_OUT_BIT
+    str     r1, [r0]
+    bl      .Lexc_delay
+    mov     r1, #0
+    str     r1, [r0]
+    bl      .Lexc_delay
+    subs    r11, r11, #1
+    bne     .Lexc_code
+
+.Lexc_end_delim:
+    /* --- End delimiter: 1× green blink --- */
+    ldr     r0, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    mov     r1, #GPIO_OUT_BIT
+    str     r1, [r0]
+    bl      .Lexc_delay
+    mov     r1, #0
+    str     r1, [r0]
+
+    /* --- Long pause (2s) before repeating --- */
+    ldr     r6, [r4]
+    ldr     r5, =65536              /* 2s at 32768 Hz */
+5:  ldr     r7, [r4]
+    sub     r7, r7, r6
+    cmp     r7, r5
+    blo     5b
+    ldr     r5, =9830               /* restore 300ms for next round */
+    b       .Lexc_repeat
+
+/* Delay subroutine: 300ms using HW timetick. Preserves r0, r4, r5, r10, r11. */
+.Lexc_delay:
     ldr     r6, [r4]
 3:  ldr     r7, [r4]
     sub     r7, r7, r6
     cmp     r7, r5
     blo     3b
-    /* Red OFF */
-    mov     r1, #0
-    str     r1, [r0]
-    /* HW delay 200ms */
-    ldr     r6, [r4]
-4:  ldr     r7, [r4]
-    sub     r7, r7, r6
-    cmp     r7, r5
-    blo     4b
-    subs    r11, r11, #1
-    bne     .Lexc_blink_n
-
-.Lexc_pause:
-    /* Long pause (1.5s) to separate groups */
-    ldr     r6, [r4]
-5:  ldr     r7, [r4]
-    sub     r7, r7, r6
-    cmp     r7, r12
-    blo     5b
-    b       .Lexc_repeat
+    bx      lr
 
 /*==============================================================
  * DDR blob callback stubs

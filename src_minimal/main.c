@@ -565,12 +565,33 @@ static void cmd_ddr_test(void)
  *   - Called ddr_set_params, bimc_clock_init, icb_config, ddr_init
  *   - DDR init has NOT been confirmed working yet
  *========================================================================*/
+/* Blink an LED n times using HW timetick (200ms on, 200ms off) */
+static void blink_led(int gpio, int count)
+{
+    volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
+    unsigned int start;
+    int i;
+    led_init(gpio);
+    for (i = 0; i < count; i++) {
+        led_on(gpio);
+        start = *tick;
+        while ((*tick - start) < 6554);  /* 200ms */
+        led_off(gpio);
+        start = *tick;
+        while ((*tick - start) < 6554);  /* 200ms */
+    }
+}
+
 void main(void)
 {
     int n, p;
 
     (void)aboot_payload_gz;
     (void)aboot_payload_gz_len;
+
+    /* Signal main() reached: 2 red + 3 green */
+    blink_led(LED_RED_GPIO, 2);
+    blink_led(LED_GREEN_GPIO, 3);
 
     /* Set up our own page table — PBL's may not map USB region */
     setup_page_table();
