@@ -172,26 +172,23 @@ _thumb_entry:
     /*--------------------------------------------------------------
      * 6. Init DDR
      *
-     * The DDR blob needs BIMC branch clocks to access IMEM, so
-     * we enable branch clocks BEFORE ddr_set_params.  But the
-     * RCG switch + ICB config must happen AFTER ddr_set_params
-     * and BEFORE ddr_init (matching original sbl1_hw_init order):
+     * bimc_clock_init (branches + RCG switch) must be done BEFORE
+     * ddr_set_params — the DDR blob modifies BIMC state that
+     * blocks the RCG switch if done afterward.
+     * ICB config must be BEFORE ddr_init (original order).
      *
-     *   a) BIMC branch clocks (CBCR enables)
+     *   a) bimc_clock_init (branches + RCG + MISC)
      *   b) ddr_set_params
-     *   c) BIMC RCG switch (full bimc_clock_init)
-     *   d) ICB config (BIMC bus arbitration)
-     *   e) ddr_init
+     *   c) ICB config (BIMC bus arbitration)
+     *   d) ddr_init
      *--------------------------------------------------------------*/
-    bl      bimc_branch_clocks_enable
+    bl      bimc_clock_init
 
-    checkpoint              /* GREEN #4: BIMC branches enabled */
+    checkpoint              /* GREEN #4: BIMC clocks configured */
 
     bl      ddr_set_params_only
 
     checkpoint_cpu          /* GREEN #5: ddr_set_params done */
-
-    bl      bimc_rcg_switch         /* RCG + MISC switch (Phase 5-6) */
 
     bl      icb_config              /* ICB must be before ddr_init */
 
@@ -283,20 +280,18 @@ _memcpy32:
     pop     {r4, pc}
 
 /*==============================================================
- * bimc_rcg_switch — Phases 1-2 + 5-6 of bimc_clock_init
+ * bimc_clock_init — Full BIMC clock setup (Phases 1-2-3-5-6)
  *
- * Called AFTER ddr_set_params, BEFORE ddr_init (original order).
- * Does GCC reset, PLL USER_CTL config, DDR RCG switch, GFX RCG switch.
- * Branch clocks (Phase 3) are enabled separately by
- * bimc_branch_clocks_enable BEFORE ddr_set_params.
+ * Must be called BEFORE ddr_set_params — the DDR blob modifies
+ * BIMC state that blocks the RCG switch if done afterward.
  *
  * Clobbers: r0-r2
  *==============================================================*/
     .thumb_func
-bimc_rcg_switch:
+bimc_clock_init:
     push    {lr}
 
-    /* --- Phase 1: Reset clock sources --- */
+    /* --- Phase 1: Clear GCC reset registers --- */
     movs    r1, #0
     ldr     r0, =GCC_RESET_0
     str     r1, [r0]
@@ -337,6 +332,24 @@ bimc_rcg_switch:
     orr     r1, r1, r2
     str     r1, [r0]
     dsb
+
+    /* --- Phase 3: Enable 8 BIMC branch clocks --- */
+    ldr     r0, =GCC_BIMC_CBCR_7       /* 0x01832024 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_5       /* 0x0183201c */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_6       /* 0x01832020 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_0       /* 0x01831008 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_1       /* 0x0183100c */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_2       /* 0x01831010 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_3       /* 0x01831014 */
+    bl      .Lcbcr_enable
+    ldr     r0, =GCC_BIMC_CBCR_4       /* 0x0183101c */
+    bl      .Lcbcr_enable
 
     /* --- Phase 5: Switch BIMC DDR RCG to GPLL0, div=2 --- */
     ldr     r0, =GCC_BIMC_DDR_CFG_RCGR /* 0x01832008 */
