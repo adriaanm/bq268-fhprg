@@ -5,11 +5,10 @@
  *   1. Set VBAR (exception vector base)
  *   2. Set up stack pointer
  *   3. Copy .data, zero BSS
- *   4. Set up early page table (IO + OCIMEM, no DDR)
- *   5. Enable GPLL0 PLL via vote register
- *   6. Early clock init (BIMC AHB clock)
- *   7. DDR init: ddr_set_params → bimc_clock_init → icb_config → ddr_init
- *   8. Branch to C main()
+ *   4. Enable GPLL0 PLL via vote register
+ *   5. Early clock init (BIMC AHB clock)
+ *   6. DDR init: ddr_set_params → bimc_clock_init → icb_config → ddr_init
+ *   7. Branch to C main()
  *
  * Register definitions from lk_src/platform/msm8909/.
  */
@@ -180,20 +179,12 @@ _thumb_entry:
 
     checkpoint              /* GREEN #2: stack + data + BSS done */
 
-    /*--------------------------------------------------------------
-     * 5. Set up early page table
-     *
-     * Map 128MB IO (0x000-0x07F), OCIMEM (0x080), SYSTEM_IMEM (0x086)
-     * with correct Device/Normal attributes.  Don't map DDR yet.
-     * This ensures all peripheral regions are accessible regardless
-     * of what PBL's page table covers.
-     *--------------------------------------------------------------*/
-    bl      setup_early_page_table
-
-    checkpoint              /* GREEN #3: page table done */
+    /* Early page table removed — PBL's page table works fine
+     * (timetick, GPIO, GPLL0 all work with it).  setup_page_table()
+     * in main() handles remapping after DDR init. */
 
     /*--------------------------------------------------------------
-     * 6. Enable GPLL0 (800 MHz) via vote register
+     * 5. Enable GPLL0 (800 MHz) via vote register
      *
      * LK uses the vote register (APCS_GPLL_ENA_VOTE) with BIT(0)
      * and polls GPLL0_MODE BIT(30) for lock.  The direct MODE
@@ -211,10 +202,10 @@ _thumb_entry:
     tst     r1, #GPLL0_LOCK_BIT    /* BIT(30) */
     beq     .Lgpll0_wait
 
-    checkpoint              /* GREEN #4: GPLL0 locked */
+    checkpoint              /* GREEN #3: GPLL0 locked */
 
     /*--------------------------------------------------------------
-     * 7. Early clock init (FUN_0800a790 equivalent)
+     * 6. Early clock init (FUN_0800a790 equivalent)
      *
      * The original programmer calls this BEFORE any DDR work.
      * Writes 1 to GCC register 0x01830038 — likely enables the
@@ -242,23 +233,23 @@ _thumb_entry:
     str     r1, [r0]
     dsb
 
-    checkpoint_cpu          /* GREEN #5: early clock init done */
+    checkpoint_cpu          /* GREEN #4: early clock init done */
 
     /*--------------------------------------------------------------
-     * 8. DDR init sequence — matches original sbl1_hw_init order:
+     * 7. DDR init sequence — matches original sbl1_hw_init order:
      *    ddr_set_params → bimc_clock_init → icb_config → ddr_init
      *--------------------------------------------------------------*/
     bl      ddr_set_params_only
-    checkpoint_cpu          /* GREEN #6: ddr_set_params done */
+    checkpoint_cpu          /* GREEN #5: ddr_set_params done */
 
     bl      bimc_clock_init
-    checkpoint_cpu          /* GREEN #7: bimc_clock_init done */
+    checkpoint_cpu          /* GREEN #6: bimc_clock_init done */
 
     bl      icb_config
-    checkpoint_cpu          /* GREEN #8: icb_config done */
+    checkpoint_cpu          /* GREEN #7: icb_config done */
 
     bl      ddr_init_only
-    checkpoint_cpu          /* GREEN #9: ddr_init done */
+    checkpoint_cpu          /* GREEN #8: ddr_init done */
 
     bl      main
 
