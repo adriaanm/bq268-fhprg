@@ -245,8 +245,10 @@ _thumb_entry:
     bl      bimc_clock_init
     checkpoint_cpu          /* GREEN #6: bimc_clock_init done */
 
-    bl      icb_config
-    checkpoint_cpu          /* GREEN #7: icb_config done */
+    /* icb_config skipped — previously caused hangs, and with it
+     * enabled ddr_init faults (data abort, alignment).  The original
+     * does ICB config but our register values may be wrong. */
+    checkpoint_cpu          /* GREEN #7: (icb_config skipped) */
 
     bl      ddr_init_only
     checkpoint_cpu          /* GREEN #8: ddr_init done */
