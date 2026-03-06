@@ -112,7 +112,7 @@ static void blink(int gpio, int count)
  * They configure BIMC bus arbitration for DDR slave ports.
  * May not be required for basic DDR access, but included for safety.
  *========================================================================*/
-static void icb_config(void)
+void icb_config(void)
 {
     REG32(0x00449210) = 0x00000001;
     REG32(0x00450230) = 0x00000000;

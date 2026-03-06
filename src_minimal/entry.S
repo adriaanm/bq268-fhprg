@@ -170,27 +170,25 @@ _thumb_entry:
     checkpoint              /* GREEN #3: GPLL0 locked */
 
     /*--------------------------------------------------------------
-     * 6. Init DDR
-     *
-     * PBL already has BIMC core clocks running (it loaded our code
-     * into OCIMEM via BIMC), but not all DDR branch clocks.
-     * bimc_clock_init does:
-     *   Phase 1-2: Reset clocks, configure PLL USER_CTL
-     *   Phase 3: Enable 8 BIMC branch clocks (CBCR)
-     *   Phase 4: SKIPPED (would corrupt GPLL0)
-     *   Phase 5: Switch BIMC DDR RCG to GPLL0/2 (400 MHz)
-     *   Phase 6: Switch GFX RCG to GPLL0/5 (160 MHz)
-     *
-     * The DDR RCG switch (Phase 5) is CRITICAL — without it,
-     * ddr_init hangs because the DDR controller has no clock.
+     * 6. Init DDR — matching original sbl1_hw_init order:
+     *    a) ddr_set_params (config DDR params in IMEM)
+     *    b) bimc_clock_init (PLLs + branches + RCG switch)
+     *    c) ICB config (BIMC bus arbitration)
+     *    d) ddr_init (actually initialize DDR)
      *--------------------------------------------------------------*/
+    bl      ddr_set_params_only
+
+    checkpoint_cpu          /* GREEN #4: ddr_set_params done */
+
     bl      bimc_clock_init
 
-    checkpoint              /* GREEN #4: BIMC branches enabled */
+    checkpoint_cpu          /* GREEN #5: BIMC clocks configured */
 
-    bl      ddr_config_and_init
+    bl      icb_config              /* ICB must be before ddr_init (original order) */
 
-    checkpoint_cpu          /* GREEN #8: DDR init done */
+    bl      ddr_init_only
+
+    checkpoint_cpu          /* GREEN #6: DDR init done */
 
     /*--------------------------------------------------------------
      * 7. Enable GCC SDCC1 clocks
@@ -246,7 +244,7 @@ _thumb_entry:
     tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
     bmi     .Lapps_wait
 
-    checkpoint_cpu          /* GREEN #9: SDCC clocks done */
+    checkpoint_cpu          /* GREEN #7: SDCC clocks done */
 
     /*--------------------------------------------------------------
      * 9. Jump to C main
@@ -471,16 +469,16 @@ bimc_branch_clocks_enable:
     pop     {pc}
 
 /*==============================================================
- * ddr_config_and_init — Copy DDR config to IMEM and call DDR blob
+ * ddr_set_params_only — Copy DDR config to IMEM and call ddr_set_params
  *
  * 1. memcpy(0x08600190, ddr_config_data, 760)
- * 2. ddr_set_params(0x08600190, 760)  @ 0x00222780
- * 3. ddr_init()                        @ 0x002224cc
+ * 2. Verify DDR blob is present in IMEM
+ * 3. ddr_set_params(0x08600190, 760)  @ 0x00222780
  *
- * Clobbers: r0-r3
+ * Clobbers: r0-r6
  *==============================================================*/
     .thumb_func
-ddr_config_and_init:
+ddr_set_params_only:
     push    {r4-r6, lr}
 
     /* 1. Copy DDR config to IMEM at 0x08600190 */
@@ -489,8 +487,6 @@ ddr_config_and_init:
     ldr     r2, =ddr_config_data_len
     ldr     r2, [r2]                   /* r2 = byte count (760) */
     bl      _memcpy32
-
-    checkpoint              /* GREEN #5: config copied to IMEM */
 
     /* Verify DDR blob was loaded to IMEM by reading first word */
     ldr     r0, =0x00220000
@@ -504,24 +500,32 @@ ddr_config_and_init:
     ldr     r1, [r0]            /* read current value */
     str     r1, [r0]            /* write it back (data abort if not writable) */
 
-    checkpoint              /* GREEN #6: DDR blob verified in IMEM */
-
     /* 2. Call ddr_set_params(config_addr, size) */
     ldr     r0, =DDR_CONFIG_IMEM_ADDR
     ldr     r1, =ddr_config_data_len
     ldr     r1, [r1]
     ldr     r4, =DDR_SET_PARAMS_ADDR
     blx     r4
-    /* r0 = 1 on success, 0 on failure — could check but continue anyway */
 
-    checkpoint_cpu          /* GREEN #7: ddr_set_params done */
+    pop     {r4-r6, pc}
 
-    /* 3. Call ddr_init() */
-    ldr     r0, =0                     /* clock speed param (stored but not critical) */
+/*==============================================================
+ * ddr_init_only — Call ddr_init blob
+ *
+ * Must be called AFTER: ddr_set_params, bimc_clock_init, icb_config
+ * (matching original sbl1_hw_init order)
+ *
+ * Clobbers: r0-r4
+ *==============================================================*/
+    .thumb_func
+ddr_init_only:
+    push    {r4, lr}
+
+    ldr     r0, =0                     /* clock speed param */
     ldr     r4, =DDR_INIT_ADDR
     blx     r4
 
-    pop     {r4-r6, pc}
+    pop     {r4, pc}
 
 /* Error: DDR blob not loaded (first word mismatch) — fast red blinks (200ms) */
 .Lddr_blob_bad:
