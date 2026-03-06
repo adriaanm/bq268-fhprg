@@ -83,13 +83,36 @@ _thumb_entry:
     .endm
 
     /*--------------------------------------------------------------
+     * CPU-loop checkpoint: for use after ddr_set_params may have
+     * stopped the sleep timetick.  Uses a pure CPU loop for delay.
+     * ~4M iterations ≈ visible at any reasonable CPU frequency.
+     *--------------------------------------------------------------*/
+    .macro checkpoint_cpu
+    ldr     r4, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
+    mov     r5, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
+    str     r5, [r4]
+    ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    movs    r5, #GPIO_OUT_BIT
+    str     r5, [r4]
+    ldr     r6, =4000000
+96: subs    r6, r6, #1
+    bne     96b
+    ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
+    movs    r5, #0
+    str     r5, [r4]
+    ldr     r6, =4000000
+95: subs    r6, r6, #1
+    bne     95b
+    .endm
+
+    /*--------------------------------------------------------------
      * 1. Exception vectors — point VBAR at a minimal vector table
      *--------------------------------------------------------------*/
     ldr     r0, =_vectors
     mcr     p15, 0, r0, c12, c0, 0     /* VBAR = _vectors */
     isb
 
-    checkpoint              /* BLINK 1: VBAR done */
+    checkpoint              /* GREEN #1: VBAR done */
 
     /*--------------------------------------------------------------
      * 2. Stack — use top of OCIMEM DATA region
@@ -123,7 +146,7 @@ _thumb_entry:
     b       .Lbss_loop
 .Lbss_done:
 
-    checkpoint              /* BLINK 2: stack + data + BSS done */
+    checkpoint              /* GREEN #2: stack + data + BSS done */
 
     /*--------------------------------------------------------------
      * 5. Enable GPLL0 (800 MHz) via vote register
@@ -144,7 +167,7 @@ _thumb_entry:
     tst     r1, #GPLL0_LOCK_BIT    /* BIT(30) */
     beq     .Lgpll0_wait
 
-    checkpoint              /* BLINK 3: GPLL0 locked */
+    checkpoint              /* GREEN #3: GPLL0 locked */
 
     /*--------------------------------------------------------------
      * 6. Init DDR
@@ -160,11 +183,11 @@ _thumb_entry:
      *--------------------------------------------------------------*/
     bl      bimc_branch_clocks_enable
 
-    checkpoint              /* BLINK 3b: BIMC branches enabled */
+    checkpoint              /* GREEN #4: BIMC branches enabled */
 
     bl      ddr_config_and_init
 
-    checkpoint              /* BLINK 4: DDR init done */
+    checkpoint_cpu          /* GREEN #8: DDR init done */
 
     /*--------------------------------------------------------------
      * 7. Enable GCC SDCC1 clocks
@@ -220,7 +243,7 @@ _thumb_entry:
     tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
     bmi     .Lapps_wait
 
-    checkpoint              /* BLINK 5: SDCC clocks done */
+    checkpoint_cpu          /* GREEN #9: SDCC clocks done */
 
     /*--------------------------------------------------------------
      * 9. Jump to C main
@@ -501,7 +524,7 @@ ddr_config_and_init:
     ldr     r2, [r2]                   /* r2 = byte count (760) */
     bl      _memcpy32
 
-    checkpoint              /* BLINK 3c: config copied to IMEM */
+    checkpoint              /* GREEN #5: config copied to IMEM */
 
     /* Verify DDR blob was loaded to IMEM by reading first word */
     ldr     r0, =0x00220000
@@ -515,7 +538,7 @@ ddr_config_and_init:
     ldr     r1, [r0]            /* read current value */
     str     r1, [r0]            /* write it back (data abort if not writable) */
 
-    checkpoint              /* BLINK 3c2: DDR blob verified in IMEM */
+    checkpoint              /* GREEN #6: DDR blob verified in IMEM */
 
     /* 2. Call ddr_set_params(config_addr, size) */
     ldr     r0, =DDR_CONFIG_IMEM_ADDR
@@ -525,7 +548,7 @@ ddr_config_and_init:
     blx     r4
     /* r0 = 1 on success, 0 on failure — could check but continue anyway */
 
-    checkpoint              /* BLINK 3d: ddr_set_params done */
+    checkpoint_cpu          /* GREEN #7: ddr_set_params done */
 
     /* 3. Call ddr_init() */
     ldr     r0, =0                     /* clock speed param (stored but not critical) */
@@ -598,3 +621,45 @@ _vectors:
 .Lexc_hang:
     wfi
     b       .Lexc_hang
+
+/*==============================================================
+ * DDR blob callback stubs
+ *
+ * The DDR init blob contains thunks that call back to fixed
+ * addresses in the programmer's code space:
+ *   0x002203dc → thunk to 0x08006bdc (memcpy)
+ *   0x00220410 → thunk to 0x08006d14 (memset_zero)
+ *
+ * These MUST be Thumb functions at exactly those addresses,
+ * otherwise ddr_init crashes by jumping into unrelated code.
+ *==============================================================*/
+
+    .section .ddr_cb_memcpy, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_memcpy
+    .thumb_func
+ddr_memcpy:
+    /* memcpy(r0=dest, r1=src, r2=len) — simple byte copy */
+    push    {r4, lr}
+    cbz     r2, 2f
+1:  ldrb    r3, [r1], #1
+    strb    r3, [r0], #1
+    subs    r2, r2, #1
+    bne     1b
+2:  pop     {r4, pc}
+
+    .section .ddr_cb_memset, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_memset_zero
+    .thumb_func
+ddr_memset_zero:
+    /* memset_zero(r0=dest, r1=len) — zero fill */
+    push    {r4, lr}
+    movs    r2, #0
+    cbz     r1, 2f
+1:  strb    r2, [r0], #1
+    subs    r1, r1, #1
+    bne     1b
+2:  pop     {r4, pc}
