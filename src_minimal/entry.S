@@ -170,21 +170,30 @@ _thumb_entry:
     checkpoint              /* GREEN #3: GPLL0 locked */
 
     /*--------------------------------------------------------------
-     * 6. Init DDR — matching original sbl1_hw_init order:
-     *    a) ddr_set_params (config DDR params in IMEM)
-     *    b) bimc_clock_init (PLLs + branches + RCG switch)
-     *    c) ICB config (BIMC bus arbitration)
-     *    d) ddr_init (actually initialize DDR)
+     * 6. Init DDR
+     *
+     * The DDR blob needs BIMC branch clocks to access IMEM, so
+     * we enable branch clocks BEFORE ddr_set_params.  But the
+     * RCG switch + ICB config must happen AFTER ddr_set_params
+     * and BEFORE ddr_init (matching original sbl1_hw_init order):
+     *
+     *   a) BIMC branch clocks (CBCR enables)
+     *   b) ddr_set_params
+     *   c) BIMC RCG switch (full bimc_clock_init)
+     *   d) ICB config (BIMC bus arbitration)
+     *   e) ddr_init
      *--------------------------------------------------------------*/
+    bl      bimc_branch_clocks_enable
+
+    checkpoint              /* GREEN #4: BIMC branches enabled */
+
     bl      ddr_set_params_only
 
-    checkpoint_cpu          /* GREEN #4: ddr_set_params done */
+    checkpoint_cpu          /* GREEN #5: ddr_set_params done */
 
-    bl      bimc_clock_init
+    bl      bimc_rcg_switch         /* RCG + MISC switch (Phase 5-6) */
 
-    checkpoint_cpu          /* GREEN #5: BIMC clocks configured */
-
-    bl      icb_config              /* ICB must be before ddr_init (original order) */
+    bl      icb_config              /* ICB must be before ddr_init */
 
     bl      ddr_init_only
 
@@ -274,23 +283,17 @@ _memcpy32:
     pop     {r4, pc}
 
 /*==============================================================
- * bimc_clock_init — Enable GCC clocks for the BIMC DDR controller
+ * bimc_rcg_switch — Phases 1-2 + 5-6 of bimc_clock_init
  *
- * Replaces FUN_0800ac84 from the original programmer.
- * Phases:
- *   1. Clear GCC reset registers
- *   2. Configure PLL USER_CTL (GPLL0 + BIMC PLL)
- *   3. Enable 8 BIMC branch clocks (CBCR)
- *   4. SKIPPED — PLL reconfig at 0x01821000 = GPLL0_MODE
- *   5. Switch BIMC DDR RCG to GPLL0, div=2 (400 MHz DDR clock)
- *   6. Switch GFX RCG to GPLL0, div=5 (160 MHz)
+ * Called AFTER ddr_set_params, BEFORE ddr_init (original order).
+ * Does GCC reset, PLL USER_CTL config, DDR RCG switch, GFX RCG switch.
+ * Branch clocks (Phase 3) are enabled separately by
+ * bimc_branch_clocks_enable BEFORE ddr_set_params.
  *
- * Phase 5 (DDR RCG switch) is CRITICAL for ddr_init to work.
- *
- * Clobbers: r0-r5
+ * Clobbers: r0-r2
  *==============================================================*/
     .thumb_func
-bimc_clock_init:
+bimc_rcg_switch:
     push    {lr}
 
     /* --- Phase 1: Reset clock sources --- */
@@ -304,17 +307,12 @@ bimc_clock_init:
     ldr     r0, =GCC_RESET_3
     str     r1, [r0]
 
-    /* Check TCSR bit 20 for chip version → determines PLL reset value */
+    /* Check TCSR bit 20 → determines PLL reset value */
     ldr     r0, =TCSR_SOC_VERSION
     ldr     r1, [r0]
-    ubfx    r1, r1, #20, #1        /* extract bit 20 → 0 or 1 */
-    ldr     r0, =GCC_GPLL0_MODE_ALT
+    ubfx    r1, r1, #20, #1
+    ldr     r0, =GCC_GPLL0_MODE_ALT    /* 0x01836000 */
     str     r1, [r0]
-    ldr     r0, =GCC_BIMC_PLL_USER_CTL  /* 0x01845000 = BIMC PLL MODE */
-    sub     r0, r0, #4             /* 0x01845000 is USER_CTL, MODE is at 0x01845000-4? */
-    /* Actually: GCC_BIMC_PLL_MODE is at CLK_CTL_BASE + 0x45000 - but that's the vote reg.
-     * The actual BIMC PLL mode register from the analysis is at 0x01845000.
-     * Let's just use the literal addresses from the analysis. */
     ldr     r0, =0x01845000
     str     r1, [r0]
     dsb
@@ -324,11 +322,11 @@ bimc_clock_init:
     ldr     r1, [r0]
     ldr     r2, =0x0003f7ff
     and     r1, r1, r2
-    orr     r1, r1, #0x20000      /* set bit 17 */
+    orr     r1, r1, #0x20000
     str     r1, [r0]
     ldr     r1, [r0]
     and     r1, r1, r2
-    orr     r1, r1, #0x40         /* set bit 6 */
+    orr     r1, r1, #0x40
     str     r1, [r0]
 
     ldr     r0, =GCC_BIMC_PLL_USER_CTL /* 0x01845004 */
@@ -336,43 +334,16 @@ bimc_clock_init:
     ldr     r2, =0x000217ff
     and     r1, r1, r2
     ldr     r2, =0x1e000
-    orr     r1, r1, r2            /* set bits 16:13 */
+    orr     r1, r1, r2
     str     r1, [r0]
     dsb
-
-    /* --- Phase 3: Enable 8 BIMC clock branches --- */
-    /* Pattern: set bit 0, poll until bit 31 clears */
-    ldr     r0, =GCC_BIMC_CBCR_7       /* 0x01832024 — start with outermost */
-    bl      .Lcbcr_enable
-    ldr     r0, =GCC_BIMC_CBCR_5       /* 0x0183201c */
-    bl      .Lcbcr_enable
-    ldr     r0, =GCC_BIMC_CBCR_6       /* 0x01832020 */
-    bl      .Lcbcr_enable
-    ldr     r0, =GCC_BIMC_CBCR_0       /* 0x01831008 */
-    bl      .Lcbcr_enable
-    ldr     r0, =GCC_BIMC_CBCR_1       /* 0x0183100c */
-    bl      .Lcbcr_enable
-    ldr     r0, =GCC_BIMC_CBCR_2       /* 0x01831010 */
-    bl      .Lcbcr_enable
-    ldr     r0, =GCC_BIMC_CBCR_3       /* 0x01831014 */
-    bl      .Lcbcr_enable
-    ldr     r0, =GCC_BIMC_CBCR_4       /* 0x0183101c */
-    bl      .Lcbcr_enable
-
-    /* --- Phase 4: SKIPPED ---
-     * The original FUN_0800ac84 does NOT reconfigure a PLL here.
-     * BIMC_PLL_CONFIG_BASE (0x01821000) is actually GPLL0_MODE —
-     * writing PLL config here corrupts the running system PLL.
-     * Source=1 in the RCG below selects GPLL0, which is already
-     * locked from step 5 of the main flow.
-     */
 
     /* --- Phase 5: Switch BIMC DDR RCG to GPLL0, div=2 --- */
     ldr     r0, =GCC_BIMC_DDR_CFG_RCGR /* 0x01832008 */
     ldr     r1, [r0]
     ldr     r2, =0xFFFFC8E0
     and     r1, r1, r2
-    orr     r1, r1, #(1 << 8)         /* source = 1 (PLL1) */
+    orr     r1, r1, #(1 << 8)         /* source = 1 (GPLL0) */
     orr     r1, r1, #1                /* divider = 2-1 = 1 */
     str     r1, [r0]
 
@@ -393,8 +364,7 @@ bimc_clock_init:
     and     r1, r1, r2
     orr     r1, r1, #0x500
     str     r1, [r0]
-    /* Trigger update (bit 9), poll until clear */
-    orr     r1, r1, #0x200
+    orr     r1, r1, #0x200             /* trigger update */
     str     r1, [r0]
     dsb
 .Lbimc_misc_wait:
@@ -402,12 +372,12 @@ bimc_clock_init:
     tst     r1, #0x200
     bne     .Lbimc_misc_wait
 
-    /* --- Phase 6: Switch GFX RCG to PLL1, div=5 --- */
+    /* --- Phase 6: Switch GFX RCG to GPLL0, div=5 --- */
     ldr     r0, =GCC_BIMC_GFX_CFG_RCGR /* 0x01837004 */
     ldr     r1, [r0]
     ldr     r2, =0xFFFFC8E0
     and     r1, r1, r2
-    orr     r1, r1, #(1 << 8)         /* source = 1 (PLL1) */
+    orr     r1, r1, #(1 << 8)         /* source = 1 (GPLL0) */
     orr     r1, r1, #4                /* divider = 5-1 = 4 */
     str     r1, [r0]
 
