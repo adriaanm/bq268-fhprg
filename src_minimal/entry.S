@@ -632,7 +632,40 @@ _vectors:
  *
  * These MUST be Thumb functions at exactly those addresses,
  * otherwise ddr_init crashes by jumping into unrelated code.
+ *
+ * Full callback list (from DDR blob thunk scan):
+ *   0x08006b04 — memmove (overlap-safe copy)
+ *   0x08006bdc — memcpy
+ *   0x08006c40 — fast_memcpy (aligned 32-byte chunk copy)
+ *   0x08006d14 — memset_zero
+ *   0x08007edc — get_ttb (returns TTBR0 & 0xFFFFC000)
  *==============================================================*/
+
+    .section .ddr_cb_memmove, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_memmove
+    .thumb_func
+ddr_memmove:
+    /* memmove(r0=dest, r1=src, r2=len) — overlap-safe copy */
+    push    {r4, lr}
+    cbz     r2, 2f
+    cmp     r0, r1
+    bls     .Lmemmove_fwd          /* dest <= src: forward copy */
+    /* Backward copy (dest > src, might overlap) */
+    add     r0, r0, r2
+    add     r1, r1, r2
+3:  ldrb    r3, [r1, #-1]!
+    strb    r3, [r0, #-1]!
+    subs    r2, r2, #1
+    bne     3b
+    b       2f
+.Lmemmove_fwd:
+1:  ldrb    r3, [r1], #1
+    strb    r3, [r0], #1
+    subs    r2, r2, #1
+    bne     1b
+2:  pop     {r4, pc}
 
     .section .ddr_cb_memcpy, "ax", %progbits
     .thumb
@@ -663,3 +696,31 @@ ddr_memset_zero:
     subs    r1, r1, #1
     bne     1b
 2:  pop     {r4, pc}
+
+    .section .ddr_cb_fast_memcpy, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_fast_memcpy
+    .thumb_func
+ddr_fast_memcpy:
+    /* fast_memcpy(r0=dest, r1=src, r2=len) — aligned copy */
+    /* Original uses 32-byte chunks; simple byte copy is fine for us */
+    push    {r4, lr}
+    cbz     r2, 2f
+1:  ldrb    r3, [r1], #1
+    strb    r3, [r0], #1
+    subs    r2, r2, #1
+    bne     1b
+2:  pop     {r4, pc}
+
+    .section .ddr_cb_get_ttb, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_get_ttb
+    .thumb_func
+ddr_get_ttb:
+    /* get_ttb() — returns TTBR0 & 0xFFFFC000 */
+    mrc     p15, 0, r0, c2, c0, 0  /* read TTBR0 */
+    bic     r0, r0, #0x3F00
+    bic     r0, r0, #0x00FF        /* r0 &= 0xFFFFC000 */
+    bx      lr

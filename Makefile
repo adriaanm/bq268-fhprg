@@ -213,7 +213,7 @@ MINIMAL_ELF = tmp/minimal.elf
 MINIMAL_BIN = tmp/minimal.bin
 MINIMAL_MAP = tmp/minimal.map
 
-.PHONY: minimal minimal-elf minimal-clean
+.PHONY: minimal minimal-elf minimal-debug-elf minimal-clean
 
 tmp/minimal_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
 	@mkdir -p tmp
@@ -237,6 +237,14 @@ minimal-elf: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
 	@echo "[*] Adding MBN hash table for Sahara..."
 	python3 tools/mbn_wrap.py $(MINIMAL_ELF)
 	@echo "[*] Final ELF: $$(stat -c %s $(MINIMAL_ELF)) bytes"
+
+# Debug ELF with symbols preserved (no MBN wrapping) — for emulator use
+MINIMAL_DEBUG_ELF = tmp/minimal_debug.elf
+minimal-debug-elf: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
+	@echo "[*] Linking minimal debug ELF (with symbols, no MBN)..."
+	$(LD) -T $(MINIMAL_LD_SCRIPT) -o $(MINIMAL_DEBUG_ELF) $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ) \
+		$(MINIMAL_LIBGCC) -Map $(MINIMAL_MAP)
+	@echo "[*] Debug ELF: $(MINIMAL_DEBUG_ELF) ($$(stat -c %s $(MINIMAL_DEBUG_ELF)) bytes)"
 
 # ── minimal-emu (emulator-friendly build, no inline asm) ──────────────────────
 MINIMAL_EMU_CFLAGS = $(MINIMAL_CFLAGS) -DEMU_BUILD

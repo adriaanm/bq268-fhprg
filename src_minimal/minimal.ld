@@ -48,12 +48,24 @@ SECTIONS
         *(.text.entry)       /* entry.S — must be first */
     } > CODE
 
+    .ddr_cb_memmove 0x08006b04 : {
+        *(.ddr_cb_memmove)
+    } > CODE
+
     .ddr_cb_memcpy 0x08006bdc : {
         *(.ddr_cb_memcpy)
     } > CODE
 
+    .ddr_cb_fast_memcpy 0x08006c40 : {
+        *(.ddr_cb_fast_memcpy)
+    } > CODE
+
     .ddr_cb_memset 0x08006d14 : {
         *(.ddr_cb_memset)
+    } > CODE
+
+    .ddr_cb_get_ttb 0x08007edc : {
+        *(.ddr_cb_get_ttb)
     } > CODE
 
     .text : {
