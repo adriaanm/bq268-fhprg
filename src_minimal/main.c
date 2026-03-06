@@ -593,8 +593,10 @@ void main(void)
     blink_led(LED_RED_GPIO, 2);
     blink_led(LED_GREEN_GPIO, 3);
 
-    /* Set up our own page table — PBL's may not map USB region */
-    setup_page_table();
+    /* setup_page_table() disabled — PBL's page table maps all needed regions
+     * (USB at 0x07FD9000 was already mapped for Sahara). Re-enable once USB
+     * is confirmed working; use 'w' command to patch DDR PTEs into PBL's table. */
+    /* setup_page_table(); */
 
     led_init(LED_RED_GPIO);
     led_init(LED_GREEN_GPIO);

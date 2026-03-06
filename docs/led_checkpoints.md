@@ -24,29 +24,28 @@
 | 0 | Red ON (solid) | _start | instant | PBL jumped to us |
 | 1 | Green blink | checkpoint (hw) | 0.5s | VBAR + DACR + TTBCR |
 | 2 | Green blink | checkpoint (hw) | 0.5s | Stack + .data copy + BSS zero |
-| 3 | Green blink | checkpoint (hw) | 0.5s | Early page table (setup_early_page_table) |
-| 4 | Green blink | checkpoint (hw) | 0.5s | GPLL0 locked |
-| 5 | Green blink | checkpoint_cpu | CPU loop | Early clock init (0x01830038 etc.) |
-| 6 | Green blink | checkpoint_cpu | CPU loop | ddr_set_params |
-| 7 | Green blink | checkpoint_cpu | CPU loop | bimc_clock_init |
-| 8 | Green blink | checkpoint_cpu | CPU loop | icb_config |
-| 9 | Green blink | checkpoint_cpu | CPU loop | ddr_init |
-| end | Green ON (solid) | main() | | main() reached, USB initializing |
-| end+1 | Red ON (500ms) | USB online | 500ms | USB enumeration complete |
-| cmd | Red toggles | command loop | per cmd | USB diagnostic command processed |
+| 3 | Green blink | checkpoint (hw) | 0.5s | GPLL0 locked |
+| 4 | Green blink | checkpoint_cpu | hw timer | Early clock init (0x01830038 etc.) |
+| 5 | Green blink | checkpoint_cpu | hw timer | ddr_set_params |
+| 6 | Green blink | checkpoint_cpu | hw timer | bimc_clock_init |
+| 7 | Green blink | checkpoint_cpu | hw timer | (icb_config skipped) |
+| 8 | Green blink | checkpoint_cpu | hw timer | ddr_init |
+| - | 2× Red blink + 3× Green blink | main() arrival | hw timer | main() reached (200ms cadence) |
+| - | Green ON (solid) | main() | | setup_page_table + USB initializing |
+| - | Red ON (500ms) | USB online | hw timer | USB SET_CONFIGURATION received |
+| - | Red toggles | command loop | per cmd | USB diagnostic command processed |
 
 ## Init Order (matches original sbl1_hw_init)
 
 1. VBAR + DACR + TTBCR
-2. Stack + .data + BSS
-3. Early page table (IO + OCIMEM, no DDR)
-4. GPLL0 PLL lock
-5. Early clock init
-6. ddr_set_params
-7. bimc_clock_init
-8. icb_config
-9. ddr_init
-10. main() → setup_page_table (adds DDR mappings) → USB
+2. Stack + .data + BSS zero
+3. GPLL0 PLL lock (no early page table — PBL's page table works fine)
+4. Early clock init
+5. ddr_set_params
+6. bimc_clock_init
+7. (icb_config skipped — was causing ddr_init faults)
+8. ddr_init
+9. main() → setup_page_table (adds DDR mappings to new L1 table) → USB
 
 ## USB Diagnostic Mode (main.c)
 
