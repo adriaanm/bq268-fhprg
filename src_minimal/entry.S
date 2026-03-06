@@ -192,9 +192,11 @@ _thumb_entry:
 
     bl      icb_config              /* ICB must be before ddr_init */
 
+    checkpoint_cpu          /* GREEN #6: ICB done, about to call ddr_init */
+
     bl      ddr_init_only
 
-    checkpoint_cpu          /* GREEN #6: DDR init done */
+    checkpoint_cpu          /* GREEN #7: DDR init done */
 
     /*--------------------------------------------------------------
      * 7. Enable GCC SDCC1 clocks
@@ -250,7 +252,7 @@ _thumb_entry:
     tst     r1, r1              /* N flag = bit 31 (CBCR_BRANCH_OFF) */
     bmi     .Lapps_wait
 
-    checkpoint_cpu          /* GREEN #7: SDCC clocks done */
+    checkpoint_cpu          /* GREEN #8: SDCC clocks done */
 
     /*--------------------------------------------------------------
      * 9. Jump to C main
