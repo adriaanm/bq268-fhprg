@@ -68,6 +68,23 @@ SECTIONS
         *(.ddr_cb_get_ttb)
     } > CODE
 
+    /* Additional DDR blob callbacks at original addresses */
+    .ddr_cb_pagetable 0x08016dd4 : {
+        *(.ddr_cb_pagetable)
+    } > CODE
+
+    .ddr_cb_busconfig 0x08016f5c : {
+        *(.ddr_cb_busconfig)
+    } > CODE
+
+    .ddr_cb_memtest 0x0801ad44 : {
+        *(.ddr_cb_memtest)
+    } > CODE
+
+    .ddr_cb_memtest_wrap 0x0801afc4 : {
+        *(.ddr_cb_memtest_wrap)
+    } > CODE
+
     .text : {
         *(.text .text.*)     /* all other code */
     } > CODE

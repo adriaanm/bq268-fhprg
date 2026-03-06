@@ -755,3 +755,55 @@ ddr_get_ttb:
     bic     r0, r0, #0x3F00
     bic     r0, r0, #0x00FF        /* r0 &= 0xFFFFC000 */
     bx      lr
+
+/*==============================================================
+ * Additional DDR blob callbacks — stubs for functions in the
+ * original programmer that the DDR blob calls via thunks.
+ * All are Thumb mode (thunk targets have bit 0 set).
+ *
+ *   0x08016f5c — thunk_FUN_0802ee94: BIMC bus speed config
+ *                Original translates param (0→0, 1→4, 2→1) and
+ *                calls FUN_0802d180(7, val).  Stub returns 0.
+ *   0x08016dd4 — FUN_08016dd4: page table manipulation
+ *                Adds DDR mappings to L1 table.  Stub returns 1.
+ *   0x0801afc4 — FUN_0801afc4: DDR memory test wrapper
+ *                Tests all bank/rank combos.  Stub returns 1.
+ *   0x0801ad44 — FUN_0801ad44: DDR read/write test
+ *                "Testing DDR Read/Write".  Stub returns 1.
+ *==============================================================*/
+
+    .section .ddr_cb_busconfig, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_cb_busconfig
+    .thumb_func
+ddr_cb_busconfig:
+    movs    r0, #0
+    bx      lr
+
+    .section .ddr_cb_pagetable, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_cb_pagetable
+    .thumb_func
+ddr_cb_pagetable:
+    movs    r0, #1
+    bx      lr
+
+    .section .ddr_cb_memtest_wrap, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_cb_memtest_wrap
+    .thumb_func
+ddr_cb_memtest_wrap:
+    movs    r0, #1
+    bx      lr
+
+    .section .ddr_cb_memtest, "ax", %progbits
+    .thumb
+    .balign 4
+    .global ddr_cb_memtest
+    .thumb_func
+ddr_cb_memtest:
+    movs    r0, #1
+    bx      lr
