@@ -356,8 +356,37 @@ def main():
         except RuntimeError as e:
             print(f"Sahara upload failed: {e}", file=sys.stderr)
             sys.exit(1)
-        print("Programmer running — waiting 3s for boot...")
+        # Match Go client: sleep then try same handle.
+        # The programmer does BCR reset (PHY keeps D+ up), then re-enumerates.
+        # The OS may or may not invalidate the old handle depending on
+        # whether it detected a brief disconnect during BCR.
+        print("Programmer running — waiting 3s for boot + enumeration...")
         time.sleep(3)
+
+        # Try the Sahara handle first (like Go client does)
+        handle_ok = False
+        try:
+            dev.write(EP_OUT, b"\n")
+            resp = bytes(dev.read(EP_IN, 4096, timeout=2000))
+            if resp:
+                handle_ok = True
+                print("Sahara handle alive — reusing.")
+        except usb.core.USBError:
+            pass
+
+        if not handle_ok:
+            # Handle died (ENODEV) — find the re-enumerated device
+            print("Sahara handle stale — reconnecting...")
+            try:
+                usb.util.release_interface(dev, 0)
+                usb.util.dispose_resources(dev)
+            except Exception:
+                pass
+            dev = find_device(timeout=args.timeout, vid=vid, pid=pid)
+            if dev is None:
+                print("Device not found after reconnect.", file=sys.stderr)
+                sys.exit(1)
+            dev = setup_device(dev)
 
     if dev is None:
         dev = find_device(timeout=args.timeout, vid=vid, pid=pid)
@@ -370,9 +399,8 @@ def main():
         mfg = dev.manufacturer
         prod = dev.product
         print(f"Connected: {mfg} {prod}")
-    except (ValueError, usb.core.USBError) as e:
-        print(f"Warning: could not read USB strings: {e}")
-        print("Connected (string descriptors unavailable — handle may be stale)")
+    except (ValueError, usb.core.USBError):
+        print("Connected (string descriptors unavailable)")
 
     if args.command:
         resp = send_command(dev, args.command)

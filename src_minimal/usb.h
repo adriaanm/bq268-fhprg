@@ -120,8 +120,9 @@ struct ept_queue_item {
  * Public API
  *========================================================================*/
 
-/* Inherit PBL's live USB session (no stop/start).
- * Sets usb_online = 1 since host already configured device during Sahara. */
+/* BCR reset + ULPI PHY config + fresh dQH + RS=1.
+ * Replicates original firehose programmer's init sequence.
+ * Returns with controller running; call usb_poll() for enumeration. */
 void usb_init(void);
 
 /* Poll USB events and handle enumeration.

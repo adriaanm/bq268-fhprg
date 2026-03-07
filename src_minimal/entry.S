@@ -36,7 +36,7 @@ _start:
      * alive during our entire boot so the host handle remains valid.
      * PBL's dQH table is at low OCIMEM (0x0800xxxx), well below our
      * BSS (0x08046000+), so BSS zero won't corrupt it.
-     * usb_init() inherits PBL's dQH in-place (no stop/start). */
+     * usb_init() does BCR reset + fresh dQH (replicates original fhprg). */
     ldr     r0, =GPIO_CFG_ADDR(LED_RED_GPIO)
     mov     r1, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
     str     r1, [r0]

@@ -44,9 +44,9 @@ static void cache_inv(void *addr, unsigned int len)
  * Static allocations — all in OCIMEM (BSS or data)
  *========================================================================*/
 
-/* dQH table pointer — points to PBL's dQH memory (inherited from Sahara).
- * We rewrite entries in-place rather than allocating our own table. */
-static struct ept_queue_head *dqh_table;
+/* dQH table: 16 endpoints × 2 directions = 32 entries × 64 bytes = 2KB.
+ * Must be 2KB-aligned (HW requirement). We use 4KB for safety. */
+static struct ept_queue_head dqh_table[32] __attribute__((aligned(4096)));
 
 /* dTD items for each endpoint direction we use */
 static struct ept_queue_item dtd_ep0_in  __attribute__((aligned(32)));
@@ -380,71 +380,118 @@ static void usb_clock_init(void)
 }
 
 /*========================================================================
- * usb_init — Inherit PBL's live USB session.
+ * ULPI viewport write — indirect PHY register access via 0x078D9170
  *
- * After Sahara, the device is already enumerated and configured by the
- * host.  We do NOT stop/start the controller (clearing RS deasserts D+,
- * causing the host to see a disconnect and invalidate its handle).
+ * The original firehose programmer uses this for all PHY configuration.
+ * Format: data[7:0] + regaddr[23:16] + 0x60000000 (write + run).
+ * Polls bit 30 until cleared (operation complete), timeout after 500 tries.
+ *========================================================================*/
+#define USB_ULPI_VIEWPORT  (MSM_USB_BASE + 0x0170)
+
+static void ulpi_write(unsigned char reg, unsigned char val)
+{
+    unsigned int i;
+
+    writel((unsigned int)val | ((unsigned int)reg << 16) | 0x60000000,
+           USB_ULPI_VIEWPORT);
+
+    for (i = 0; i < 500; i++) {
+        if (!(readl(USB_ULPI_VIEWPORT) & 0x40000000))
+            return;
+        delay_ms(1);
+    }
+}
+
+/*========================================================================
+ * usb_init — Replicate the original firehose programmer's USB init.
  *
- * Instead we:
- * 1. Read PBL's dQH address from ENDPOINTLISTADDR
- * 2. Flush pending Sahara transfers
- * 3. Zero and reconfigure dQH entries 0-3 (EP0 + EP1)
- * 4. Enable EP1 bulk endpoints
- * 5. Set usb_online = 1 (already configured by host during Sahara)
+ * Sequence from decompiled FUN_0803016c + FUN_0801aba0:
+ *   1. GCC BCR reset (digital core only, PHY keeps D+ asserted)
+ *   2. ULPI PHY configuration via viewport register
+ *   3. Set USBMODE to device mode
+ *   4. Init dQH table, write ENDPOINTLISTADDR
+ *   5. Disable interrupts, set AHB burst, setup lockout
+ *   6. Set RS (run) — controller starts responding to host
+ *   7. Host re-enumerates us (same VID/PID, handle survives)
  *========================================================================*/
 void usb_init(void)
 {
     unsigned int i;
-    unsigned int pkt;
 
+    usb_online = 0;
+    usb_highspeed = 0;
     usb_seen_events = 0;
 
     /* Ensure USB clocks are on */
     usb_clock_init();
 
-    /* Inherit PBL's dQH table — do NOT write ENDPOINTLISTADDR */
-    dqh_table = (struct ept_queue_head *)readl(USB_ENDPOINTLISTADDR);
+    /* ---- BCR reset sequence (from FUN_0801aba0) ----
+     * Assert GCC_USB_HS_BCR to reset the digital core.
+     * The PHY is NOT reset — D+ stays asserted, host doesn't
+     * see a disconnect.  After deassert, controller is halted
+     * (RS=0 by default), so ENDPOINTLISTADDR write is safe. */
+    writel(1, GCC_USB_HS_BCR);          /* assert block reset */
+    delay_ms(10);
+    writel(0, GCC_USB_HS_BCR);          /* deassert block reset */
+    delay_ms(10);
 
-    /* Flush all endpoints (cancel pending Sahara transfers) */
-    writel(0xFFFFFFFF, USB_ENDPTFLUSH);
-    while (readl(USB_ENDPTFLUSH));
+    /* Re-enable branch clocks after BCR (reset may gate them) */
+    writel(readl(GCC_USB_HS_SYSTEM_CBCR) | 1, GCC_USB_HS_SYSTEM_CBCR);
+    writel(readl(GCC_USB_HS_AHB_CBCR) | 1, GCC_USB_HS_AHB_CBCR);
+    while (readl(GCC_USB_HS_SYSTEM_CBCR) & (1u << 31));
+    while (readl(GCC_USB_HS_AHB_CBCR) & (1u << 31));
 
-    /* Clear status registers */
-    writel(readl(USB_ENDPTCOMPLETE), USB_ENDPTCOMPLETE);
-    writel(readl(USB_ENDPTSETUPSTAT), USB_ENDPTSETUPSTAT);
-    writel(readl(USB_USBSTS), USB_USBSTS);
+    /* ---- ULPI PHY configuration (from FUN_0801aba0) ----
+     * Original writes: reg 0x80=0x33, 0x81=0x33, 0x82=0x07, 0x83=0x13
+     * Then FUN_0801a948: reg 0x96=0x03 */
+    ulpi_write(0x80, 0x33);
+    ulpi_write(0x81, 0x33);
+    ulpi_write(0x82, 0x07);
+    ulpi_write(0x83, 0x13);
+    delay_ms(10);
+    ulpi_write(0x96, 0x03);
 
-    /* Disable interrupts (we poll USBSTS) */
-    writel(0, USB_USBINTR);
+    /* Set bit 7 of SBUSCFG+0x10 (0x078d90a0) — original FUN_0801a948 */
+    writel(readl(MSM_USB_BASE + 0x00A0) | 0x80, MSM_USB_BASE + 0x00A0);
 
-    /* Zero and reconfigure dQH entries 0-3 (EP0 OUT/IN + EP1 OUT/IN) */
-    for (i = 0; i < 4 * sizeof(struct ept_queue_head); i++)
+    /* ---- Controller configuration (from FUN_0803016c) ---- */
+
+    /* Set device mode: USBMODE = (USBMODE & ~3) | 2 */
+    writel((readl(USB_USBMODE) & ~3u) | 2, USB_USBMODE);
+
+    /* Init dQH table — zero all, configure EP0 */
+    for (i = 0; i < sizeof(dqh_table); i++)
         ((unsigned char *)dqh_table)[i] = 0;
 
-    /* EP0 */
     dqh_table[0].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT | CONFIG_IOS;
     dqh_table[1].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT;
+    cache_flush_inv(dqh_table, sizeof(dqh_table));
 
-    /* EP1 bulk — detect speed from PORTSC */
+    /* Install dQH — controller is halted after BCR, safe to write */
+    writel((unsigned int)dqh_table, USB_ENDPOINTLISTADDR);
+
+    /* Disable interrupts (we poll) */
+    writel(0, USB_USBINTR);
+
+    /* Setup lockout + stream disable (from original: USBMODE |= 0x08) */
+    writel(readl(USB_USBMODE) | 0x08, USB_USBMODE);
+
+    /* Clear setup status */
+    writel(readl(USB_ENDPTSETUPSTAT), USB_ENDPTSETUPSTAT);
+
+    /* AHB burst mode (original: AHB_MODE = 8) */
+    writel(8, USB_AHB_MODE);
+
+    /* ---- Start controller (RS=1) ----
+     * Original: USBCMD |= 1 (FUN_0803016c line 1550)
+     * Also set bit 25 like original FUN_0801a948 */
+    writel(readl(USB_USBCMD) | 0x02000001, USB_USBCMD);
+
+    /* Detect speed */
     {
         unsigned int spd = (readl(USB_PORTSC) >> 26) & 3;
         usb_highspeed = (spd == 2) ? 1 : 0;
     }
-    pkt = usb_highspeed ? 512 : 64;
-    dqh_table[2].config = CONFIG_MAX_PKT(pkt) | CONFIG_ZLT;  /* EP1 OUT */
-    dqh_table[3].config = CONFIG_MAX_PKT(pkt) | CONFIG_ZLT;  /* EP1 IN */
-
-    cache_flush_inv(dqh_table, 4 * sizeof(struct ept_queue_head));
-
-    /* Leave EP1 ENDPTCTRL alone — PBL already configured it as bulk
-     * during Sahara. The flush cancelled pending transfers but preserved
-     * the endpoint configuration and data toggle state. Touching
-     * ENDPTCTRL would reset the data toggle, causing mismatch with
-     * the host side (which we can't reset from the device). */
-
-    /* Already configured by host during Sahara — we're online */
-    usb_online = 1;
 }
 
 /*========================================================================

@@ -581,12 +581,12 @@ void main(void)
     /* Solid green = main reached, about to init USB */
     led_on(LED_GREEN_GPIO);
 
-    /* Inherit PBL's live USB session — no stop/start.
-     * usb_init() sets online since host already configured the device
-     * during Sahara. usb_poll() handles any pending events. */
+    /* USB init: BCR reset + ULPI PHY config + fresh dQH + RS=1.
+     * Replicates the original firehose programmer's init sequence.
+     * BCR resets digital core only (PHY keeps D+ asserted), so the
+     * host handle survives. After RS=1, host re-enumerates us. */
     usb_init();
-    if (!usb_poll())
-        while (!usb_poll());
+    while (!usb_poll());
 
     /* Online — green off, red on */
     led_off(LED_GREEN_GPIO);

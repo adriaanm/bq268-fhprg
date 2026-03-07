@@ -49,17 +49,18 @@ broke USB (see docs/usb_strategy.md).
 6. bimc_clock_init
 7. (icb_config skipped — was causing ddr_init faults)
 8. ddr_init
-9. main() → setup_page_table → usb_init (inherit PBL session) → banner → command loop
+9. main() → setup_page_table → usb_init (BCR reset + ULPI) → usb_poll → banner → command loop
 
 ## USB Diagnostic Mode (main.c)
 
 After entry.S completes, main() enters USB diagnostic mode:
-1. Green ON (solid) = main() reached, inheriting PBL's USB session
-2. Green OFF + Red ON = online, banner sent
-3. Command loop: red toggles on each command (activity indicator)
+1. Green ON (solid) = main() reached, USB BCR reset + re-enumeration
+2. usb_poll() loop = waiting for host SET_CONFIGURATION
+3. Green OFF + Red ON = online, banner sent
+4. Command loop: red toggles on each command (activity indicator)
 
-The programmer inherits PBL's live USB session (no stop/start).
-D+ stays asserted, host handle survives from Sahara upload.
+USB init replicates original firehose programmer: BCR resets digital
+core (PHY keeps D+ asserted), ULPI PHY config, fresh dQH, RS=1.
 
 ## Exception Handler (DFSR diagnostic)
 
