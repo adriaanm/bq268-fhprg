@@ -111,6 +111,10 @@ UNKNOWN: What USB address did the host assign during PBL enumeration?
           will assign a new address during re-enumeration.
 
   Test: Read USB_DEVICEADDR (0x078D9154) in entry.S.
+
+  *** RESULT (2026-03-07): DEVICEADDR = 0x38000000 → address 7 (bits 31:25). ***
+  *** Note: reading this register from the diag console kills the USB       ***
+  *** connection (possibly a side effect of the read touching USBADRA).     ***
 ```
 
 ### 1.5 ULPI PHY State
@@ -162,6 +166,11 @@ UNKNOWN: Which USB clocks does PBL enable? Are they the same 3 CBCRs
           If we skip BCR, clocks from PBL are fine.
 
   Test: Read all USB CBCR registers in entry.S to confirm PBL state.
+
+  *** RESULT (2026-03-07): PBL clocks are sufficient for inherit path.   ***
+  *** SYSTEM_CBCR=0x4ff1 (enabled), AHB_CBCR=0x2000cff0, 0x30=0x20008000 ***
+  *** PHY_CFG_AHB_CBCR=0, PHY_SLEEP_CBCR=0 (both disabled/zeroed).      ***
+  *** Answer: PBL enables enough clocks — we can skip clock init.         ***
 ```
 
 ### 1.7 Pending Transfers
@@ -724,6 +733,43 @@ usb_write(buf, len):
 
 5. **No data toggle concerns** — We don't reset the controller, so device-side
    toggles stay in sync with the host. No bus reset, no re-enumeration.
+
+### Hardware Bug: dqh->current == dqh->next
+
+When reusing the same dTD for consecutive transfers on the same endpoint,
+the ChipIdea controller sees `dqh->current` (set by hardware to the last
+executed dTD) equal to `dqh->next` (set by software for the new transfer).
+This is undefined behavior per the ChipIdea spec and causes the controller
+to hang silently — prime succeeds but transfer never completes.
+
+Fix: clear `dqh->current = 0` before writing `dqh->next` in `prime_ep()`.
+
+### PBL Controller State (Register Dump)
+
+Register values read from the running diagnostic console after USB init:
+
+| Register | Address | Value | Decoded |
+|----------|---------|-------|---------|
+| USBCMD | 0x078D9140 | 0x02080001 | RS=1 (running), ITC=8μframes |
+| USBSTS | (cleared) | — | Cleared during init |
+| DEVICEADDR | 0x078D9154 | 0x38000000 | Address 7 (bits 31:25) |
+| ENDPOINTLISTADDR | 0x078D9158 | 0x00206000 | PBL dQH in PBL SRAM |
+| PORTSC | 0x078D9184 | 0x88000205 | High-speed, ULPI, port enabled |
+| USBMODE | 0x078D91A8 | 0x0000001A | Device mode, SLOM, SDIS |
+
+### PBL Clock State
+
+| Register | Address | Value | Status |
+|----------|---------|-------|--------|
+| GCC_USB_HS_SYSTEM_CBCR | 0x01841004 | 0x00004ff1 | Enabled, running |
+| GCC_USB_HS_AHB_CBCR | 0x01841008 | 0x2000cff0 | Bit 0=0 (not voted) |
+| GCC_USB_HS_CBCR (0x30) | 0x01841030 | 0x20008000 | Bit 0=0 (not voted) |
+| GCC_USB_HS_PHY_CFG_AHB_CBCR | 0x0184103C | 0x00000000 | Disabled |
+| GCC_USB2A_PHY_SLEEP_CBCR | 0x01841034 | 0x00000000 | Disabled |
+
+Note: The original programmer enables all 3 CBCRs (0x01841004, 0x01841008,
+0x01841030) after BCR deassert. PBL only has SYSTEM_CBCR fully enabled.
+The AHB and 0x30 CBCRs have bit 0=0 but appear functional (USB works).
 
 ### What Was Removed
 
