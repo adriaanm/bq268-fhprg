@@ -93,7 +93,7 @@ int * param_1; int * param_2;
   }
   /* eMMC path (card[0x23] != 1, not SPI mode) */
   iVar7 = 0;
-  sdcc_pre_cmd_hook();
+  sdcc_pre_cmd_hook(param_1, param_2);
   if (*param_2 == 0) {
     /* CMD0 (GO_IDLE_STATE): poll until card responds */
     iVar7 = *param_1; /* slot number */
@@ -235,7 +235,7 @@ undefined4 * param_1; int * param_2; undefined4 param_3; uint param_4;
     }
     /* Send the write command (CMD24/CMD25) */
     if ((int)(uVar4 << 0x1d) < 0) {
-      iVar2 = sdcc_adma_write(); /* sdcc_adma_write — ADMA path */
+      iVar2 = sdcc_adma_write(param_1, param_2); /* sdcc_adma_write — ADMA path */
     }
     else {
       iVar2 = sdcc_send_cmd(param_1,param_2);
@@ -360,7 +360,7 @@ undefined4 * param_1; int param_2; int param_3;
   }
   else if (((char)puVar2[2] == '\x06') || ((char)puVar2[2] == '\x02')) {
     /* Card must be MMC or eMMC (type 2 or 6) */
-    iVar1 = mmc_ensure_partition();
+    iVar1 = mmc_ensure_partition(param_1);
     if (iVar1 == 0) {
       local_38 = 1;
       local_40 = 0x23;   /* CMD35: ERASE_GROUP_START */
@@ -515,7 +515,7 @@ undefined4 * param_1; int param_2; undefined4 param_3; int param_4;
     }
     else if (((cVar1 == '\x01') || (cVar1 == '\x05')) || ((cVar1 == '\x02' || (cVar1 == '\x06')))) {
       /* Card is SD/SDHC/MMC/eMMC — proceed with write */
-      iVar2 = mmc_ensure_partition();
+      iVar2 = mmc_ensure_partition(param_1);
       if (iVar2 == 0) {
         /* Build command struct */
         if (param_4 == 1) {
@@ -584,7 +584,7 @@ int * param_1;
     return 0x14;
   }
   /* Check if already on the right partition */
-  iVar1 = mmc_is_partition_active();
+  iVar1 = mmc_is_partition_active(param_1);
   if (iVar1 == 1) {
     iVar1 = 0; /* already active, nothing to do */
   }
@@ -623,7 +623,7 @@ int * param_1;
  *   1. Validate device struct
  *   2. CHECK: *(char*)(dev[0x24] + 0xA0) — if nonzero, return 0x1b
  *   3. Check card type
- *   4. Call mmc_ensure_partition() — switch to correct HW partition
+ *   4. Call mmc_ensure_partition(param_1) — switch to correct HW partition
  *   5. Build command struct (CMD24 single or CMD25 multi block)
  *   6. Call sdcc_write_data() for actual transfer
  *
@@ -652,7 +652,7 @@ uint *param_1; int param_2; uint param_3; int param_4;
         return 0x15;
     }
     if (((cVar1 == '\x01') || (cVar1 == '\x05')) || ((cVar1 == '\x02' || (cVar1 == '\x06')))) {
-        iVar2 = mmc_ensure_partition();
+        iVar2 = mmc_ensure_partition(param_1);
         if (iVar2 == 0) {
             if (param_4 == 1) {
                 local_40 = 0x18;     /* CMD24: WRITE_SINGLE_BLOCK */
@@ -888,7 +888,7 @@ int param_1; undefined4 param_2;
             if (*(char *)(iVar2 + 0x98) == '\0') {
               *(uint *)((&DAT_0804e2c8)[param_1] + 4) =
                    *(uint *)((&DAT_0804e2c8)[param_1] + 4) | 0x1000;
-              sdcc_enable_clock(); /* sdcc_enable_clock */
+              sdcc_enable_clock(param_1); /* sdcc_enable_clock */
             }
             iVar3 = mmc_identify_card(iVar4); /* mmc_identify_card */
             if (iVar3 == 0) {

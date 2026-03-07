@@ -34,7 +34,7 @@ int param_1; ushort * param_2;
     uVar1 = uVar1 | 1;
   }
   *(uint *)((&DAT_0804e2c8)[param_1] + 0x2c) = uVar1;
-  sdcc_enable_clock();
+  sdcc_enable_clock(param_1);
   return;
 }
 
@@ -64,7 +64,7 @@ int param_1; short * param_2;
     }
     *(undefined4 *)((&DAT_0804e2c8)[param_1] + 8) = *(undefined4 *)(param_2 + 8);
     *(uint *)((&DAT_0804e2c8)[param_1] + 0xc) = uVar1;
-    sdcc_enable_clock();
+    sdcc_enable_clock(param_1);
     return;
   }
   return;
@@ -549,7 +549,7 @@ int param_1; int param_2;
     uVar1 = uVar1 | 0x200;
   }
   *(uint *)((&DAT_0804e2c8)[param_1] + 4) = uVar1;
-  sdcc_enable_clock();
+  sdcc_enable_clock(param_1);
   return;
 }
 
@@ -573,6 +573,6 @@ int param_1; int param_2;
   }
   *(uint *)((&DAT_0804e2c8)[param_1] + 4) =
        *(uint *)((&DAT_0804e2c8)[param_1] + 4) & 0xfffff3ff | uVar1;
-  sdcc_enable_clock();
+  sdcc_enable_clock(param_1);
   return;
 }

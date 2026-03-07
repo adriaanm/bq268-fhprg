@@ -632,7 +632,7 @@ int * param_1;
     param_1[9] = 0x200;
     *(uint *)((&DAT_0804e2c8)[*param_1] + 0x2c) =
          *(uint *)((&DAT_0804e2c8)[*param_1] + 0x2c) & 0xfffe000f | 0x2000;
-    sdcc_enable_clock();
+    sdcc_enable_clock(*param_1);
   }
   cVar1 = (char)param_1[2];
   if ((cVar1 == '\x02') || (cVar1 == '\x06')) {
@@ -666,7 +666,7 @@ int param_1;
   if (*(char *)(param_1 + 9) != '\0') {
     if ((char)piVar1[1] != '\0') {
       *(uint *)(&DAT_0804e2c8)[iVar2] = *(uint *)(&DAT_0804e2c8)[iVar2] & 0xfffffffe;
-      sdcc_enable_clock();
+      sdcc_enable_clock(iVar2);
       sdcc_enable_slot(iVar2,0);
       *(undefined1 *)(piVar1 + 1) = 0;
     }
@@ -727,17 +727,17 @@ int * param_1;
     return 0;
   }
   *(uint *)(&DAT_0804e2c8)[uVar2] = *(uint *)(&DAT_0804e2c8)[uVar2] | 1;
-  sdcc_enable_clock();
+  sdcc_enable_clock(uVar2);
   if (*(char *)(*param_1 + 0x8c) == '\0') {
     *(uint *)((&DAT_0804e2c8)[uVar2] + 4) = *(uint *)((&DAT_0804e2c8)[uVar2] + 4) | 0x100;
-    sdcc_enable_clock();
+    sdcc_enable_clock(uVar2);
     sdcc_set_flow_control(uVar2,0);
     thunk_FUN_080199b4(1000);
     sdcc_set_flow_control(uVar2,1);
     thunk_FUN_080199b4(1000);
     *(uint *)((&DAT_0804e2c8)[uVar2] + 4) =
          *(uint *)((&DAT_0804e2c8)[uVar2] + 4) & 0xffff3fff | 0x8000;
-    sdcc_enable_clock();
+    sdcc_enable_clock(uVar2);
   }
   else {
     sdcc_set_led(uVar2,0);
@@ -894,7 +894,7 @@ int param_1;
   undefined4 local_28;
 
   local_28 = 0;
-  piVar1 = (int *)mmc_get_slot_context();
+  piVar1 = (int *)mmc_get_slot_context(param_1);
   if (piVar1 == (int *)0x0) {
     uVar3 = 0;
   }
@@ -937,7 +937,7 @@ int param_1;
     piVar1[0x19] = 1;
     piVar1[0x25] = iVar2;
     *(uint *)(&DAT_0804e2c8)[param_1] = *(uint *)(&DAT_0804e2c8)[param_1] | 1;
-    sdcc_enable_clock();
+    sdcc_enable_clock(param_1);
     sdcc_set_bus_width_bit(param_1,1);
     sdcc_reset_data_line(param_1,1);
     sdcc_setup_caps(param_1);

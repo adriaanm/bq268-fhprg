@@ -486,7 +486,7 @@ int * param_1; int * param_2;
     if ((uVar1 & 0x18007ff) == 0) goto LAB_08034f26;
   } while (uVar3 < 1000);
   *(uint *)((&DAT_0804e2c8)[iVar4] + 0x2c) = *(uint *)((&DAT_0804e2c8)[iVar4] + 0x2c) & 0xfffffffe;
-  sdcc_enable_clock();
+  sdcc_enable_clock(iVar4);
 LAB_08034f26:
   local_24 = (undefined2)*param_2;
   local_2c = 1;

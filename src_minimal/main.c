@@ -570,6 +570,7 @@ static char sector_buf[512] __attribute__((section(".ddr_bss"), aligned(32)));
 
 /* Track whether eMMC has been initialized */
 static int emmc_inited = 0;
+static unsigned int emmc_handle = 0;  /* handle from mmc_open_device */
 
 /* Step-by-step SDCC1 clock enable with diagnostic output.
  * Each register write is followed by a readback so we can see
@@ -721,38 +722,22 @@ static void cmd_emmc_init(void)
         return;
     }
 
-    p = put_str(resp, p, "\r\neMMC init: opening device...\r\n");
+    /* Call mmc_open_device which does full card init + identification */
+    p = put_str(resp, p, "eMMC init: opening device...\r\n");
     usb_write(resp, p); p = 0;
-    ret = mmc_open_device(0, 0);
 
-    if (ret != 0) {
-        p = put_str(resp, p, "eMMC init: mmc_open_device returned ");
-        p = put_hex32(resp, p, (unsigned int)ret);
-        p = put_str(resp, p, "\r\n");
-    }
-
-    /* Check if device handle is populated */
     {
-        unsigned int dev = sdcc_get_device(0);
-        p = put_str(resp, p, "  device handle: ");
-        p = put_hex32(resp, p, dev);
-        p = put_str(resp, p, "\r\n");
-        if (dev != 0) {
-            unsigned int *d = (unsigned int *)dev;
-            p = put_str(resp, p, "  slot: ");
-            p = put_dec(resp, p, d[0]);
-            p = put_str(resp, p, "  card_type: ");
-            p = put_dec(resp, p, (unsigned int)(unsigned char)d[2]);
-            p = put_str(resp, p, "\r\n");
-            p = put_str(resp, p, "  sectors: ");
-            p = put_dec(resp, p, d[7]);
-            p = put_str(resp, p, "  sector_size: ");
-            p = put_dec(resp, p, d[9]);
-            p = put_str(resp, p, "\r\n");
+        unsigned int handle = mmc_open_device(0, 0);
+        if (handle != 0) {
+            emmc_handle = handle;
             emmc_inited = 1;
+            p = put_str(resp, p, "eMMC init OK, handle=");
+            p = put_hex32(resp, p, handle);
+            p = put_str(resp, p, "\r\n");
         } else {
-            p = put_str(resp, p, "  FAILED — no device handle\r\n");
+            p = put_str(resp, p, "eMMC init FAILED (no handle)\r\n");
         }
+        usb_write(resp, p); p = 0;
     }
 
     p = put_str(resp, p, "> ");
@@ -763,7 +748,6 @@ static void cmd_emmc_init(void)
 static void cmd_emmc_status(void)
 {
     int p = 0;
-    unsigned int dev;
 
     if (!emmc_inited) {
         p = put_str(resp, p, "eMMC not initialized. Run 'e' first.\r\n> ");
@@ -771,15 +755,8 @@ static void cmd_emmc_status(void)
         return;
     }
 
-    dev = sdcc_get_device(0);
-    if (dev == 0) {
-        p = put_str(resp, p, "No device handle\r\n> ");
-        usb_write(resp, p);
-        return;
-    }
-
     {
-        unsigned int status = sdcc_get_card_status((int)dev);
+        unsigned int status = sdcc_get_card_status((int)emmc_handle);
         /* Card state nibble: 0=idle, 1=ready, 2=ident, 3=stby, 4=tran, 5=data, 6=rcv, 7=prg */
         static const char *state_names[] = {
             "idle", "ready", "ident", "stby",
@@ -818,7 +795,6 @@ static void cmd_sector_read(const char *args)
 {
     int p = 0;
     unsigned int sector = parse_hex(args);
-    unsigned int dev_handle;
     int ret;
     int i;
 
@@ -828,20 +804,13 @@ static void cmd_sector_read(const char *args)
         return;
     }
 
-    dev_handle = sdcc_get_device(0);
-    if (dev_handle == 0) {
-        p = put_str(resp, p, "No device handle\r\n> ");
-        usb_write(resp, p);
-        return;
-    }
-
     /* Zero buffer before read */
     for (i = 0; i < 512; i++) sector_buf[i] = 0;
 
     /* mmc_write_blocks is also the read function (CMD17/CMD18).
-     * param1=device_handle_ptr, param2=start_sector,
+     * param1=handle_ptr, param2=start_sector,
      * param3=buffer_addr, param4=num_sectors */
-    ret = mmc_write_blocks((void *)&dev_handle, sector, (unsigned int)sector_buf, 1);
+    ret = mmc_write_blocks((void *)&emmc_handle, sector, (unsigned int)sector_buf, 1);
 
     p = put_str(resp, p, "Read sector ");
     p = put_hex32(resp, p, sector);
@@ -885,7 +854,6 @@ static void cmd_sector_write(const char *args)
     unsigned int sector = parse_hex(p1);
     const char *p2 = skip_ws(skip_nonws(p1));
     unsigned int fill = parse_hex(p2);
-    unsigned int dev_handle;
     int ret;
     int i;
 
@@ -895,20 +863,13 @@ static void cmd_sector_write(const char *args)
         return;
     }
 
-    dev_handle = sdcc_get_device(0);
-    if (dev_handle == 0) {
-        p = put_str(resp, p, "No device handle\r\n> ");
-        usb_write(resp, p);
-        return;
-    }
-
     /* Fill buffer with repeating byte */
     for (i = 0; i < 512; i++)
         sector_buf[i] = (char)(fill & 0xFF);
 
-    /* mmc_write_sectors: param1=device_handle_ptr, param2=start_sector,
+    /* mmc_write_sectors: param1=handle_ptr, param2=start_sector,
      * param3=buffer_addr, param4=num_sectors */
-    ret = mmc_write_sectors((void *)&dev_handle, sector, (unsigned int)sector_buf, 1);
+    ret = mmc_write_sectors((void *)&emmc_handle, sector, (unsigned int)sector_buf, 1);
 
     p = put_str(resp, p, "Write sector ");
     p = put_hex32(resp, p, sector);
