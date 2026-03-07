@@ -138,4 +138,8 @@ int usb_read(void *buf, int maxlen);
  * Returns number of bytes written, or -1 on error. */
 int usb_write(const void *buf, int len);
 
+/* Return bitmask of USBSTS events seen since usb_init().
+ * STS_URI=reset, STS_PCI=port change, STS_UI=transfer activity, 0=nothing */
+unsigned int usb_get_status(void);
+
 #endif /* USB_H */

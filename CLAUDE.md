@@ -83,3 +83,18 @@ The focus is on producing **readable, correct C** — not on matching compiler o
 - Identify the firehose command dispatch table to name handler functions
 - Fix Ghidra artifacts: field accessors, type casts, comment-merged definitions
 - The preprocessor scripts (`preprocess_fhprg.py`, `split_fhprg.py`) are the main levers for improving decompilation quality
+
+### Documentation Index (`docs/`)
+
+| File | Content |
+|------|---------|
+| `init_sequence.md` | Full hardware init spec: DDR init, clock config, original vs minimal comparison |
+| `led_checkpoints.md` | LED checkpoint map for entry.S debugging, exception handler patterns |
+| `minimal_programmer.md` | Unified minimal programmer doc: status, architecture, USB, function mapping, build |
+| `ddr_init.md` | DDR initialization details |
+| `memory_layout.md` | Memory layout documentation |
+| `device_properties.md` | BQ268 device properties and hardware info |
+| `emulating_firehose.md` | Notes on Unicorn emulation of the firehose programmer |
+| `partition3_restriction.md` | Partition 3 write restriction analysis |
+| `recompilation_plan.md` | Plan for fhprg recompilation and verification |
+| `printgpt.md` | GPT partition table dump |

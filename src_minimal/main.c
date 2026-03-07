@@ -565,68 +565,103 @@ static void cmd_ddr_test(void)
  *   - Called ddr_set_params, bimc_clock_init, icb_config, ddr_init
  *   - DDR init has NOT been confirmed working yet
  *========================================================================*/
-/* Blink an LED n times using HW timetick (200ms on, 200ms off) */
-static void blink_led(int gpio, int count)
-{
-    volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-    unsigned int start;
-    int i;
-    led_init(gpio);
-    for (i = 0; i < count; i++) {
-        led_on(gpio);
-        start = *tick;
-        while ((*tick - start) < 6554);  /* 200ms */
-        led_off(gpio);
-        start = *tick;
-        while ((*tick - start) < 6554);  /* 200ms */
-    }
-}
-
 void main(void)
 {
     int n, p;
+    static const char banner[] = "=== MSM8909 Diag Console ===\r\n> ";
 
     (void)aboot_payload_gz;
     (void)aboot_payload_gz_len;
-
-    /* Signal main() reached: 2 red + 3 green */
-    blink_led(LED_RED_GPIO, 2);
-    blink_led(LED_GREEN_GPIO, 3);
-
-    /* setup_page_table() disabled — PBL's page table maps all needed regions
-     * (USB at 0x07FD9000 was already mapped for Sahara). Re-enable once USB
-     * is confirmed working; use 'w' command to patch DDR PTEs into PBL's table. */
-    /* setup_page_table(); */
 
     led_init(LED_RED_GPIO);
     led_init(LED_GREEN_GPIO);
     led_off(LED_RED_GPIO);
     led_off(LED_GREEN_GPIO);
 
-    /* Solid green = main() reached, initializing USB */
+    /* Solid green = main reached, about to init USB */
     led_on(LED_GREEN_GPIO);
 
-    /* Initialize USB controller */
+    /* Stop → configure → start USB controller.
+     * entry.S already halted the controller (protecting PBL's dQH).
+     * We reconfigure with our own dQH and restart.
+     * The host keeps the same handle (same VID/PID 05C6:9008). */
     usb_init();
 
-    /* Wait for USB enumeration (host sends SET_CONFIGURATION) */
-    while (!usb_poll());
+    /* Poll IMMEDIATELY — the host will enumerate us now.
+     * Any delay (like blink_led) risks missing setup packets
+     * because the dQH only holds one setup packet at a time.
+     *
+     * Timeout detection: if no SET_CONFIGURATION after ~10s, blink
+     * an error pattern to indicate what went wrong. */
+    {
+        volatile unsigned int *tick =
+            (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
+        unsigned int start = *tick;
+        int signaled = 0;
 
-    /* USB online — green off, both LEDs blink once to confirm */
+        while (!usb_poll()) {
+            unsigned int elapsed = *tick - start;
+
+            if (!signaled && elapsed > 10 * 32768) {
+                /* >10s with no SET_CONFIGURATION — signal error via LEDs.
+                 * Check what USBSTS events we've seen to narrow down cause. */
+                unsigned int sts = usb_get_status();
+
+                if (sts == 0) {
+                    /* No host activity at all — controller not running,
+                     * clocks wrong, or host completely lost the device.
+                     * Pattern: 3× red blink + pause */
+                    int i;
+                    for (i = 0; i < 3; i++) {
+                        led_on(LED_RED_GPIO);
+                        while ((*tick - start) < elapsed + (i*2+1) * 8192);
+                        led_off(LED_RED_GPIO);
+                        while ((*tick - start) < elapsed + (i*2+2) * 8192);
+                    }
+                } else if ((sts & STS_URI) && !(sts & STS_UI)) {
+                    /* USB reset seen but no setup/transfer activity —
+                     * host re-enumerating but not completing configuration.
+                     * Pattern: 2× red blink + pause */
+                    int i;
+                    for (i = 0; i < 2; i++) {
+                        led_on(LED_RED_GPIO);
+                        while ((*tick - start) < elapsed + (i*2+1) * 8192);
+                        led_off(LED_RED_GPIO);
+                        while ((*tick - start) < elapsed + (i*2+2) * 8192);
+                    }
+                } else {
+                    /* Host sending events but no SET_CONFIGURATION —
+                     * handle may be stale, or enumeration stuck.
+                     * Pattern: alternating red/green, 500ms each */
+                    int i;
+                    for (i = 0; i < 4; i++) {
+                        if (i & 1) {
+                            led_off(LED_RED_GPIO);
+                            led_on(LED_GREEN_GPIO);
+                        } else {
+                            led_off(LED_GREEN_GPIO);
+                            led_on(LED_RED_GPIO);
+                        }
+                        while ((*tick - start) < elapsed + (i+1) * 16384);
+                    }
+                    led_off(LED_RED_GPIO);
+                }
+
+                /* Reset LEDs back to solid green and keep trying */
+                led_on(LED_GREEN_GPIO);
+                signaled = 1;
+                start = *tick;  /* reset timer for next signal cycle */
+                signaled = 0;  /* allow re-signaling after another 10s */
+            }
+        }
+    }
+
+    /* Online — green off, red on */
     led_off(LED_GREEN_GPIO);
     led_on(LED_RED_GPIO);
-    {
-        volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-        unsigned int start = *tick;
-        while ((*tick - start) < 16384);  /* 500ms */
-    }
-    led_off(LED_RED_GPIO);
 
-    /* Send banner */
-    p = 0;
-    p = put_str(resp, p, "MSM8909 DIAG v1.0\r\n");
-    p = put_str(resp, p, "Commands: i r w d t\r\n> ");
-    usb_write(resp, p);
+    /* Send banner — the host's read_response() will pick this up */
+    usb_write(banner, sizeof(banner) - 1);
 
     /* Command loop */
     for (;;) {
@@ -634,9 +669,6 @@ void main(void)
         if (n <= 0) {
             /* USB reset — wait for re-enumeration */
             while (!usb_poll());
-            p = 0;
-            p = put_str(resp, p, "MSM8909 DIAG v1.0\r\n> ");
-            usb_write(resp, p);
             continue;
         }
 

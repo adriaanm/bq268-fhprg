@@ -36,10 +36,10 @@ static void usb_cp(int n)
     for (i = 0; i < n; i++) {
         *out = 2;             /* GPIO_OUT_BIT = bit 1 */
         start = *tick;
-        while ((*tick - start) < 3277);  /* 100ms at 32768 Hz */
+        while ((*tick - start) < 8192);  /* 250ms at 32768 Hz */
         *out = 0;
         start = *tick;
-        while ((*tick - start) < 3277);
+        while ((*tick - start) < 8192);  /* 250ms */
     }
     /* 500ms gap after sequence */
     start = *tick;
@@ -88,12 +88,15 @@ static unsigned char ep0_buf[64] __attribute__((aligned(32)));
 /* State */
 static int usb_online;
 static int usb_highspeed;
+static unsigned int usb_seen_events;  /* bitmask of USBSTS events seen since init */
 
 /*========================================================================
  * Hardcoded USB descriptors
  *========================================================================*/
 
-/* Device descriptor — VID:PID = 05C6:F001 (Qualcomm diagnostic) */
+/* Device descriptor — VID:PID = 05C6:9008 (same as PBL/Sahara)
+ * Keeping PBL's identity prevents host from treating us as a new device
+ * after stop→start.  The host handle survives the brief controller halt. */
 static const unsigned char dev_desc[18] = {
     18,             /* bLength */
     DESC_DEVICE,    /* bDescriptorType */
@@ -103,7 +106,7 @@ static const unsigned char dev_desc[18] = {
     0x00,           /* bDeviceProtocol */
     64,             /* bMaxPacketSize0 */
     0xC6, 0x05,     /* idVendor = 0x05C6 */
-    0x01, 0xF0,     /* idProduct = 0xF001 */
+    0x08, 0x90,     /* idProduct = 0x9008 */
     0x00, 0x01,     /* bcdDevice = 1.00 */
     1,              /* iManufacturer = string 1 */
     2,              /* iProduct = string 2 */
@@ -162,9 +165,10 @@ static const unsigned char str_desc_1[8] = {
     8, DESC_STRING, 'Q', 0, 'C', 0, ' ', 0
 };
 
-/* String descriptor 2 — product "DIAG" */
-static const unsigned char str_desc_2[10] = {
-    10, DESC_STRING, 'D', 0, 'I', 0, 'A', 0, 'G', 0
+/* String descriptor 2 — product "9008 DIAG" (distinguishes us from PBL) */
+static const unsigned char str_desc_2[20] = {
+    20, DESC_STRING, '9', 0, '0', 0, '0', 0, '8', 0, ' ', 0,
+    'D', 0, 'I', 0, 'A', 0, 'G', 0
 };
 
 /*========================================================================
@@ -399,21 +403,22 @@ static void usb_clock_init(void)
     while (readl(GCC_USB_HS_SYSTEM_CBCR) & (1u << 31));
     while (readl(GCC_USB_HS_AHB_CBCR) & (1u << 31));
 
-    /* Block reset: assert then deassert */
-    writel(1, GCC_USB_HS_BCR);
-    delay_ms(5);
-    writel(0, GCC_USB_HS_BCR);
-    delay_ms(5);
-
-    /* Re-enable after reset */
-    writel(readl(GCC_USB_HS_SYSTEM_CBCR) | 1, GCC_USB_HS_SYSTEM_CBCR);
-    writel(readl(GCC_USB_HS_AHB_CBCR) | 1, GCC_USB_HS_AHB_CBCR);
-    while (readl(GCC_USB_HS_SYSTEM_CBCR) & (1u << 31));
-    while (readl(GCC_USB_HS_AHB_CBCR) & (1u << 31));
+    /* NOTE: No BCR (block) reset here — that would destroy the QUSB2 PHY
+     * state set up by PBL for Sahara. We only do USBCMD.RST (controller
+     * soft reset) which does not affect the PHY. */
 }
 
 /*========================================================================
- * usb_init — Reset controller and start device mode
+ * usb_init — Stop → reconfigure → start the USB controller.
+ *
+ * The ChipIdea controller requires ENDPOINTLISTADDR to be written while
+ * halted (RS=0).  We follow the same sequence as the original firehose
+ * programmer: stop controller, set device mode, install dQH, configure
+ * AHB burst mode, then restart.
+ *
+ * EP1 is NOT enabled here — it gets configured when SET_CONFIGURATION
+ * arrives from the host (via handle_setup).  This ensures data toggles
+ * are reset on both sides simultaneously.
  *========================================================================*/
 void usb_init(void)
 {
@@ -421,54 +426,65 @@ void usb_init(void)
 
     usb_online = 0;
     usb_highspeed = 0;
+    usb_seen_events = 0;
 
-    usb_cp(1);  /* CP1: entering usb_init */
-
-    /* Enable USB clocks (PBL may have gated them before jumping to us) */
+    /* Ensure USB clocks are on */
     usb_clock_init();
 
-    usb_cp(2);  /* CP2: usb_clock_init done */
+    /* ---- Stop the controller ----
+     * ENDPOINTLISTADDR must only be written while the controller is
+     * halted.  The original firehose programmer does this same
+     * stop → configure → start sequence. */
+    writel(readl(USB_USBCMD) & ~1u, USB_USBCMD);  /* clear RS (Run/Stop) */
+    /* Wait for HCH (halted) with timeout */
+    {
+        int timeout = 100000;
+        while (!(readl(USB_USBSTS) & (1u << 12)) && --timeout > 0);
+    }
 
-    /* Reset controller */
-    writel(0x00080002, USB_USBCMD);  /* RST + ITC=8 */
-    delay_ms(20);
-    while (readl(USB_USBCMD) & 2);  /* wait for reset complete */
-
-    usb_cp(3);  /* CP3: controller reset complete, USB regs accessible */
-
-    /* Select ULPI PHY */
-    writel(0x80000000, USB_PORTSC);
-
-    /* AHB config */
-    writel(0x0, USB_SBUSCFG);
-    writel(0x08, USB_AHB_MODE);
-
-    /* Clear dQH table */
-    for (i = 0; i < sizeof(dqh_table); i++)
-        ((unsigned char *)dqh_table)[i] = 0;
-
-    /* Configure EP0 queue heads */
-    dqh_table[0].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT | CONFIG_IOS; /* EP0 OUT */
-    dqh_table[1].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT;               /* EP0 IN */
-    cache_flush_inv(dqh_table, sizeof(dqh_table));
-
-    /* Set endpoint list address */
-    writel((unsigned int)dqh_table, USB_ENDPOINTLISTADDR);
-
-    /* Select device mode */
-    writel(0x02, USB_USBMODE);
-
-    /* Disable interrupts (we poll) */
-    writel(0, USB_USBINTR);
+    /* Set device mode (matches original firehose) */
+    writel((readl(USB_USBMODE) & ~3u) | 2, USB_USBMODE);
 
     /* Flush all endpoints */
     writel(0xFFFFFFFF, USB_ENDPTFLUSH);
-    delay_ms(5);
+    while (readl(USB_ENDPTFLUSH));
 
-    /* Start controller (D+ pullup enable) */
-    writel(0x00080001, USB_USBCMD);  /* RUN + ITC=8 */
+    /* Clear status registers */
+    writel(readl(USB_ENDPTCOMPLETE), USB_ENDPTCOMPLETE);
+    writel(readl(USB_ENDPTSETUPSTAT), USB_ENDPTSETUPSTAT);
+    writel(readl(USB_USBSTS), USB_USBSTS);
 
-    usb_cp(4);  /* CP4: USBCMD.RUN set — D+ now asserted */
+    /* Disable interrupts (we poll USBSTS) */
+    writel(0, USB_USBINTR);
+
+    /* Build our dQH table — EP0 only.
+     * EP1 bulk gets configured when SET_CONFIGURATION arrives. */
+    for (i = 0; i < sizeof(dqh_table); i++)
+        ((unsigned char *)dqh_table)[i] = 0;
+
+    dqh_table[0].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT | CONFIG_IOS;
+    dqh_table[1].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT;
+    cache_flush_inv(dqh_table, sizeof(dqh_table));
+
+    /* Install our dQH table — safe now that controller is halted */
+    writel((unsigned int)dqh_table, USB_ENDPOINTLISTADDR);
+
+    /* Set AHB burst mode (matches original firehose: AHB_MODE = 8) */
+    writel(8, USB_AHB_MODE);
+
+    /* USBMODE: enable Setup Lockout Mode + Stream Disable
+     * (matches original firehose) */
+    writel(readl(USB_USBMODE) | 0x18, USB_USBMODE);
+
+    /* ---- Start the controller ----
+     * D+ pullup is re-asserted, host sees the device. */
+    writel(readl(USB_USBCMD) | 1, USB_USBCMD);
+
+    /* Detect speed */
+    {
+        unsigned int spd = (readl(USB_PORTSC) >> 26) & 3;
+        usb_highspeed = (spd == 2) ? 1 : 0;
+    }
 }
 
 /*========================================================================
@@ -481,14 +497,18 @@ int usb_poll(void)
     unsigned int sts = readl(USB_USBSTS);
 
     if (sts & (STS_URI | STS_PCI | STS_UI | STS_UEI)) {
+        /* Track which events we've seen (for LED error diagnostics) */
+        usb_seen_events |= sts & (STS_URI | STS_PCI | STS_UI | STS_UEI);
+
         /* Clear handled status bits */
         writel(sts & (STS_URI | STS_PCI | STS_UI | STS_UEI | STS_SLI),
                USB_USBSTS);
 
         if (sts & STS_URI) {
-            /* USB Reset */
+            /* USB Reset — flush transfers but preserve pending setup
+             * packets (the host's re-enumeration SET_ADDRESS /
+             * SET_CONFIGURATION may already be queued). */
             writel(readl(USB_ENDPTCOMPLETE), USB_ENDPTCOMPLETE);
-            writel(readl(USB_ENDPTSETUPSTAT), USB_ENDPTSETUPSTAT);
             writel(0xFFFFFFFF, USB_ENDPTFLUSH);
             writel(0, USB_ENDPTCTRL(1));
             usb_online = 0;
@@ -623,4 +643,18 @@ int usb_write(const void *buf, int len)
     cache_inv(&dtd_bulk_in, sizeof(dtd_bulk_in));
     remaining = (dtd_bulk_in.info >> 16) & 0x7FFF;
     return len - remaining;
+}
+
+/*========================================================================
+ * usb_get_status — Return bitmask of USBSTS events seen since usb_init()
+ *
+ * Used by the main loop to distinguish USB failure modes via LED patterns:
+ *   STS_URI (bit 6)  — USB reset seen (host re-enumerating)
+ *   STS_PCI (bit 2)  — port change (speed negotiation)
+ *   STS_UI  (bit 0)  — USB interrupt (transfer/setup activity)
+ *   0                 — no host activity at all
+ *========================================================================*/
+unsigned int usb_get_status(void)
+{
+    return usb_seen_events;
 }
