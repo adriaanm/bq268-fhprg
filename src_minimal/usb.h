@@ -143,4 +143,13 @@ int usb_write(const void *buf, int len);
  * STS_URI=reset, STS_PCI=port change, STS_UI=transfer activity, 0=nothing */
 unsigned int usb_get_status(void);
 
+/* Return init progress bitmask:
+ * bit 0: clocks enabled after BCR
+ * bit 1: ULPI PHY configured
+ * bit 2: controller started (RS=1) */
+unsigned int usb_get_init_progress(void);
+
+/* Return count of ULPI viewport write timeouts (0 = all succeeded) */
+unsigned int usb_get_ulpi_timeouts(void);
+
 #endif /* USB_H */

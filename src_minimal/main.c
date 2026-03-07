@@ -39,6 +39,14 @@ static void led_init(int gpio)
         | (GPIO_OE_ENABLE << GPIO_OE_SHIFT);
 }
 
+static void delay_ms(unsigned int ms)
+{
+    volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
+    unsigned int ticks = (ms * 32768) / 1000;
+    unsigned int start = *tick;
+    while ((*tick - start) < ticks);
+}
+
 static void led_on(int gpio)
 {
     REG32(GPIO_IN_OUT_ADDR(gpio)) = GPIO_OUT_BIT;
@@ -586,7 +594,81 @@ void main(void)
      * BCR resets digital core only (PHY keeps D+ asserted), so the
      * host handle survives. After RS=1, host re-enumerates us. */
     usb_init();
-    while (!usb_poll());
+
+    /* usb_poll() with timeout — if enumeration doesn't happen in 10s,
+     * blink diagnostic info via LEDs so we can debug on hardware. */
+    {
+        volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
+        unsigned int start = *tick;
+        unsigned int timeout_ticks = (10u * 32768u);  /* 10 seconds */
+        int online = 0;
+
+        while (!online) {
+            online = usb_poll();
+            if (online) break;
+
+            if ((*tick - start) >= timeout_ticks) {
+                /* Timeout — blink diagnostic pattern forever:
+                 * init_progress (green blinks) + pause +
+                 * ulpi_timeouts (red blinks) + pause +
+                 * events (alternating red/green per bit) + long pause
+                 *
+                 * init_progress: 0x07 = all 3 stages complete
+                 * ulpi_timeouts: 0 = good, >0 = ULPI writes hung
+                 * events: STS_URI(0x40) STS_PCI(0x04) STS_UI(0x01) */
+                unsigned int prog = usb_get_init_progress();
+                unsigned int ulpi = usb_get_ulpi_timeouts();
+                unsigned int evts = usb_get_status();
+                unsigned int j;
+
+                for (;;) {
+                    /* Phase 1: blink green for init_progress count + 1
+                     * (0=1blink=stuck at clocks, 7=3blinks=all done) */
+                    led_off(LED_RED_GPIO);
+                    led_off(LED_GREEN_GPIO);
+                    for (j = 0; j < 8; j++) {
+                        if (prog & (1u << j)) {
+                            led_on(LED_GREEN_GPIO);
+                            delay_ms(300);
+                            led_off(LED_GREEN_GPIO);
+                            delay_ms(300);
+                        }
+                    }
+                    delay_ms(1000);
+
+                    /* Phase 2: blink red for ULPI timeout count */
+                    if (ulpi > 0) {
+                        for (j = 0; j < ulpi && j < 5; j++) {
+                            led_on(LED_RED_GPIO);
+                            delay_ms(300);
+                            led_off(LED_RED_GPIO);
+                            delay_ms(300);
+                        }
+                    } else {
+                        /* No ULPI timeouts — single green flash */
+                        led_on(LED_GREEN_GPIO);
+                        delay_ms(100);
+                        led_off(LED_GREEN_GPIO);
+                    }
+                    delay_ms(1000);
+
+                    /* Phase 3: events — red for each bit set */
+                    for (j = 0; j < 8; j++) {
+                        if (evts & (1u << j)) {
+                            led_on(LED_RED_GPIO);
+                            delay_ms(200);
+                            led_off(LED_RED_GPIO);
+                            delay_ms(200);
+                        }
+                    }
+                    delay_ms(2000);
+
+                    /* Re-check events in case something arrived late */
+                    evts = usb_get_status();
+                }
+            }
+        }
+    }
 
     /* Online — green off, red on */
     led_off(LED_GREEN_GPIO);

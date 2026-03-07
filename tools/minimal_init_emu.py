@@ -47,6 +47,7 @@ MMIO_REGIONS = {
     'TIMETICK':   (0x004A0000,  0xC000),   # includes PSHOLD at 0x4AB000
     'BIMC_QOS':   (0x00400000,  0x60000),
     'SDCC':       (0x07800000,  0x30000),
+    'USB':        (0x078D9000,  0x1000),
 }
 
 # Combined for address lookups
@@ -74,11 +75,14 @@ GCC_CBCR_ADDRS = [
     0x01831008, 0x0183100C, 0x01831010, 0x01831014,
     0x0183101C, 0x0183201C, 0x01832020, 0x01832024,
     0x01842018, 0x0184201C,  # SDCC1 APPS/AHB
+    0x01841004, 0x01841008, 0x01841030,  # USB HS SYSTEM/AHB/0x30
+    0x01841034, 0x0184103C,  # USB PHY_SLEEP, PHY_CFG_AHB
 ]
 
 # GCC CMD_RCGR registers (auto-clear bit 0 on update)
 GCC_CMD_RCGR_ADDRS = [
     0x01832004, 0x01837000, 0x01842004,  # BIMC DDR, GFX, SDCC1
+    0x01841010,  # USB HS SYSTEM
 ]
 
 # DDR blob address range
@@ -125,6 +129,26 @@ class MmioState:
             val = self.regs.get(addr, 0)
             val &= ~(1 << 9)
             return val
+
+        # USB ULPI viewport — clear ULPI_RUN (bit 30) to complete poll
+        if addr == 0x078D9170:
+            return self.regs.get(addr, 0) & ~(1 << 30)
+
+        # USB PORTSC — return HS connected (PSPD=10 at bits 27:26)
+        if addr == 0x078D9184:
+            return self.regs.get(addr, 0) | (2 << 26)
+
+        # USB USBSTS — return 0 (no events pending)
+        if addr == 0x078D9144:
+            return 0
+
+        # USB ENDPTSETUPSTAT — return 0 (no setup pending)
+        if addr == 0x078D91AC:
+            return 0
+
+        # USB ENDPTFLUSH — return 0 (flush complete)
+        if addr == 0x078D91B4:
+            return 0
 
         # BIMC registers — return last written value, or 0 (not busy)
         if 0x00400000 <= addr < 0x00460000:
@@ -370,6 +394,34 @@ class InitEmulator:
             0x01842008: "SDCC1_CFG_RCGR",
             0x01842018: "SDCC1_APPS_CBCR",
             0x0184201C: "SDCC1_AHB_CBCR",
+            # USB HS clocks
+            0x01841000: "GCC_USB_HS_BCR",
+            0x01841004: "GCC_USB_HS_SYSTEM_CBCR",
+            0x01841008: "GCC_USB_HS_AHB_CBCR",
+            0x01841010: "GCC_USB_HS_SYSTEM_CMD_RCGR",
+            0x01841014: "GCC_USB_HS_SYSTEM_CFG_RCGR",
+            0x01841030: "GCC_USB_HS_CBCR_0x30",
+            0x01841034: "GCC_USB2A_PHY_SLEEP_CBCR",
+            0x0184103C: "GCC_USB_HS_PHY_CFG_AHB_CBCR",
+            # USB controller registers
+            0x078D9090: "USB_SBUSCFG",
+            0x078D9098: "USB_AHB_MODE",
+            0x078D9140: "USB_USBCMD",
+            0x078D9144: "USB_USBSTS",
+            0x078D9148: "USB_USBINTR",
+            0x078D9154: "USB_DEVICEADDR",
+            0x078D9158: "USB_ENDPOINTLISTADDR",
+            0x078D9170: "USB_ULPI_VIEWPORT",
+            0x078D9184: "USB_PORTSC",
+            0x078D91A0: "USB_SBUSCFG_0xA0",
+            0x078D91A8: "USB_USBMODE",
+            0x078D91AC: "USB_ENDPTSETUPSTAT",
+            0x078D91B0: "USB_ENDPTPRIME",
+            0x078D91B4: "USB_ENDPTFLUSH",
+            0x078D91B8: "USB_ENDPTSTAT",
+            0x078D91BC: "USB_ENDPTCOMPLETE",
+            0x078D91C0: "USB_ENDPTCTRL(0)",
+            0x078D91C4: "USB_ENDPTCTRL(1)",
         }
         if addr in descs:
             return descs[addr]
@@ -525,8 +577,9 @@ class InitEmulator:
                     self.reached_main = True
                     print(f"\n  *** REACHED main() at 0x{pc:08x} after {total_insns:,} instructions ***\n",
                           flush=True)
-                    self.stop_reason = "reached main()"
-                    break
+                    if not self.args.past_main:
+                        self.stop_reason = "reached main()"
+                        break
 
             # Stuck detection: same PC for too many chunks
             if pc == last_pc:
@@ -615,6 +668,8 @@ def main():
                         help='Log all MMIO reads/writes')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Verbose output')
+    parser.add_argument('--past-main', action='store_true',
+                        help='Continue past main() into USB init etc.')
     parser.add_argument('--max-insns', type=int, default=100_000_000,
                         help='Maximum blocks to execute (default: 100M)')
     args = parser.parse_args()

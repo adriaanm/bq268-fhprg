@@ -59,6 +59,8 @@ static unsigned char ep0_buf[64] __attribute__((aligned(32)));
 static int usb_online;
 static int usb_highspeed;
 static unsigned int usb_seen_events;  /* bitmask of USBSTS events seen since init */
+static unsigned int usb_init_progress; /* bitmask of init stages completed */
+static unsigned int usb_ulpi_timeouts; /* count of ULPI viewport timeouts */
 
 /*========================================================================
  * Hardcoded USB descriptors
@@ -411,6 +413,7 @@ static void ulpi_write(unsigned char reg, unsigned char val)
             return;
         delay_ms(1);
     }
+    usb_ulpi_timeouts++;
 }
 
 /*========================================================================
@@ -443,6 +446,8 @@ void usb_init(void)
     usb_online = 0;
     usb_highspeed = 0;
     usb_seen_events = 0;
+    usb_init_progress = 0;
+    usb_ulpi_timeouts = 0;
 
     /* ---- FUN_0801aba0: BCR reset + PHY init ---- */
     /* Original sequence: disable clocks → BCR assert → PHY AHB → BCR deassert → enable clocks.
@@ -466,6 +471,7 @@ void usb_init(void)
 
     /* 5. Re-enable USB clocks with CLK_OFF polling (FUN_0800abf4) */
     usb_clock_enable();
+    usb_init_progress |= 0x01;  /* bit 0: clocks enabled after BCR */
 
     /* 6. PORTSC = 0x80000000 — select ULPI transceiver (PTS=10).
      * WITHOUT this, the controller defaults to UTMI+ mode after BCR
@@ -485,6 +491,7 @@ void usb_init(void)
     delay_ms(10);
     writel(0, GCC_USB2A_PHY_SLEEP_CBCR);
     delay_ms(75);
+    usb_init_progress |= 0x02;  /* bit 1: ULPI PHY configured */
 
     /* ---- FUN_0801a948: final PHY config ---- */
     ulpi_write(0x96, 0x03);
@@ -522,6 +529,7 @@ void usb_init(void)
 
     /* ---- Start controller (RS=1) ---- */
     writel(readl(USB_USBCMD) | 1, USB_USBCMD);
+    usb_init_progress |= 0x04;  /* bit 2: controller started (RS=1) */
 
     /* Detect speed */
     {
@@ -700,4 +708,14 @@ int usb_write(const void *buf, int len)
 unsigned int usb_get_status(void)
 {
     return usb_seen_events;
+}
+
+unsigned int usb_get_init_progress(void)
+{
+    return usb_init_progress;
+}
+
+unsigned int usb_get_ulpi_timeouts(void)
+{
+    return usb_ulpi_timeouts;
 }
