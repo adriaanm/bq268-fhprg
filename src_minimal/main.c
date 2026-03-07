@@ -578,10 +578,8 @@ void main(void)
     led_off(LED_RED_GPIO);
     led_off(LED_GREEN_GPIO);
 
-    /* Set up page table with DDR mapped (needed for USB DMA buffers) */
-    setup_page_table();
-
-    /* Inherit PBL's USB session — online immediately, no re-enumeration */
+    /* Inherit PBL's USB session — online immediately, no re-enumeration.
+     * PBL's page table already maps DDR — no setup_page_table() needed. */
     usb_init();
 
     /* Send banner */
