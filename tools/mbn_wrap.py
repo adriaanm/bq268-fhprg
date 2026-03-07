@@ -252,6 +252,20 @@ def main():
                      + b'\x00' * CERT_CHAIN_SIZE)
     assert len(hash_seg_data) == hash_seg_content_size
 
+    # Sahara maxpkt workaround: PBL silently hangs when the last data
+    # chunk of a LOAD segment is exactly 0x400 bytes (the Sahara maxpkt
+    # size).  Pad any such segment with 4 zero bytes to avoid this.
+    SAHARA_MAXPKT = 0x400
+    for i, (new_p, seg_data) in enumerate(segments):
+        if new_p['p_filesz'] > 0 and (new_p['p_filesz'] % SAHARA_MAXPKT) == 0:
+            print(f"[mbn] WARNING: segment at 0x{new_p['p_vaddr']:08x} has filesz "
+                  f"0x{new_p['p_filesz']:x} (multiple of 0x{SAHARA_MAXPKT:x})")
+            print(f"[mbn]   Adding 4-byte Sahara padding to avoid PBL hang")
+            seg_data = seg_data + b'\x00\x00\x00\x00'
+            new_p['p_filesz'] += 4
+            new_p['p_memsz'] = max(new_p['p_memsz'], new_p['p_filesz'])
+            segments[i] = (new_p, seg_data)
+
     # Calculate total file size
     max_end = hash_seg_offset + len(hash_seg_data)
     for new_p, seg_data in segments:

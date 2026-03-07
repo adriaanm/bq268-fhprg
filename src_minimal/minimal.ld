@@ -112,14 +112,6 @@ SECTIONS
         *(.rodata.payload)
     } > CODE
 
-    /* Sahara padding: PBL silently fails when the last data chunk of a
-     * segment is exactly maxpkt (0x400) bytes.  Adding 4 bytes ensures
-     * the code segment file-size never lands on a 0x400 boundary
-     * relative to the 0x1000-aligned transfer start. */
-    .sahara_pad : {
-        LONG(0);
-    } > CODE
-
     /*------------------------------------------------------------------
      * Initialized data — stored in CODE, copied to DATA at runtime
      * (entry.S should handle this, or we keep data tiny enough to skip)
