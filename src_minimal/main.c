@@ -571,6 +571,133 @@ static char sector_buf[512] __attribute__((section(".ddr_bss"), aligned(32)));
 /* Track whether eMMC has been initialized */
 static int emmc_inited = 0;
 
+/* Step-by-step SDCC1 clock enable with diagnostic output.
+ * Each register write is followed by a readback so we can see
+ * exactly where the sequence hangs. */
+static int sdcc_clock_init_verbose(void)
+{
+    int p = 0;
+    unsigned int val;
+    int timeout;
+
+    /* Dump initial state */
+    p = put_str(resp, p, "SDCC1 clock registers (before):\r\n");
+    p = put_str(resp, p, "  CMD_RCGR:  "); p = put_hex32(resp, p, REG32(SDCC1_CMD_RCGR));
+    p = put_str(resp, p, "\r\n  CFG_RCGR:  "); p = put_hex32(resp, p, REG32(SDCC1_CFG_RCGR));
+    p = put_str(resp, p, "\r\n  M:         "); p = put_hex32(resp, p, REG32(SDCC1_M));
+    p = put_str(resp, p, "\r\n  N:         "); p = put_hex32(resp, p, REG32(SDCC1_N));
+    p = put_str(resp, p, "\r\n  D:         "); p = put_hex32(resp, p, REG32(SDCC1_D));
+    p = put_str(resp, p, "\r\n  APPS_CBCR: "); p = put_hex32(resp, p, REG32(SDCC1_APPS_CBCR));
+    p = put_str(resp, p, "\r\n  AHB_CBCR:  "); p = put_hex32(resp, p, REG32(SDCC1_AHB_CBCR));
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Step 1: Write M/N/D for 400 KHz (CXO/12, M=1, N=4) */
+    p = put_str(resp, p, "[1] M=1...");
+    usb_write(resp, p); p = 0;
+    REG32(SDCC1_M) = 1;
+    p = put_str(resp, p, " OK  N=~3...");
+    usb_write(resp, p); p = 0;
+    REG32(SDCC1_N) = 0xFFFFFFFD;
+    p = put_str(resp, p, " OK  D=~4...");
+    usb_write(resp, p); p = 0;
+    REG32(SDCC1_D) = 0xFFFFFFFC;
+    p = put_str(resp, p, " OK\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Step 2: Write CFG_RCGR = 0x2017 (CXO src=0, div=12, dual-edge) */
+    p = put_str(resp, p, "[2] CFG_RCGR=0x2017...");
+    usb_write(resp, p); p = 0;
+    REG32(SDCC1_CFG_RCGR) = 0x2017;
+    p = put_str(resp, p, " OK  readback=");
+    p = put_hex32(resp, p, REG32(SDCC1_CFG_RCGR));
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Step 3: Trigger CMD_RCGR UPDATE (bit 0), poll with timeout */
+    p = put_str(resp, p, "[3] CMD_RCGR update...");
+    usb_write(resp, p); p = 0;
+    val = REG32(SDCC1_CMD_RCGR);
+    p = put_str(resp, p, " cur=");
+    p = put_hex32(resp, p, val);
+    usb_write(resp, p); p = 0;
+    REG32(SDCC1_CMD_RCGR) = val | 1;
+    timeout = 100000;
+    while ((REG32(SDCC1_CMD_RCGR) & 1) && --timeout > 0)
+        ;
+    if (timeout <= 0) {
+        p = put_str(resp, p, " TIMEOUT! CMD_RCGR=");
+        p = put_hex32(resp, p, REG32(SDCC1_CMD_RCGR));
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p);
+        return -1;
+    }
+    p = put_str(resp, p, " OK (");
+    p = put_dec(resp, p, 100000 - timeout);
+    p = put_str(resp, p, " iters)\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Step 4: Enable APPS_CBCR, poll CLK_OFF (bit 31) */
+    p = put_str(resp, p, "[4] APPS_CBCR enable...");
+    usb_write(resp, p); p = 0;
+    REG32(SDCC1_APPS_CBCR) = 1;
+    timeout = 100000;
+    while ((REG32(SDCC1_APPS_CBCR) & (1u << 31)) && --timeout > 0)
+        ;
+    val = REG32(SDCC1_APPS_CBCR);
+    if (timeout <= 0) {
+        p = put_str(resp, p, " TIMEOUT! APPS_CBCR=");
+        p = put_hex32(resp, p, val);
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p);
+        return -2;
+    }
+    p = put_str(resp, p, " OK  APPS_CBCR=");
+    p = put_hex32(resp, p, val);
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Step 5: Enable AHB_CBCR, poll CLK_OFF (bit 31) */
+    p = put_str(resp, p, "[5] AHB_CBCR enable...");
+    usb_write(resp, p); p = 0;
+    REG32(SDCC1_AHB_CBCR) = 1;
+    timeout = 100000;
+    while ((REG32(SDCC1_AHB_CBCR) & (1u << 31)) && --timeout > 0)
+        ;
+    val = REG32(SDCC1_AHB_CBCR);
+    if (timeout <= 0) {
+        p = put_str(resp, p, " TIMEOUT! AHB_CBCR=");
+        p = put_hex32(resp, p, val);
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p);
+        return -3;
+    }
+    p = put_str(resp, p, " OK  AHB_CBCR=");
+    p = put_hex32(resp, p, val);
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Step 6: Verify — try reading SDHCI capabilities register */
+    p = put_str(resp, p, "[6] SDHCI caps (0x07824940)...");
+    usb_write(resp, p); p = 0;
+    val = REG32(0x07824940);
+    p = put_str(resp, p, " = ");
+    p = put_hex32(resp, p, val);
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Dump final state */
+    p = put_str(resp, p, "SDCC1 clock registers (after):\r\n");
+    p = put_str(resp, p, "  CMD_RCGR:  "); p = put_hex32(resp, p, REG32(SDCC1_CMD_RCGR));
+    p = put_str(resp, p, "\r\n  CFG_RCGR:  "); p = put_hex32(resp, p, REG32(SDCC1_CFG_RCGR));
+    p = put_str(resp, p, "\r\n  APPS_CBCR: "); p = put_hex32(resp, p, REG32(SDCC1_APPS_CBCR));
+    p = put_str(resp, p, "\r\n  AHB_CBCR:  "); p = put_hex32(resp, p, REG32(SDCC1_AHB_CBCR));
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p);
+
+    return 0;
+}
+
 /* Command: emmc init — enable SDCC clocks and open eMMC device */
 static void cmd_emmc_init(void)
 {
@@ -579,9 +706,17 @@ static void cmd_emmc_init(void)
 
     p = put_str(resp, p, "eMMC init: enabling SDCC1 clocks...\r\n");
     usb_write(resp, p); p = 0;
-    sdcc_clock_init();
 
-    p = put_str(resp, p, "eMMC init: opening device...\r\n");
+    ret = sdcc_clock_init_verbose();
+    if (ret != 0) {
+        p = put_str(resp, p, "Clock init FAILED at step ");
+        p = put_dec(resp, p, (unsigned int)(-ret));
+        p = put_str(resp, p, "\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    p = put_str(resp, p, "\r\neMMC init: opening device...\r\n");
     usb_write(resp, p); p = 0;
     ret = mmc_open_device(0, 0);
 
@@ -603,8 +738,6 @@ static void cmd_emmc_init(void)
             p = put_dec(resp, p, d[0]);
             p = put_str(resp, p, "  card_type: ");
             p = put_dec(resp, p, (unsigned int)(unsigned char)d[2]);
-            p = put_str(resp, p, "  rca: ");
-            p = put_hex32(resp, p, (unsigned int)*(unsigned short *)(d + 2) >> 16 | (unsigned int)*(unsigned short *)((char*)d + 10) << 16);
             p = put_str(resp, p, "\r\n");
             p = put_str(resp, p, "  sectors: ");
             p = put_dec(resp, p, d[7]);
