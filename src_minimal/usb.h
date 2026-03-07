@@ -1,9 +1,8 @@
-/* usb.h — Minimal ChipIdea USB device driver for MSM8909.
+/* usb.h — USB driver for MSM8909 minimal programmer.
  *
- * Provides bulk read/write over USB without requiring DDR.
- * All buffers live in OCIMEM. Uses polling (no interrupts).
- *
- * Based on LK's hsusb.h/hsusb.c (platform/msm_shared/).
+ * Inherits PBL's USB session (no reset, no re-enumeration).
+ * All DMA buffers in DDR — USB DMA cannot access OCIMEM.
+ * Uses polling (no interrupts).
  */
 #ifndef USB_H
 #define USB_H
@@ -90,66 +89,23 @@ struct ept_queue_item {
 #define STS_UEI            (1 << 1)  /* USB Error */
 #define STS_SLI            (1 << 8)  /* Suspend */
 
-#define CTRL_TXE           (1 << 23)
-#define CTRL_TXR           (1 << 22)
-#define CTRL_TXT_BULK      (2 << 18)
-#define CTRL_RXE           (1 << 7)
-#define CTRL_RXR           (1 << 6)
-#define CTRL_RXT_BULK      (2 << 2)
-
-/* USB setup packet types */
-#define DEVICE_READ        0x80
-#define DEVICE_WRITE       0x00
-#define ENDPOINT_WRITE     0x02
-#define INTERFACE_WRITE    0x01
-
-/* USB standard requests */
-#define GET_STATUS         0
-#define CLEAR_FEATURE      1
-#define SET_FEATURE        3
-#define SET_ADDRESS        5
-#define GET_DESCRIPTOR     6
-#define SET_CONFIGURATION  9
-
-/* Descriptor types */
-#define DESC_DEVICE        1
-#define DESC_CONFIGURATION 2
-#define DESC_STRING        3
-
 /*========================================================================
  * Public API
  *========================================================================*/
 
-/* BCR reset + ULPI PHY config + fresh dQH + RS=1.
- * Replicates original firehose programmer's init sequence.
- * Returns with controller running; call usb_poll() for enumeration. */
+/* Inherit PBL's USB session. No reset, no re-enumeration.
+ * Reads PBL's ENDPOINTLISTADDR, flushes endpoints, prepares for bulk I/O.
+ * Returns with usb_online=1 immediately. */
 void usb_init(void);
 
-/* Poll USB events and handle enumeration.
- * Returns 1 when SET_CONFIGURATION received (device is online).
- * Returns 0 if still waiting.
- * Call in a loop until it returns 1. */
-int usb_poll(void);
-
-/* Blocking bulk OUT read.
+/* Blocking bulk OUT read on EP1.
+ * buf may be in OCIMEM or DDR — internally stages through DDR.
  * Returns number of bytes read, or -1 on error. */
 int usb_read(void *buf, int maxlen);
 
-/* Blocking bulk IN write.
+/* Blocking bulk IN write on EP1.
+ * buf may be in OCIMEM or DDR — internally stages through DDR.
  * Returns number of bytes written, or -1 on error. */
 int usb_write(const void *buf, int len);
-
-/* Return bitmask of USBSTS events seen since usb_init().
- * STS_URI=reset, STS_PCI=port change, STS_UI=transfer activity, 0=nothing */
-unsigned int usb_get_status(void);
-
-/* Return init progress bitmask:
- * bit 0: clocks enabled after BCR
- * bit 1: ULPI PHY configured
- * bit 2: controller started (RS=1) */
-unsigned int usb_get_init_progress(void);
-
-/* Return count of ULPI viewport write timeouts (0 = all succeeded) */
-unsigned int usb_get_ulpi_timeouts(void);
 
 #endif /* USB_H */

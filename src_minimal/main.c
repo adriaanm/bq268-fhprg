@@ -39,14 +39,6 @@ static void led_init(int gpio)
         | (GPIO_OE_ENABLE << GPIO_OE_SHIFT);
 }
 
-static void delay_ms(unsigned int ms)
-{
-    volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-    unsigned int ticks = (ms * 32768) / 1000;
-    unsigned int start = *tick;
-    while ((*tick - start) < ticks);
-}
-
 static void led_on(int gpio)
 {
     REG32(GPIO_IN_OUT_ADDR(gpio)) = GPIO_OUT_BIT;
@@ -570,8 +562,8 @@ static void cmd_ddr_test(void)
  * At this point entry.S has already:
  *   - Set up early page table (IO + OCIMEM, no DDR)
  *   - Locked GPLL0 and enabled early clocks
- *   - Called ddr_set_params, bimc_clock_init, icb_config, ddr_init
- *   - DDR init has NOT been confirmed working yet
+ *   - Called ddr_set_params, bimc_clock_init, ddr_init (533 MHz)
+ *   - DDR is initialized and available
  *========================================================================*/
 void main(void)
 {
@@ -586,137 +578,11 @@ void main(void)
     led_off(LED_RED_GPIO);
     led_off(LED_GREEN_GPIO);
 
-    /* Inherit test v3: use PBL's dQH in-place (no ENDPOINTLISTADDR swap).
-     * Link our dTD into PBL's dQH[3] (EP1 IN) directly.
-     * dTD and data buffer in DDR — USB DMA can't access OCIMEM.
-     *
-     * CONFIRMED WORKING (2026-03-07): host receives banner string.
-     *
-     * LED diagnostics:
-     *   ×2 blink: did ENDPTPRIME clear? (green=yes, red=stuck)
-     *   ×3 blink: is EP1 IN in ENDPTSTAT? (green=yes, red=no)
-     *   ×4 blink: any USB events in 5s? (green=yes, red=silence)
-     */
-    {
-        /* dTD and banner MUST be in DDR — USB DMA can't access OCIMEM */
-        static struct ept_queue_item dtd __attribute__((aligned(32), section(".ddr_bss")));
-        static char ddr_banner[64] __attribute__((aligned(32), section(".ddr_bss")));
-        static const char banner[] = "=== MSM8909 Inherit Test ===\r\n";
+    /* Set up page table with DDR mapped (needed for USB DMA buffers) */
+    setup_page_table();
 
-        volatile unsigned int *eplist_reg = (volatile unsigned int *)USB_ENDPOINTLISTADDR;
-        volatile unsigned int *flush_reg  = (volatile unsigned int *)USB_ENDPTFLUSH;
-        volatile unsigned int *prime_reg  = (volatile unsigned int *)USB_ENDPTPRIME;
-        volatile unsigned int *sts_reg    = (volatile unsigned int *)USB_USBSTS;
-        volatile unsigned int *comp_reg   = (volatile unsigned int *)USB_ENDPTCOMPLETE;
-        volatile unsigned int *tick       = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-
-        unsigned int pbl_eplist = *eplist_reg;
-        struct ept_queue_head *dqh_ep1in = (struct ept_queue_head *)(pbl_eplist + 3 * 64);
-        unsigned int start, len, buf_addr;
-        int gpio, i;
-
-        /* 1. Disable USB interrupts (PBL may have them on) */
-        {
-            volatile unsigned int *intr_reg = (volatile unsigned int *)USB_USBINTR;
-            *intr_reg = 0;
-        }
-
-        /* 2. Flush all endpoints (clear PBL's pending transfers) */
-        *flush_reg = 0xFFFFFFFF;
-        while (*flush_reg);
-
-        /* 3. Clear pending status */
-        *sts_reg = *sts_reg;
-        *comp_reg = *comp_reg;
-
-        /* 4. Copy banner to DDR (USB DMA can't read OCIMEM) */
-        len = sizeof(banner) - 1;
-        for (i = 0; (unsigned)i < len; i++)
-            ddr_banner[i] = banner[i];
-        buf_addr = (unsigned int)ddr_banner;
-
-        dtd.next  = TERMINATE;
-        dtd.info  = INFO_BYTES(len) | INFO_IOC | INFO_ACTIVE;
-        dtd.page0 = buf_addr;
-        dtd.page1 = (buf_addr & 0xFFFFF000u) + 0x1000;
-        dtd.page2 = (buf_addr & 0xFFFFF000u) + 0x2000;
-        dtd.page3 = (buf_addr & 0xFFFFF000u) + 0x3000;
-        dtd.page4 = (buf_addr & 0xFFFFF000u) + 0x4000;
-
-        /* Flush dTD + DDR banner from cache */
-        for (i = (int)&dtd & ~31; i < (int)&dtd + 32; i += 32)
-            __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(i));
-        for (i = (int)ddr_banner & ~31; i < (int)ddr_banner + (int)len; i += 32)
-            __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(i));
-        __asm__ volatile("dsb" ::: "memory");
-
-        /* 5. Link dTD to PBL's dQH[3] (EP1 IN) — modify in-place */
-        dqh_ep1in->next = (unsigned int)&dtd;
-        dqh_ep1in->info = 0;
-        for (i = (int)dqh_ep1in & ~31; i < (int)dqh_ep1in + 64; i += 32)
-            __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(i));
-        __asm__ volatile("dsb" ::: "memory");
-
-        /* 6. Prime EP1 IN */
-        *prime_reg = EPT_TX(1);
-
-        /* Test 1 (×2 blink): did ENDPTPRIME clear? */
-        {
-            unsigned int prime_start = *tick;
-            int prime_ok = 0;
-            while ((*tick - prime_start) < (1u * 32768u)) {
-                if (!(*prime_reg & EPT_TX(1))) {
-                    prime_ok = 1;
-                    break;
-                }
-            }
-            gpio = prime_ok ? LED_GREEN_GPIO : LED_RED_GPIO;
-            for (i = 0; i < 2; i++) {
-                led_on(gpio);
-                delay_ms(600);
-                led_off(gpio);
-                delay_ms(600);
-            }
-        }
-
-        delay_ms(1000);
-
-        /* Test 2 (×3 blink): is EP1 IN in ENDPTSTAT? */
-        {
-            volatile unsigned int *stat_reg = (volatile unsigned int *)USB_ENDPTSTAT;
-            int gpio2 = (*stat_reg & EPT_TX(1)) ? LED_GREEN_GPIO : LED_RED_GPIO;
-            for (i = 0; i < 3; i++) {
-                led_on(gpio2);
-                delay_ms(600);
-                led_off(gpio2);
-                delay_ms(600);
-            }
-        }
-
-        delay_ms(1000);
-
-        /* Test 3 (×4 blink): any USB events in 5s? */
-        {
-            unsigned int seen = 0;
-            int gpio3;
-            start = *tick;
-            while ((*tick - start) < (5u * 32768u)) {
-                seen |= *sts_reg;
-            }
-            gpio3 = (seen & (STS_UI | STS_UEI | STS_URI | STS_PCI))
-                    ? LED_GREEN_GPIO : LED_RED_GPIO;
-            for (i = 0; i < 4; i++) {
-                led_on(gpio3);
-                delay_ms(600);
-                led_off(gpio3);
-                delay_ms(600);
-            }
-            led_on(gpio3);
-        }
-        for (;;) __asm__ volatile("wfi");
-    }
-
-    /* --- Below is unreachable while probe is active --- */
+    /* Inherit PBL's USB session — online immediately, no re-enumeration */
+    usb_init();
 
     /* Send banner */
     usb_write(banner, sizeof(banner) - 1);
