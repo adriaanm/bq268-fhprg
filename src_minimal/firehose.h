@@ -334,8 +334,6 @@ uint parse_sector_value();      /* 0x08028c10: parse sector num (stub) */
 /* ---- dispatch.c ---- */
 undefined4 firehose_dispatch(); /* 0x0802f130: command router */
 void dispatch_set_state();      /* 0x0802f838 */
-void dispatch_loop_tick();            /* dispatch loop tick */
-void send_and_wait();            /* send-and-wait wrapper */
 
 /* ---- handlers.c (minimal: configure, program, read, digest stub) ---- */
 uint handle_configure();        /* 0x08022a00 */
@@ -378,7 +376,13 @@ uint storage_get_sector_count();/* 0x08037f64 */
 int  usb_read_complete();       /* 0x08021ca4 */
 int  transport_read_data();     /* 0x08031170 */
 void transport_set_pending();   /* 0x08030ecc */
+void send_and_wait();           /* USB write + completion */
+void dispatch_loop_tick();      /* no-op (synchronous) */
 int  pmic_set_power();          /* 0x0802d180 */
+
+/* ---- main.c (firehose mode) ---- */
+void sdcc_clock_init();         /* enable SDCC1 clocks */
+void firehose_main();           /* firehose XML command loop */
 
 /* ---- platform.c ---- */
 void fatal_error_dma_reset();   /* 0x08019984 */

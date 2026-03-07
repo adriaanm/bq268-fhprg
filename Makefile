@@ -246,6 +246,33 @@ minimal-debug-elf: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
 		$(MINIMAL_LIBGCC) -Map $(MINIMAL_MAP)
 	@echo "[*] Debug ELF: $(MINIMAL_DEBUG_ELF) ($$(stat -c %s $(MINIMAL_DEBUG_ELF)) bytes)"
 
+# ── minimal-firehose (full firehose mode, no MINIMAL_EMBEDDED_PAYLOAD) ────────
+MINIMAL_FH_CFLAGS = $(subst -DMINIMAL_EMBEDDED_PAYLOAD,,$(MINIMAL_CFLAGS))
+MINIMAL_FH_OBJ = $(patsubst src_minimal/%.c,tmp/minimal_fh_%.o,$(MINIMAL_SRC))
+MINIMAL_FH_ASM_OBJ = $(patsubst src_minimal/%.S,tmp/minimal_fh_%.o,$(MINIMAL_ASM_SRC))
+MINIMAL_FH_ELF = tmp/minimal_firehose.elf
+MINIMAL_FH_MAP = tmp/minimal_firehose.map
+
+.PHONY: minimal-firehose
+
+tmp/minimal_fh_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
+	@mkdir -p tmp
+	$(MINIMAL_CC) $(MINIMAL_FH_CFLAGS) -c $< -o $@
+
+tmp/minimal_fh_%.o: src_minimal/%.S src_minimal/msm8909.h
+	@mkdir -p tmp
+	arm-none-eabi-gcc -c -march=armv7-a -mthumb -mfloat-abi=soft \
+		-I src_minimal -DMINIMAL_NO_PAYLOAD -o $@ $<
+
+minimal-firehose: $(MINIMAL_FH_OBJ) $(MINIMAL_FH_ASM_OBJ)
+	@echo "[*] Linking minimal-firehose ELF..."
+	$(LD) -T $(MINIMAL_LD_SCRIPT) -o $(MINIMAL_FH_ELF) $(MINIMAL_FH_OBJ) $(MINIMAL_FH_ASM_OBJ) \
+		$(MINIMAL_LIBGCC) -Map $(MINIMAL_FH_MAP)
+	@echo "[*] CODE segment: $$(arm-none-eabi-size -A $(MINIMAL_FH_ELF) | awk '/.text/{t+=$$2} /.rodata/{t+=$$2} END{print t}') bytes"
+	@echo "[*] Adding MBN hash table for Sahara..."
+	python3 tools/mbn_wrap.py $(MINIMAL_FH_ELF)
+	@echo "[*] Final ELF: $$(stat -c %s $(MINIMAL_FH_ELF)) bytes"
+
 # ── minimal-emu (emulator-friendly build, no inline asm) ──────────────────────
 MINIMAL_EMU_CFLAGS = $(MINIMAL_CFLAGS) -DEMU_BUILD
 MINIMAL_EMU_OBJ = $(patsubst src_minimal/%.c,tmp/minimal_emu_%.o,$(MINIMAL_SRC))

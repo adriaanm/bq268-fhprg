@@ -27,6 +27,143 @@ void *memcpy(void *dest, const void *src, unsigned int n)
 }
 
 /*========================================================================
+ * memmove — overlap-safe memory copy
+ *========================================================================*/
+void *memmove(void *dest, const void *src, unsigned int n)
+{
+    unsigned char *d = (unsigned char *)dest;
+    const unsigned char *s2 = (const unsigned char *)src;
+    if (d < s2) {
+        while (n--) *d++ = *s2++;
+    } else {
+        d += n; s2 += n;
+        while (n--) *--d = *--s2;
+    }
+    return dest;
+}
+
+/*========================================================================
+ * strlen — string length
+ *========================================================================*/
+unsigned int strlen(const char *s)
+{
+    const char *p = s;
+    while (*p) p++;
+    return (unsigned int)(p - s);
+}
+
+/*========================================================================
+ * vsnprintf / snprintf — minimal printf-style formatting
+ *
+ * Supports: %s, %d, %u, %x, %llu, %lld, %llx, %c, %%
+ * No width/padding — sufficient for firehose XML attributes.
+ *========================================================================*/
+#include <stdarg.h>
+
+static char *fmt_uint(char *buf, char *end, unsigned int val, int base)
+{
+    char tmp[12];
+    int i = 0;
+    if (val == 0) tmp[i++] = '0';
+    while (val && i < 11) {
+        int d = val % base;
+        tmp[i++] = (d < 10) ? '0' + d : 'a' + d - 10;
+        val /= base;
+    }
+    while (i-- > 0 && buf < end)
+        *buf++ = tmp[i];
+    return buf;
+}
+
+static char *fmt_uint64(char *buf, char *end, unsigned long long val, int base)
+{
+    char tmp[24];
+    int i = 0;
+    if (val == 0) tmp[i++] = '0';
+    while (val && i < 23) {
+        int d = (int)(val % base);
+        tmp[i++] = (d < 10) ? '0' + d : 'a' + d - 10;
+        val /= base;
+    }
+    while (i-- > 0 && buf < end)
+        *buf++ = tmp[i];
+    return buf;
+}
+
+int vsnprintf(char *buf, unsigned int size, const char *fmt, va_list ap)
+{
+    char *out = buf;
+    char *end = buf + (size ? size - 1 : 0);
+
+    if (!size) return 0;
+
+    while (*fmt && out < end) {
+        if (*fmt != '%') { *out++ = *fmt++; continue; }
+        fmt++;
+        if (*fmt == '%') { *out++ = '%'; fmt++; continue; }
+        if (*fmt == 'c') {
+            *out++ = (char)va_arg(ap, int);
+            fmt++; continue;
+        }
+        if (*fmt == 's') {
+            const char *s = va_arg(ap, const char *);
+            if (!s) s = "(null)";
+            while (*s && out < end) *out++ = *s++;
+            fmt++; continue;
+        }
+
+        /* Check for 'll' prefix */
+        int is_ll = 0;
+        if (fmt[0] == 'l' && fmt[1] == 'l') { is_ll = 1; fmt += 2; }
+
+        if (*fmt == 'd') {
+            if (is_ll) {
+                long long v = va_arg(ap, long long);
+                if (v < 0) { if (out < end) *out++ = '-'; v = -v; }
+                out = fmt_uint64(out, end, (unsigned long long)v, 10);
+            } else {
+                int v = va_arg(ap, int);
+                if (v < 0) { if (out < end) *out++ = '-'; v = -v; }
+                out = fmt_uint(out, end, (unsigned int)v, 10);
+            }
+            fmt++; continue;
+        }
+        if (*fmt == 'u') {
+            if (is_ll)
+                out = fmt_uint64(out, end, va_arg(ap, unsigned long long), 10);
+            else
+                out = fmt_uint(out, end, va_arg(ap, unsigned int), 10);
+            fmt++; continue;
+        }
+        if (*fmt == 'x' || *fmt == 'X') {
+            if (is_ll)
+                out = fmt_uint64(out, end, va_arg(ap, unsigned long long), 16);
+            else
+                out = fmt_uint(out, end, va_arg(ap, unsigned int), 16);
+            fmt++; continue;
+        }
+
+        /* Unknown specifier — output literally */
+        if (out < end) *out++ = '%';
+        if (is_ll && out < end) *out++ = 'l';
+        if (is_ll && out < end) *out++ = 'l';
+    }
+
+    *out = '\0';
+    return (int)(out - buf);
+}
+
+int snprintf(char *buf, unsigned int size, const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+    va_start(ap, fmt);
+    n = vsnprintf(buf, size, fmt, ap);
+    va_end(ap);
+    return n;
+}
+
+/*========================================================================
  * bit_reverse — reverse all 32 bits
  *========================================================================*/
 uint bit_reverse(param_1)
@@ -181,8 +318,11 @@ int *get_ctype_table(void)
 volatile uint _DAT_004a1000 __attribute__((section(".mmio_qtimer"))) = 0;
 
 /* Partition table — 32 entries × 3 words each (iterated by mmc_read_ext_csd
- * and mmc_release_slot from 0x08059efc to 0x0805a070 in 12-byte strides). */
+ * and mmc_release_slot from 0x08059efc to 0x0805a070 in 12-byte strides).
+ * In firehose mode, this is defined in globals.c instead. */
+#ifdef MINIMAL_EMBEDDED_PAYLOAD
 uint DAT_08059efc[96] = {0};
+#endif
 
 /* In embedded mode, protocol-layer functions are guarded out.
  * Provide stubs for functions still referenced by always-compiled code. */

@@ -11,6 +11,9 @@
  * Source: src/fhprg/fhprg_80327f8.c
  */
 #include "firehose.h"
+#include "msm8909.h"
+
+#define REG32(addr)  (*(volatile unsigned int *)(addr))
 
 /* Sub-function forward declarations */
 static uint csd_parse_mmc();
@@ -19,28 +22,69 @@ static undefined4 cmd7_select_card();
 static undefined4 clock_set_divider();
 static undefined4 clock_set_sdr_mode();
 
-/* ---- Hardware clock stubs ---- */
+/* ---- SDCC1 clock configuration ---- */
 
-/* These write to GCC (Global Clock Controller) MMIO registers.
- * When the programmer loads, clocks are already configured by SBL/PBL.
- * We provide stubs that are safe no-ops. */
+/* Write SDCC1 GCC registers for a given frequency.
+ * Frequency table from lk_src/platform/msm8909/msm8909-clock.c.
+ * GPLL0 runs at ~787.2 MHz (L_VAL=41 * 19.2 MHz CXO). */
+static void sdcc_set_clock_rate(freq_khz)
+uint freq_khz;
+{
+  uint cfg, m, n, d;
 
-/* orig: 0x0800af10 — set GCC clock source mux */
+  if (freq_khz <= 400) {
+    /* 400 KHz: CXO(0) / 12, M=1 N=4 dual-edge */
+    m = 1; n = 0xFFFFFFFD; d = 0xFFFFFFFC;
+    cfg = 0x2017;
+  } else if (freq_khz <= 50000) {
+    /* 50 MHz: GPLL0(1) / 16, no MND */
+    m = 0; n = 0; d = 0;
+    cfg = 0x011F;
+  } else if (freq_khz <= 100000) {
+    /* 100 MHz: GPLL0(1) / 8, no MND */
+    m = 0; n = 0; d = 0;
+    cfg = 0x010F;
+  } else {
+    /* 200 MHz: GPLL0(1) / 4, no MND */
+    m = 0; n = 0; d = 0;
+    cfg = 0x0107;
+  }
+
+  /* Write M/N/D registers */
+  REG32(SDCC1_M) = m;
+  REG32(SDCC1_N) = n;
+  REG32(SDCC1_D) = d;
+
+  /* Write CFG_RCGR: source + divider + mode */
+  REG32(SDCC1_CFG_RCGR) = cfg;
+
+  /* Trigger RCG update, poll until complete */
+  REG32(SDCC1_CMD_RCGR) = REG32(SDCC1_CMD_RCGR) | CMD_UPDATE_BIT;
+  while (REG32(SDCC1_CMD_RCGR) & CMD_UPDATE_BIT)
+    ;
+}
+
+/* orig: 0x0800af10 — set GCC clock source mux.
+ * Called from sdcc_clock_setup for lower speed ranges:
+ *   1 → 400 kHz, 2 → 25 MHz (use 50 MHz), 3 → 50 MHz */
 static void gcc_clock_mux_set(param_1)
 undefined4 param_1;
 {
-  /* GCC clock source select — already configured */
-  (void)param_1;
-  return;
+  switch ((uint)param_1) {
+  case 1: sdcc_set_clock_rate(400); break;
+  case 2: sdcc_set_clock_rate(50000); break;
+  case 3: sdcc_set_clock_rate(50000); break;
+  }
 }
 
-/* orig: 0x0800af38 — set GCC clock divider with source */
+/* orig: 0x0800af38 — set GCC clock divider with source.
+ * Called from sdcc_clock_setup for higher speed ranges.
+ * param_1 = target frequency in kHz. */
 static void gcc_clock_divider_set(param_1, param_2)
 undefined4 param_1; undefined4 param_2;
 {
-  /* GCC clock divider + source — already configured */
-  (void)param_1; (void)param_2;
-  return;
+  (void)param_2;
+  sdcc_set_clock_rate((uint)param_1);
 }
 
 /* Slot context base: 0x8059cc8, 0xbc bytes per slot, 2 slots.
@@ -70,14 +114,37 @@ int param_1;
   return 0x2b368;  /* 177000 kHz */
 }
 
-/* orig: 0x08032b0c — enable SDCC clock for slot */
-static undefined4 sdcc_enable_slot(param_1)
-uint param_1;
+/* orig: 0x08032b0c — enable SDCC clock for slot.
+ * param_1 = slot (0 for eMMC), param_2 = enable (1) / disable (0).
+ * Configures RCG at 400 KHz and enables/disables branch clocks. */
+static undefined4 sdcc_enable_slot(param_1, param_2)
+uint param_1; uint param_2;
 {
-  /* This writes to GCC SDCC clock registers.
-   * Stubbed: clocks are already enabled by SBL. */
   (void)param_1;
+  if (param_2) {
+    /* Configure RCG at 400 KHz identification rate */
+    sdcc_set_clock_rate(400);
+
+    /* Enable SDCC1 branch clocks */
+    REG32(SDCC1_APPS_CBCR) = CBCR_BRANCH_ENABLE_BIT;
+    while (REG32(SDCC1_APPS_CBCR) & CBCR_BRANCH_OFF_BIT)
+      ;
+    REG32(SDCC1_AHB_CBCR) = CBCR_BRANCH_ENABLE_BIT;
+    while (REG32(SDCC1_AHB_CBCR) & CBCR_BRANCH_OFF_BIT)
+      ;
+  } else {
+    /* Disable SDCC1 branch clocks */
+    REG32(SDCC1_APPS_CBCR) = 0;
+    REG32(SDCC1_AHB_CBCR) = 0;
+  }
   return 0;
+}
+
+/* sdcc_clock_init — called from main() to enable SDCC1 clocks.
+ * Must be called before any SDCC register access (0x0782xxxx). */
+void sdcc_clock_init()
+{
+  sdcc_enable_slot(0, 1);
 }
 
 /* orig: 0x08032b64 — init qtimer and enable global timer */

@@ -433,6 +433,9 @@ LAB_08024502:
                 uVar10 = (uint)(lVar19 * iVar14);
                 uVar11 = (uint)((ulonglong)(lVar19 * iVar14) >> 0x20);
                 iVar12 = usb_read_complete(&local_320);
+                /* Transfer size set by transfer_callback in usb_read_complete */
+                local_308 = DAT_08055f90;
+                uStack_304 = 0;
                 debug_log("toread %d read %d",uStack_304,uVar10,uVar11);
                 uVar8 = uStack_304;
                 uVar13 = local_308;

@@ -635,3 +635,143 @@ void main(void)
 }
 
 #endif /* MINIMAL_EMBEDDED_PAYLOAD */
+
+/*========================================================================
+ * Firehose mode — full eMMC access via firehose XML protocol
+ *
+ * Built without -DMINIMAL_EMBEDDED_PAYLOAD.
+ * Enables the complete eMMC driver stack and firehose command handlers.
+ *========================================================================*/
+
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
+
+#include "firehose.h"
+#include "msm8909.h"
+#include "usb.h"
+
+#define REG32(addr)  (*(volatile unsigned int *)(addr))
+
+static void led_init(int gpio)
+{
+    REG32(GPIO_CFG_ADDR(gpio)) =
+          (GPIO_NO_PULL << GPIO_PULL_SHIFT)
+        | (0            << GPIO_FUNC_SHIFT)
+        | (GPIO_2MA     << GPIO_DRV_SHIFT)
+        | (GPIO_OE_ENABLE << GPIO_OE_SHIFT);
+}
+
+static void led_off(int gpio)
+{
+    REG32(GPIO_IN_OUT_ADDR(gpio)) = 0;
+}
+
+static void led_on(int gpio)
+{
+    REG32(GPIO_IN_OUT_ADDR(gpio)) = GPIO_OUT_BIT;
+}
+
+/* xml_parser_init — initialize XML parser state.
+ * Matches original FUN_08039030: sets buffer, size, resets state. */
+static void xml_parser_init(parser, buf, size_lo, size_hi)
+uint *parser; uint buf; uint size_lo; uint size_hi;
+{
+    parser[0] = buf;        /* buffer pointer */
+    parser[2] = size_lo;    /* size (lo) */
+    parser[3] = size_hi;    /* size (hi) */
+    parser[6] = 0;          /* position (lo) */
+    parser[7] = 0;          /* position (hi) */
+    parser[8] = 0;          /* tag depth (lo) */
+    parser[9] = 0;          /* tag depth (hi) */
+    *(char *)(parser + 4) = 0;  /* state = 0 */
+}
+
+/* xml_writer_setup — initialize XML writer state.
+ * The writer needs a buffer and capacity so xml_wr_* functions work. */
+static void xml_writer_setup(writer, buf, capacity)
+uint *writer; uint buf; uint capacity;
+{
+    writer[0] = buf;        /* buffer pointer */
+    writer[2] = capacity;   /* capacity (lo) */
+    writer[3] = 0;          /* capacity (hi) */
+    writer[4] = 0;          /* write pos (lo) */
+    writer[5] = 0;          /* write pos (hi) */
+}
+
+/* XML writer buffer (4 KB in DDR for USB write access) */
+static char xml_wr_buf[4096] __attribute__((section(".ddr_bss"), aligned(32)));
+
+/* XML receive buffer (4 KB) */
+static char xml_rx_buf[4096] __attribute__((aligned(32)));
+
+/* firehose_main — XML command loop.
+ *
+ * Reads XML commands from USB, parses them, dispatches to handlers.
+ * Matches the original FUN_08030fa8 but simplified for synchronous USB. */
+void firehose_main()
+{
+    int n, ret;
+
+    /* Initialize XML writer with DDR buffer */
+    xml_writer_setup(&DAT_08055f18, (uint)xml_wr_buf, sizeof(xml_wr_buf));
+
+    /* Initialize firehose state */
+    DAT_08058458 = 0x200;       /* sector size = 512 */
+    DAT_0805845c = 0;
+    DAT_08055fb8 = 0x100000;    /* buffer capacity = 1 MB */
+    DAT_08055fbc = 0;
+    DAT_0804d3a4 = 0;           /* dispatch state = idle */
+    DAT_08055f88 = 0;           /* no transfer error */
+    DAT_08055fd8 = 0;           /* validation disabled */
+
+    firehose_log("Minimal firehose programmer ready");
+
+    /* Main loop: read XML commands, dispatch */
+    for (;;) {
+        n = usb_read(xml_rx_buf, sizeof(xml_rx_buf));
+        if (n <= 0)
+            continue;
+
+        /* Toggle green LED for activity */
+        led_on(LED_GREEN_GPIO);
+
+        /* Initialize parser with received XML data */
+        xml_parser_init(&DAT_08055ea0, (uint)xml_rx_buf, (uint)n, 0);
+
+        /* Dispatch all commands in this XML block */
+        do {
+            ret = firehose_dispatch();
+        } while (ret != 1);
+
+        led_off(LED_GREEN_GPIO);
+    }
+}
+
+/* main — firehose mode entry point.
+ *
+ * Called from entry.S after hardware init (DDR, clocks).
+ * Enables SDCC clocks, initializes USB and eMMC, enters firehose loop. */
+void main(void)
+{
+    /* Initialize LEDs */
+    led_init(LED_RED_GPIO);
+    led_init(LED_GREEN_GPIO);
+    led_off(LED_RED_GPIO);
+    led_off(LED_GREEN_GPIO);
+
+    /* Enable SDCC1 clocks (must be before any SDCC register access) */
+    sdcc_clock_init();
+
+    /* Inherit PBL's USB session — online immediately */
+    usb_init();
+
+    /* Initialize eMMC: card identification + transfer mode */
+    mmc_open_device(0, 0);
+
+    /* Green LED = eMMC init complete */
+    led_on(LED_GREEN_GPIO);
+
+    /* Enter firehose XML command loop (never returns) */
+    firehose_main();
+}
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */

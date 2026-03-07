@@ -89,3 +89,113 @@ uint DAT_0804e2e0 = 0;
 
 /* Global context struct — referenced by get_global_context() */
 uint DAT_0805a8ac = 0;
+
+/*========================================================================
+ * Firehose protocol state — needed for firehose mode
+ * (not used in embedded payload / diag console mode)
+ *========================================================================*/
+
+#ifndef MINIMAL_EMBEDDED_PAYLOAD
+
+/* Stack canary value */
+int DAT_0804cd58 = 0;
+
+/* Firehose main context — double-buffered data pointers [2].
+ * Buffer 0 at DAT_08054e90, buffer 1 at DAT_08054e94. */
+uint DAT_08054e90 = 0;
+
+/* Firehose XML receive buffer (4 KB) */
+uint DAT_08054e98 = 0;
+
+/* XML parser state struct (28 words) */
+uint DAT_08055ea0 = 0;
+static uint _parser_pad[27];  /* rest of parser struct */
+
+/* Device extra state (0x150 bytes) */
+char DAT_08055e90 = 0;
+static char _dev_extra_pad[0x14F];
+
+/* XML writer state struct (28 words) */
+uint DAT_08055f18 = 0;
+static uint _writer_pad[27];
+
+/* XML writer position fields — accessed as globals by flush_xml_to_usb */
+uint DAT_08055f28 = 0;  /* writer current pos (lo) — at writer[4] */
+uint DAT_08055f2c = 0;  /* writer current pos (hi) — at writer[5] */
+
+/* Transfer state */
+char DAT_08055f88 = 0;         /* transfer error code */
+uint DAT_08055f90 = 0;         /* last transfer size */
+uint DAT_08055f94 = 0;         /* transfer pending flag */
+uint DAT_08055f98 = 0;         /* transfer complete flag */
+char DAT_08055f99 = 0;         /* xml send-and-wait done flag */
+uint DAT_08055fb0 = 0;         /* total bytes transferred (lo) */
+uint DAT_08055fb4 = 0;         /* total bytes transferred (hi) */
+uint DAT_08055fb8 = 0x100000;  /* buffer capacity (lo) = 1 MB */
+uint DAT_08055fbc = 0;         /* buffer capacity (hi) */
+uint DAT_08055fc0 = 0;         /* error transfer count (lo) */
+uint DAT_08055fc4 = 0;         /* error transfer count (hi) */
+uint DAT_08055fc8 = 0;         /* success transfer count (lo) */
+uint DAT_08055fcc = 0;         /* success transfer count (hi) */
+
+/* Validation/digest state (stubs — not using validation) */
+uint DAT_08057fe0 = 0;
+uint DAT_08057fe4 = 0;
+uint DAT_08057fe8 = 0;
+uint DAT_08057fec = 0;
+uint DAT_08057ff0 = 0;
+uint DAT_08057ff4 = 0;
+uint DAT_08057ff8 = 0;
+uint DAT_08057ffc = 0;
+uint DAT_08058000 = 0;
+uint DAT_08058004 = 0;
+char DAT_08055fd8 = 0;         /* validation enabled = no */
+char DAT_08055fd9 = 0;
+uint DAT_08055fda = 0;
+int  DAT_08055fd4 = 0;         /* storage device index offset */
+
+/* Configure options */
+uint DAT_08058458 = 0x200;     /* disk sector size = 512 */
+uint DAT_0805845c = 0;         /* disk sector size (hi) */
+char DAT_08058480 = 0;         /* skip_write = no */
+char DAT_08058481 = 0;         /* always_validate = no */
+char DAT_08058482 = 0;         /* verbose = no */
+int  DAT_08058484 = 0;         /* ack_raw_data_every_num_packets */
+
+/* Storage context / device table */
+uint DAT_08058430 = 0;
+uint DAT_08058428 = 0;         /* log ring buffer index */
+uint DAT_0805842c = 0;         /* log flag */
+uint DAT_08058028 = 0;         /* log ring buffer */
+
+/* Hotplug / partition state */
+uint DAT_0805a440 = 0;
+uint DAT_0805a444 = 0;
+uint DAT_0805a448 = 0;
+uint DAT_0805a44c = 0;
+uint DAT_0805a450 = 0;
+uint DAT_0805a454 = 0;
+uint DAT_0805124c = 0;
+uint DAT_08051250 = 0;
+
+/* Partition table: 32 entries × 3 words */
+uint DAT_08059efc[96] = { 0 };
+
+/* Memory pool / misc */
+uint DAT_0804d188 = 0;
+uint DAT_0804d178 = 0;
+uint DAT_0804d17c = 0;
+uint DAT_0804d180 = 0;
+uint DAT_0804d18c = 0;
+uint DAT_0804d190 = 0;
+
+/* PMIC state */
+char DAT_0804d288 = 0;
+uint DAT_0804d28a = 0;
+uint DAT_0804d28c = 0;
+uint DAT_0804d28e = 0;
+
+/* Code label used as callback — placeholder */
+char LAB_08028888 = 0;
+
+#endif /* !MINIMAL_EMBEDDED_PAYLOAD */
