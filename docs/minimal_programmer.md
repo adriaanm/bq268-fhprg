@@ -24,8 +24,8 @@ USB bulk transfers. Future: embed a gzipped aboot image and flash it directly.
 check in the eMMC write path (EXT_CSD byte 160). This minimal programmer removes that
 check, allowing writes to WP-protected partitions.
 
-**Current status**: DDR init confirmed working. USB diagnostic mode implemented. USB
-init now replicates original fhprg sequence (BCR reset + ULPI PHY config).
+**Current status**: DDR init confirmed working. USB driver inherits PBL's session
+(no reset, no re-enumeration). Interactive diagnostic console over USB bulk transfers.
 
 All source lives in `src_minimal/`. Build with `make minimal-elf`.
 
@@ -189,16 +189,22 @@ All complete or stubbed. See `docs/minimal_impl.md` git history for full tables.
 
 ### How It Works
 
-The programmer keeps **PBL's USB identity** (VID:PID = 05C6:9008) so the host handle
-survives the brief controller stop->start. The original firehose programmer does the same.
+The programmer **inherits PBL's USB session** — no controller reset, no re-enumeration.
+PBL leaves the ChipIdea USB controller running (RS=1, D+ asserted) after Sahara upload.
+The host handle from Sahara remains valid; the device appears continuously connected.
+
+Critical constraint: **USB DMA cannot access OCIMEM** (0x0804xxxx). All USB buffers
+(dTDs, data) must reside in DDR (0x80000000+). PBL's dQH table (in PBL SRAM) is used as-is.
+
+See `docs/sahara_usb_handover.md` for the full investigation and hardware probing results.
 
 #### Sequence
 
 1. PBL loads our ELF via Sahara (same USB connection)
 2. entry.S boots (~1-2s): DDR init with 50ms LED pulses
-3. `main()` calls `usb_init()` -- brief stop->reconfigure->start (~1ms)
-4. `usb_poll()` loop handles enumeration (SET_ADDRESS, SET_CONFIGURATION)
-5. Once online: banner sent, interactive command loop
+3. `main()` sets up page table (maps DDR), calls `usb_init()`
+4. `usb_init()` flushes stale transfers, goes online immediately
+5. Banner sent, interactive command loop — no enumeration delay
 
 #### Host Side (tools/usb_diag.py)
 
@@ -206,7 +212,7 @@ survives the brief controller stop->start. The original firehose programmer does
 usb_diag.py --flash tmp/minimal.elf
   1. Open USB device (05C6:9008)
   2. Sahara protocol (HELLO -> transfer -> DONE)
-  3. Keep same handle (--reconnect releases and re-finds)
+  3. Keep same handle (no disconnect/reconnect)
   4. Sleep 3s (configurable with --wait)
   5. Interactive mode on same bulk endpoints
 ```
@@ -215,43 +221,23 @@ usb_diag.py --flash tmp/minimal.elf
 
 ```
 usb_init():
-  1. Enable USB clocks (RCG + branch clocks)
-  2. Stop controller (clear RS, wait for HCH)
-  3. Set device mode, install dQH table
-  4. Configure AHB burst mode, USBMODE flags
-  5. Start controller (set RS, D+ pullup re-asserted)
+  1. Read ENDPOINTLISTADDR → PBL's dQH table
+  2. Disable USB interrupts (USBINTR=0)
+  3. Flush all endpoints (clear PBL's Sahara transfers)
+  4. Clear USBSTS + ENDPTCOMPLETE
+  5. Online immediately (usb_online=1)
 
-usb_poll():
-  1. Handle USB reset (STS_URI) -- flush, disable EP1
-  2. Handle port change (STS_PCI) -- detect speed
-  3. Handle setup packets -- SET_ADDRESS, GET_DESCRIPTOR, SET_CONFIGURATION
-  4. Returns 1 when SET_CONFIGURATION received
+usb_read() / usb_write():
+  1. Copy data to/from DDR staging buffer (USB DMA can't reach OCIMEM)
+  2. Queue dTD (in DDR) on PBL's dQH entry
+  3. Prime endpoint, poll ENDPTCOMPLETE
 ```
-
-#### USB Error Diagnostics
-
-If no SET_CONFIGURATION after 10 seconds, LEDs signal the failure mode:
-
-| Condition | LED Pattern | Meaning |
-|-----------|-------------|---------|
-| No USBSTS activity | 3x red blink + pause | Controller not running, clocks wrong, or host lost device |
-| USB reset only | 2x red blink + pause | Host re-enumerating but not completing configuration |
-| Events but no config | Alternating red/green | Handle stale, or enumeration stuck |
-
-After signaling, returns to solid green and keeps polling (re-signals every 10s).
 
 #### Troubleshooting
 
-- **Same handle works**: Normal case. Host sees brief NAK during stop->start, handle survives.
-- **Handle stale**: Use `--reconnect` flag. Tool releases Sahara handle, re-finds device.
-- **Host re-enumerates**: Use `--reconnect`. Some hosts (macOS) may always re-enumerate.
-- **No device at all**: Check USB clocks, verify controller running with `usb_get_status()`.
-- **Increase boot wait**: Use `--wait 5` if 3s isn't enough.
-
-### Data Toggle Synchronization
-
-After stop->start, the first host USB bus reset resets both sides' toggles to DATA0.
-SET_CONFIGURATION enables EP1 with CTRL_TXR/CTRL_RXR (toggle reset). No special handling needed.
+- **No response after flash**: Increase boot wait with `--wait 5`.
+- **USB reset during operation**: Driver returns -1, command loop retries.
+- **DMA failures**: Verify DDR is initialized and page table maps 0x80000000+.
 
 ## Embedded Payload Mode
 
