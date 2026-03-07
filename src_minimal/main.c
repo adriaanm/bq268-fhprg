@@ -559,6 +559,237 @@ static void cmd_ddr_test(void)
 }
 
 /*========================================================================
+ * eMMC diagnostic commands
+ *
+ * These use the low-level eMMC driver to test sector read/write
+ * via the diag console, without the firehose XML protocol.
+ *========================================================================*/
+
+/* DMA-accessible sector buffer in DDR (512 bytes, 32-byte aligned) */
+static char sector_buf[512] __attribute__((section(".ddr_bss"), aligned(32)));
+
+/* Track whether eMMC has been initialized */
+static int emmc_inited = 0;
+
+/* Command: emmc init — enable SDCC clocks and open eMMC device */
+static void cmd_emmc_init(void)
+{
+    int p = 0;
+    int ret;
+
+    p = put_str(resp, p, "eMMC init: enabling SDCC1 clocks...\r\n");
+    usb_write(resp, p); p = 0;
+    sdcc_clock_init();
+
+    p = put_str(resp, p, "eMMC init: opening device...\r\n");
+    usb_write(resp, p); p = 0;
+    ret = mmc_open_device(0, 0);
+
+    if (ret != 0) {
+        p = put_str(resp, p, "eMMC init: mmc_open_device returned ");
+        p = put_hex32(resp, p, (unsigned int)ret);
+        p = put_str(resp, p, "\r\n");
+    }
+
+    /* Check if device handle is populated */
+    {
+        unsigned int dev = sdcc_get_device(0);
+        p = put_str(resp, p, "  device handle: ");
+        p = put_hex32(resp, p, dev);
+        p = put_str(resp, p, "\r\n");
+        if (dev != 0) {
+            unsigned int *d = (unsigned int *)dev;
+            p = put_str(resp, p, "  slot: ");
+            p = put_dec(resp, p, d[0]);
+            p = put_str(resp, p, "  card_type: ");
+            p = put_dec(resp, p, (unsigned int)(unsigned char)d[2]);
+            p = put_str(resp, p, "  rca: ");
+            p = put_hex32(resp, p, (unsigned int)*(unsigned short *)(d + 2) >> 16 | (unsigned int)*(unsigned short *)((char*)d + 10) << 16);
+            p = put_str(resp, p, "\r\n");
+            p = put_str(resp, p, "  sectors: ");
+            p = put_dec(resp, p, d[7]);
+            p = put_str(resp, p, "  sector_size: ");
+            p = put_dec(resp, p, d[9]);
+            p = put_str(resp, p, "\r\n");
+            emmc_inited = 1;
+        } else {
+            p = put_str(resp, p, "  FAILED — no device handle\r\n");
+        }
+    }
+
+    p = put_str(resp, p, "> ");
+    usb_write(resp, p);
+}
+
+/* Command: emmc status — send CMD13 and show card state */
+static void cmd_emmc_status(void)
+{
+    int p = 0;
+    unsigned int dev;
+
+    if (!emmc_inited) {
+        p = put_str(resp, p, "eMMC not initialized. Run 'e' first.\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    dev = sdcc_get_device(0);
+    if (dev == 0) {
+        p = put_str(resp, p, "No device handle\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    {
+        unsigned int status = sdcc_get_card_status((int)dev);
+        /* Card state nibble: 0=idle, 1=ready, 2=ident, 3=stby, 4=tran, 5=data, 6=rcv, 7=prg */
+        static const char *state_names[] = {
+            "idle", "ready", "ident", "stby",
+            "tran", "data", "rcv", "prg",
+            "dis", "?9", "?10", "?11",
+            "?12", "?13", "?14", "?15"
+        };
+        p = put_str(resp, p, "Card state: ");
+        p = put_dec(resp, p, status);
+        p = put_str(resp, p, " (");
+        p = put_str(resp, p, (status < 16) ? state_names[status] : "?");
+        p = put_str(resp, p, ")\r\n");
+
+        /* Also dump slot status and SDCC register bases */
+        p = put_str(resp, p, "  slot_status[0]: ");
+        p = put_hex32(resp, p, sdcc_get_slot_status(0));
+        p = put_str(resp, p, "\r\n");
+    }
+
+    /* Dump SDCC clock registers */
+    p = put_str(resp, p, "  SDCC1_CMD_RCGR:  ");
+    p = put_hex32(resp, p, REG32(SDCC1_CMD_RCGR));
+    p = put_str(resp, p, "\r\n  SDCC1_CFG_RCGR:  ");
+    p = put_hex32(resp, p, REG32(SDCC1_CFG_RCGR));
+    p = put_str(resp, p, "\r\n  SDCC1_APPS_CBCR: ");
+    p = put_hex32(resp, p, REG32(SDCC1_APPS_CBCR));
+    p = put_str(resp, p, "\r\n  SDCC1_AHB_CBCR:  ");
+    p = put_hex32(resp, p, REG32(SDCC1_AHB_CBCR));
+    p = put_str(resp, p, "\r\n> ");
+    usb_write(resp, p);
+}
+
+/* Command: read sector — read a 512-byte sector and hex dump it
+ * Usage: s SECTOR_NUM */
+static void cmd_sector_read(const char *args)
+{
+    int p = 0;
+    unsigned int sector = parse_hex(args);
+    unsigned int dev_handle;
+    int ret;
+    int i;
+
+    if (!emmc_inited) {
+        p = put_str(resp, p, "eMMC not initialized. Run 'e' first.\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    dev_handle = sdcc_get_device(0);
+    if (dev_handle == 0) {
+        p = put_str(resp, p, "No device handle\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    /* Zero buffer before read */
+    for (i = 0; i < 512; i++) sector_buf[i] = 0;
+
+    /* mmc_write_blocks is also the read function (CMD17/CMD18).
+     * param1=device_handle_ptr, param2=start_sector,
+     * param3=buffer_addr, param4=num_sectors */
+    ret = mmc_write_blocks((void *)&dev_handle, sector, (unsigned int)sector_buf, 1);
+
+    p = put_str(resp, p, "Read sector ");
+    p = put_hex32(resp, p, sector);
+    p = put_str(resp, p, ": ret=");
+    p = put_dec(resp, p, (unsigned int)ret);
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    if (ret != 0) {
+        p = put_str(resp, p, "READ FAILED\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    /* Hex dump the sector */
+    for (i = 0; i < 512; i++) {
+        if ((i & 0xF) == 0) {
+            if (i > 0) { p = put_str(resp, p, "\r\n"); }
+            p = put_hex32(resp, p, sector * 512 + i);
+            p = put_str(resp, p, ": ");
+        }
+        p = put_hex8(resp, p, (unsigned char)sector_buf[i]);
+        p = put_str(resp, p, " ");
+
+        /* Flush if buffer getting full */
+        if (p > 3800) {
+            usb_write(resp, p);
+            p = 0;
+        }
+    }
+    p = put_str(resp, p, "\r\n> ");
+    usb_write(resp, p);
+}
+
+/* Command: write sector — fill a sector with a repeating byte and write it
+ * Usage: S SECTOR_NUM FILL_BYTE */
+static void cmd_sector_write(const char *args)
+{
+    int p = 0;
+    const char *p1 = skip_ws(args);
+    unsigned int sector = parse_hex(p1);
+    const char *p2 = skip_ws(skip_nonws(p1));
+    unsigned int fill = parse_hex(p2);
+    unsigned int dev_handle;
+    int ret;
+    int i;
+
+    if (!emmc_inited) {
+        p = put_str(resp, p, "eMMC not initialized. Run 'e' first.\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    dev_handle = sdcc_get_device(0);
+    if (dev_handle == 0) {
+        p = put_str(resp, p, "No device handle\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
+    /* Fill buffer with repeating byte */
+    for (i = 0; i < 512; i++)
+        sector_buf[i] = (char)(fill & 0xFF);
+
+    /* mmc_write_sectors: param1=device_handle_ptr, param2=start_sector,
+     * param3=buffer_addr, param4=num_sectors */
+    ret = mmc_write_sectors((void *)&dev_handle, sector, (unsigned int)sector_buf, 1);
+
+    p = put_str(resp, p, "Write sector ");
+    p = put_hex32(resp, p, sector);
+    p = put_str(resp, p, " fill=");
+    p = put_hex8(resp, p, (unsigned char)(fill & 0xFF));
+    p = put_str(resp, p, ": ret=");
+    p = put_dec(resp, p, (unsigned int)ret);
+    p = put_str(resp, p, "\r\n");
+
+    if (ret != 0) {
+        p = put_str(resp, p, "WRITE FAILED\r\n");
+    } else {
+        p = put_str(resp, p, "OK\r\n");
+    }
+    p = put_str(resp, p, "> ");
+    usb_write(resp, p);
+}
+
+/*========================================================================
  * main — entry point from assembly
  *
  * At this point entry.S has already:
@@ -570,7 +801,18 @@ static void cmd_ddr_test(void)
 void main(void)
 {
     int n, p;
-    static const char banner[] = "=== MSM8909 Diag Console ===\r\n> ";
+    static const char banner[] =
+        "=== MSM8909 Diag Console ===\r\n"
+        "  r ADDR       — read 32-bit word\r\n"
+        "  w ADDR VAL   — write 32-bit word\r\n"
+        "  d ADDR LEN   — hex dump\r\n"
+        "  i            — system info\r\n"
+        "  t            — DDR test\r\n"
+        "  e            — init eMMC\r\n"
+        "  c            — eMMC card status\r\n"
+        "  s SECTOR     — read sector (hex)\r\n"
+        "  S SECTOR BYTE — write sector with fill byte\r\n"
+        "> ";
 
     (void)aboot_payload_gz;
     (void)aboot_payload_gz_len;
@@ -620,8 +862,20 @@ void main(void)
         case 'd': case 'D':
             cmd_dump(cmd_buf + 1);
             break;
-        case 't': case 'T':
+        case 't':
             cmd_ddr_test();
+            break;
+        case 'e':
+            cmd_emmc_init();
+            break;
+        case 'c':
+            cmd_emmc_status();
+            break;
+        case 's':
+            cmd_sector_read(skip_ws(cmd_buf + 1));
+            break;
+        case 'S':
+            cmd_sector_write(cmd_buf + 1);
             break;
         default:
             p = 0;
