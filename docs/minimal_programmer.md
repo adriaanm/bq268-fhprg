@@ -63,6 +63,39 @@ Address         Region              Size        Content
 0x80000000      DDR                 128 MB      Working memory (NOLOAD)
 ```
 
+### PBL Page Table (TTBR0 = 0x00200000)
+
+L1 section descriptors dumped from hardware via diag console. PBL sets
+DACR=0xFFFFFFFF (all domains = manager, no permission checks) and
+TTBCR.N=0 (TTBR0 covers full 4GB).
+
+We do NOT switch TTBR0 — PBL's table maps everything we need.
+
+```
+Index   VirtAddr    PTE         Type        Notes
+------  ----------  ----------  ----------  ---------------------------
+0x000   0x00000000  00000c16    Device      Boot ROM
+0x002   0x00200000  00204801    Page table  IMEM (L2 fine-grained)
+0x004   0x00400000  00400c16    Device      BIMC / MPM2
+0x008   0x00800000  00800c16    Device      LPASS
+0x010   0x01000000  01000c16    Device      TLMM (GPIO)
+0x018   0x01800000  01800c16    Device      GCC (clocks)
+0x078   0x07800000  07800c16    Device      PERIPH_SS (SDCC)
+0x07F   0x07F00000  07f00c16    Device      PERIPH_SS (USB)
+0x080   0x08000000  00204409    Normal      OCIMEM (L2, cacheable)
+0x800   0x80000000  80000c16    Device      DDR
+0x801   0x80100000  80100c16    Device      DDR + 1MB
+0x87C   0x87C00000  87c00c16    Device      DDR high
+```
+
+PTE format (0xXXXXXc16): Section, AP=11 (full access), Domain=0,
+TEX=0 C=0 B=1 (Device/Shared). DDR is mapped as **Device memory**
+(not Normal/cacheable) — this is why USB DMA works without explicit
+cache maintenance on DDR buffers, but also means CPU access to DDR
+is uncached and slow.
+
+SCTLR = 0x00c5187d: MMU on, D-cache on, I-cache on, branch prediction on.
+
 ### Boot Sequence (entry.S -> main())
 
 1. Red LED on (USB stays alive with PBL's config)
