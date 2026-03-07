@@ -580,36 +580,41 @@ static int sdcc_clock_init_verbose(void)
     unsigned int val;
     int timeout;
 
-    /* Dump initial state */
-    p = put_str(resp, p, "SDCC1 clock registers (before):\r\n");
-    p = put_str(resp, p, "  CMD_RCGR:  "); p = put_hex32(resp, p, REG32(SDCC1_CMD_RCGR));
-    p = put_str(resp, p, "\r\n  CFG_RCGR:  "); p = put_hex32(resp, p, REG32(SDCC1_CFG_RCGR));
-    p = put_str(resp, p, "\r\n  M:         "); p = put_hex32(resp, p, REG32(SDCC1_M));
-    p = put_str(resp, p, "\r\n  N:         "); p = put_hex32(resp, p, REG32(SDCC1_N));
-    p = put_str(resp, p, "\r\n  D:         "); p = put_hex32(resp, p, REG32(SDCC1_D));
-    p = put_str(resp, p, "\r\n  APPS_CBCR: "); p = put_hex32(resp, p, REG32(SDCC1_APPS_CBCR));
-    p = put_str(resp, p, "\r\n  AHB_CBCR:  "); p = put_hex32(resp, p, REG32(SDCC1_AHB_CBCR));
-    p = put_str(resp, p, "\r\n");
-    usb_write(resp, p); p = 0;
+    /* Flush a marker so we know the function was entered */
+    usb_write("[clock] entered\r\n", 17);
+
+    /* Dump initial state — one register at a time with flush */
+#define DUMP_REG(name, addr) do { \
+    p = 0; \
+    p = put_str(resp, p, "  " name ": "); \
+    p = put_hex32(resp, p, REG32(addr)); \
+    p = put_str(resp, p, "\r\n"); \
+    usb_write(resp, p); \
+} while(0)
+
+    DUMP_REG("CMD_RCGR ", SDCC1_CMD_RCGR);
+    DUMP_REG("CFG_RCGR ", SDCC1_CFG_RCGR);
+    DUMP_REG("M        ", SDCC1_M);
+    DUMP_REG("N        ", SDCC1_N);
+    DUMP_REG("D        ", SDCC1_D);
+    DUMP_REG("APPS_CBCR", SDCC1_APPS_CBCR);
+    DUMP_REG("AHB_CBCR ", SDCC1_AHB_CBCR);
+#undef DUMP_REG
 
     /* Step 1: Write M/N/D for 400 KHz (CXO/12, M=1, N=4) */
-    p = put_str(resp, p, "[1] M=1...");
-    usb_write(resp, p); p = 0;
+    usb_write("[1] M...", 8);
     REG32(SDCC1_M) = 1;
-    p = put_str(resp, p, " OK  N=~3...");
-    usb_write(resp, p); p = 0;
+    usb_write("ok N...", 7);
     REG32(SDCC1_N) = 0xFFFFFFFD;
-    p = put_str(resp, p, " OK  D=~4...");
-    usb_write(resp, p); p = 0;
+    usb_write("ok D...", 7);
     REG32(SDCC1_D) = 0xFFFFFFFC;
-    p = put_str(resp, p, " OK\r\n");
-    usb_write(resp, p); p = 0;
+    usb_write("ok\r\n", 4);
 
     /* Step 2: Write CFG_RCGR = 0x2017 (CXO src=0, div=12, dual-edge) */
-    p = put_str(resp, p, "[2] CFG_RCGR=0x2017...");
-    usb_write(resp, p); p = 0;
+    usb_write("[2] CFG...", 10);
     REG32(SDCC1_CFG_RCGR) = 0x2017;
-    p = put_str(resp, p, " OK  readback=");
+    p = 0;
+    p = put_str(resp, p, "ok rb=");
     p = put_hex32(resp, p, REG32(SDCC1_CFG_RCGR));
     p = put_str(resp, p, "\r\n");
     usb_write(resp, p); p = 0;
