@@ -355,6 +355,8 @@ static void handle_setup(void)
 #define GCC_USB_HS_AHB_CBCR        0x01841008
 #define GCC_USB_HS_SYSTEM_CMD_RCGR 0x01841010
 #define GCC_USB_HS_SYSTEM_CFG_RCGR 0x01841014
+#define GCC_USB2A_PHY_SLEEP_CBCR   0x01841034
+#define GCC_USB_HS_PHY_CFG_AHB_CBCR 0x0184103C
 
 static void usb_clock_init(void)
 {
@@ -374,9 +376,6 @@ static void usb_clock_init(void)
     while (readl(GCC_USB_HS_SYSTEM_CBCR) & (1u << 31));
     while (readl(GCC_USB_HS_AHB_CBCR) & (1u << 31));
 
-    /* NOTE: No BCR (block) reset here — that would destroy the QUSB2 PHY
-     * state set up by PBL for Sahara. We only do USBCMD.RST (controller
-     * soft reset) which does not affect the PHY. */
 }
 
 /*========================================================================
@@ -405,14 +404,23 @@ static void ulpi_write(unsigned char reg, unsigned char val)
 /*========================================================================
  * usb_init — Replicate the original firehose programmer's USB init.
  *
- * Sequence from decompiled FUN_0803016c + FUN_0801aba0:
- *   1. GCC BCR reset (digital core only, PHY keeps D+ asserted)
- *   2. ULPI PHY configuration via viewport register
- *   3. Set USBMODE to device mode
- *   4. Init dQH table, write ENDPOINTLISTADDR
- *   5. Disable interrupts, set AHB burst, setup lockout
- *   6. Set RS (run) — controller starts responding to host
- *   7. Host re-enumerates us (same VID/PID, handle survives)
+ * Exact sequence from decompiled FUN_0801aba0 + FUN_0803016c:
+ *
+ * FUN_0801aba0 (PHY + clock reset):
+ *   1. Assert GCC_USB_HS_BCR
+ *   2. Enable PHY_CFG_AHB_CBCR, wait 10ms, disable it
+ *   3. Wait 75ms, deassert BCR, wait 10ms
+ *   4. PORTSC = 0x80000000 (select ULPI transceiver — CRITICAL)
+ *   5. Enable PHY_SLEEP_CBCR
+ *   6. ULPI viewport writes (PHY config)
+ *   7. Wait 10ms, disable PHY_SLEEP_CBCR, wait 75ms
+ *   8. ULPI reg 0x96=0x03, set bits in SBUSCFG/USBCMD
+ *
+ * FUN_0803016c (controller config):
+ *   9. USBMODE = device mode
+ *  10. Init dQH table, write ENDPOINTLISTADDR
+ *  11. USBINTR=0, USBMODE|=0x08, AHB_MODE=8
+ *  12. USBCMD |= 1 (RS — start controller)
  *========================================================================*/
 void usb_init(void)
 {
@@ -422,39 +430,55 @@ void usb_init(void)
     usb_highspeed = 0;
     usb_seen_events = 0;
 
-    /* Ensure USB clocks are on */
+    /* Ensure USB core clocks are on */
     usb_clock_init();
 
-    /* ---- BCR reset sequence (from FUN_0801aba0) ----
-     * Assert GCC_USB_HS_BCR to reset the digital core.
-     * The PHY is NOT reset — D+ stays asserted, host doesn't
-     * see a disconnect.  After deassert, controller is halted
-     * (RS=0 by default), so ENDPOINTLISTADDR write is safe. */
-    writel(1, GCC_USB_HS_BCR);          /* assert block reset */
-    delay_ms(10);
-    writel(0, GCC_USB_HS_BCR);          /* deassert block reset */
+    /* ---- FUN_0801aba0: BCR reset + PHY init ---- */
+
+    /* 1. Assert BCR + enable PHY AHB clock during reset */
+    writel(1, GCC_USB_HS_BCR);
+    writel(1, GCC_USB_HS_PHY_CFG_AHB_CBCR);
     delay_ms(10);
 
-    /* Re-enable branch clocks after BCR (reset may gate them) */
+    /* 2. Disable PHY AHB clock, wait for PHY to settle */
+    writel(0, GCC_USB_HS_PHY_CFG_AHB_CBCR);
+    delay_ms(75);
+
+    /* 3. Deassert BCR — controller comes up halted (RS=0) */
+    writel(0, GCC_USB_HS_BCR);
+    delay_ms(10);
+
+    /* Re-enable core clocks after BCR (reset may gate them) */
     writel(readl(GCC_USB_HS_SYSTEM_CBCR) | 1, GCC_USB_HS_SYSTEM_CBCR);
     writel(readl(GCC_USB_HS_AHB_CBCR) | 1, GCC_USB_HS_AHB_CBCR);
     while (readl(GCC_USB_HS_SYSTEM_CBCR) & (1u << 31));
     while (readl(GCC_USB_HS_AHB_CBCR) & (1u << 31));
 
-    /* ---- ULPI PHY configuration (from FUN_0801aba0) ----
-     * Original writes: reg 0x80=0x33, 0x81=0x33, 0x82=0x07, 0x83=0x13
-     * Then FUN_0801a948: reg 0x96=0x03 */
+    /* 4. PORTSC = 0x80000000 — select ULPI transceiver (PTS=10).
+     * WITHOUT this, the controller defaults to UTMI+ mode after BCR
+     * and ULPI viewport writes are ignored. */
+    writel(0x80000000, USB_PORTSC);
+
+    /* 5. Enable PHY sleep clock for ULPI access */
+    writel(1, GCC_USB2A_PHY_SLEEP_CBCR);
+
+    /* 6. ULPI PHY configuration */
     ulpi_write(0x80, 0x33);
     ulpi_write(0x81, 0x33);
     ulpi_write(0x82, 0x07);
     ulpi_write(0x83, 0x13);
+
+    /* 7. Disable PHY sleep clock, wait for settle */
     delay_ms(10);
+    writel(0, GCC_USB2A_PHY_SLEEP_CBCR);
+    delay_ms(75);
+
+    /* ---- FUN_0801a948: final PHY config ---- */
     ulpi_write(0x96, 0x03);
-
-    /* Set bit 7 of SBUSCFG+0x10 (0x078d90a0) — original FUN_0801a948 */
     writel(readl(MSM_USB_BASE + 0x00A0) | 0x80, MSM_USB_BASE + 0x00A0);
+    writel(readl(USB_USBCMD) | 0x02000000, USB_USBCMD);  /* bit 25 */
 
-    /* ---- Controller configuration (from FUN_0803016c) ---- */
+    /* ---- FUN_0803016c: controller configuration ---- */
 
     /* Set device mode: USBMODE = (USBMODE & ~3) | 2 */
     writel((readl(USB_USBMODE) & ~3u) | 2, USB_USBMODE);
@@ -473,19 +497,17 @@ void usb_init(void)
     /* Disable interrupts (we poll) */
     writel(0, USB_USBINTR);
 
-    /* Setup lockout + stream disable (from original: USBMODE |= 0x08) */
+    /* Setup lockout (USBMODE |= 0x08) */
     writel(readl(USB_USBMODE) | 0x08, USB_USBMODE);
 
     /* Clear setup status */
     writel(readl(USB_ENDPTSETUPSTAT), USB_ENDPTSETUPSTAT);
 
-    /* AHB burst mode (original: AHB_MODE = 8) */
+    /* AHB burst mode */
     writel(8, USB_AHB_MODE);
 
-    /* ---- Start controller (RS=1) ----
-     * Original: USBCMD |= 1 (FUN_0803016c line 1550)
-     * Also set bit 25 like original FUN_0801a948 */
-    writel(readl(USB_USBCMD) | 0x02000001, USB_USBCMD);
+    /* ---- Start controller (RS=1) ---- */
+    writel(readl(USB_USBCMD) | 1, USB_USBCMD);
 
     /* Detect speed */
     {
