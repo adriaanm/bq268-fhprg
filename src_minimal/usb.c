@@ -5,9 +5,9 @@
  *
  * Based on LK's hsusb.c (platform/msm_shared/).
  *
- * Hardware: ChipIdea USB 2.0 HS controller at 0x07FD9000.
+ * Hardware: ChipIdea USB 2.0 HS controller at 0x078D9000.
  * PBL already initialized clocks and PHY for Sahara protocol.
- * We reset the controller and re-enumerate as a new device.
+ * We inherit PBL's live USB session — no stop/start (D+ stays asserted).
  */
 
 #include "usb.h"
@@ -16,35 +16,6 @@
 #define REG32(addr)  (*(volatile unsigned int *)(addr))
 #define readl(addr)  REG32(addr)
 #define writel(v, addr) do { REG32(addr) = (v); } while(0)
-
-/*========================================================================
- * Debug checkpoint — blink red LED N times (100ms on/off) using timetick
- * Used to narrow down which USB register access faults.
- * Remove once USB is working.
- *========================================================================*/
-static void usb_cp(int n)
-{
-    volatile unsigned int *tick =
-        (volatile unsigned int *)0x004A3000; /* MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL */
-    volatile unsigned int *cfg =
-        (volatile unsigned int *)0x01044000; /* GPIO_CFG_ADDR(68) red LED */
-    volatile unsigned int *out =
-        (volatile unsigned int *)0x01044004; /* GPIO_IN_OUT_ADDR(68) */
-    unsigned int start;
-    int i;
-    *cfg = (1 << 9); /* OE=output, GPIO_OE_ENABLE<<GPIO_OE_SHIFT */
-    for (i = 0; i < n; i++) {
-        *out = 2;             /* GPIO_OUT_BIT = bit 1 */
-        start = *tick;
-        while ((*tick - start) < 8192);  /* 250ms at 32768 Hz */
-        *out = 0;
-        start = *tick;
-        while ((*tick - start) < 8192);  /* 250ms */
-    }
-    /* 500ms gap after sequence */
-    start = *tick;
-    while ((*tick - start) < 16384);
-}
 
 /*========================================================================
  * Cache maintenance — required for USB DMA coherency
@@ -73,9 +44,9 @@ static void cache_inv(void *addr, unsigned int len)
  * Static allocations — all in OCIMEM (BSS or data)
  *========================================================================*/
 
-/* dQH table: 16 endpoints × 2 directions = 32 entries × 64 bytes = 2KB.
- * Must be 2KB-aligned (HW requirement). We use 4KB for safety. */
-static struct ept_queue_head dqh_table[32] __attribute__((aligned(4096)));
+/* dQH table pointer — points to PBL's dQH memory (inherited from Sahara).
+ * We rewrite entries in-place rather than allocating our own table. */
+static struct ept_queue_head *dqh_table;
 
 /* dTD items for each endpoint direction we use */
 static struct ept_queue_item dtd_ep0_in  __attribute__((aligned(32)));
@@ -409,43 +380,33 @@ static void usb_clock_init(void)
 }
 
 /*========================================================================
- * usb_init — Stop → reconfigure → start the USB controller.
+ * usb_init — Inherit PBL's live USB session.
  *
- * The ChipIdea controller requires ENDPOINTLISTADDR to be written while
- * halted (RS=0).  We follow the same sequence as the original firehose
- * programmer: stop controller, set device mode, install dQH, configure
- * AHB burst mode, then restart.
+ * After Sahara, the device is already enumerated and configured by the
+ * host.  We do NOT stop/start the controller (clearing RS deasserts D+,
+ * causing the host to see a disconnect and invalidate its handle).
  *
- * EP1 is NOT enabled here — it gets configured when SET_CONFIGURATION
- * arrives from the host (via handle_setup).  This ensures data toggles
- * are reset on both sides simultaneously.
+ * Instead we:
+ * 1. Read PBL's dQH address from ENDPOINTLISTADDR
+ * 2. Flush pending Sahara transfers
+ * 3. Zero and reconfigure dQH entries 0-3 (EP0 + EP1)
+ * 4. Enable EP1 bulk endpoints
+ * 5. Set usb_online = 1 (already configured by host during Sahara)
  *========================================================================*/
 void usb_init(void)
 {
     unsigned int i;
+    unsigned int pkt;
 
-    usb_online = 0;
-    usb_highspeed = 0;
     usb_seen_events = 0;
 
     /* Ensure USB clocks are on */
     usb_clock_init();
 
-    /* ---- Stop the controller ----
-     * ENDPOINTLISTADDR must only be written while the controller is
-     * halted.  The original firehose programmer does this same
-     * stop → configure → start sequence. */
-    writel(readl(USB_USBCMD) & ~1u, USB_USBCMD);  /* clear RS (Run/Stop) */
-    /* Wait for HCH (halted) with timeout */
-    {
-        int timeout = 100000;
-        while (!(readl(USB_USBSTS) & (1u << 12)) && --timeout > 0);
-    }
+    /* Inherit PBL's dQH table — do NOT write ENDPOINTLISTADDR */
+    dqh_table = (struct ept_queue_head *)readl(USB_ENDPOINTLISTADDR);
 
-    /* Set device mode (matches original firehose) */
-    writel((readl(USB_USBMODE) & ~3u) | 2, USB_USBMODE);
-
-    /* Flush all endpoints */
+    /* Flush all endpoints (cancel pending Sahara transfers) */
     writel(0xFFFFFFFF, USB_ENDPTFLUSH);
     while (readl(USB_ENDPTFLUSH));
 
@@ -457,34 +418,32 @@ void usb_init(void)
     /* Disable interrupts (we poll USBSTS) */
     writel(0, USB_USBINTR);
 
-    /* Build our dQH table — EP0 only.
-     * EP1 bulk gets configured when SET_CONFIGURATION arrives. */
-    for (i = 0; i < sizeof(dqh_table); i++)
+    /* Zero and reconfigure dQH entries 0-3 (EP0 OUT/IN + EP1 OUT/IN) */
+    for (i = 0; i < 4 * sizeof(struct ept_queue_head); i++)
         ((unsigned char *)dqh_table)[i] = 0;
 
+    /* EP0 */
     dqh_table[0].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT | CONFIG_IOS;
     dqh_table[1].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT;
-    cache_flush_inv(dqh_table, sizeof(dqh_table));
 
-    /* Install our dQH table — safe now that controller is halted */
-    writel((unsigned int)dqh_table, USB_ENDPOINTLISTADDR);
-
-    /* Set AHB burst mode (matches original firehose: AHB_MODE = 8) */
-    writel(8, USB_AHB_MODE);
-
-    /* USBMODE: enable Setup Lockout Mode + Stream Disable
-     * (matches original firehose) */
-    writel(readl(USB_USBMODE) | 0x18, USB_USBMODE);
-
-    /* ---- Start the controller ----
-     * D+ pullup is re-asserted, host sees the device. */
-    writel(readl(USB_USBCMD) | 1, USB_USBCMD);
-
-    /* Detect speed */
+    /* EP1 bulk — detect speed from PORTSC */
     {
         unsigned int spd = (readl(USB_PORTSC) >> 26) & 3;
         usb_highspeed = (spd == 2) ? 1 : 0;
     }
+    pkt = usb_highspeed ? 512 : 64;
+    dqh_table[2].config = CONFIG_MAX_PKT(pkt) | CONFIG_ZLT;  /* EP1 OUT */
+    dqh_table[3].config = CONFIG_MAX_PKT(pkt) | CONFIG_ZLT;  /* EP1 IN */
+
+    cache_flush_inv(dqh_table, 4 * sizeof(struct ept_queue_head));
+
+    /* Enable EP1 with bulk type, reset data toggle */
+    writel(CTRL_TXE | CTRL_TXR | CTRL_TXT_BULK |
+           CTRL_RXE | CTRL_RXR | CTRL_RXT_BULK,
+           USB_ENDPTCTRL(1));
+
+    /* Already configured by host during Sahara — we're online */
+    usb_online = 1;
 }
 
 /*========================================================================

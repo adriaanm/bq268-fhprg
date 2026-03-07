@@ -49,18 +49,17 @@ broke USB (see docs/usb_strategy.md).
 6. bimc_clock_init
 7. (icb_config skipped — was causing ddr_init faults)
 8. ddr_init
-9. main() → setup_page_table → usb_init → usb_poll → banner → command loop
+9. main() → setup_page_table → usb_init (inherit PBL session) → banner → command loop
 
 ## USB Diagnostic Mode (main.c)
 
 After entry.S completes, main() enters USB diagnostic mode:
-1. Green ON (solid) = main() reached, USB controller reconfiguring
-2. usb_poll() loop = waiting for SET_CONFIGURATION from host
-3. If no SET_CONFIGURATION after 10s, error LED pattern (see below)
-4. Green OFF + Red ON = online, banner sent
-5. Command loop: red toggles on each command (activity indicator)
+1. Green ON (solid) = main() reached, inheriting PBL's USB session
+2. Green OFF + Red ON = online, banner sent
+3. Command loop: red toggles on each command (activity indicator)
 
-See `docs/minimal_programmer.md` for the full USB communication strategy.
+The programmer inherits PBL's live USB session (no stop/start).
+D+ stays asserted, host handle survives from Sahara upload.
 
 ## Exception Handler (DFSR diagnostic)
 
@@ -87,9 +86,6 @@ Pattern: **P× red blink, 1× green, N× red blink, 1× green, 2s pause, repeat*
 |---------|---------|
 | Fast red blink (200ms, hw timer) | DDR blob not loaded (signature mismatch at 0x00220000) |
 | P×red + green + N×red + green + pause | ARM exception — P=type, N=fault code |
-| 3× red blink + pause | USB: no host activity at all (clocks wrong, controller not running) |
-| 2× red blink + pause | USB: reset seen but no SET_CONFIGURATION (descriptor issue?) |
-| Alternating red/green (500ms each) | USB: host events but no configuration (handle stale) |
 
 ## History of Confusing Patterns (avoid repeating)
 

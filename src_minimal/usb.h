@@ -120,8 +120,8 @@ struct ept_queue_item {
  * Public API
  *========================================================================*/
 
-/* Initialize USB controller, start device mode.
- * Returns when controller is running (D+ pullup asserted). */
+/* Inherit PBL's live USB session (no stop/start).
+ * Sets usb_online = 1 since host already configured device during Sahara. */
 void usb_init(void);
 
 /* Poll USB events and handle enumeration.

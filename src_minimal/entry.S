@@ -30,7 +30,13 @@
     .global _start
     .arm
 _start:
-    /* 0. Immediate LED — red on to prove we're running */
+    /* 0. Red LED on to prove we're running.
+     *
+     * Do NOT halt the USB controller here.  PBL's USB session must stay
+     * alive during our entire boot so the host handle remains valid.
+     * PBL's dQH table is at low OCIMEM (0x0800xxxx), well below our
+     * BSS (0x08046000+), so BSS zero won't corrupt it.
+     * usb_init() inherits PBL's dQH in-place (no stop/start). */
     ldr     r0, =GPIO_CFG_ADDR(LED_RED_GPIO)
     mov     r1, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
     str     r1, [r0]
@@ -47,77 +53,44 @@ _start:
 _thumb_entry:
 
     /*--------------------------------------------------------------
-     * Checkpoint macro: blink green LED once (0.5s on, 0.5s off)
-     * Uses hardware sleep timetick (32768 Hz) for reliable timing.
-     * Uses r4, r5 (caller-saved at this point, no C ABI yet)
+     * Checkpoint macro: brief 50ms green LED pulse.
+     *
+     * Previous version used 0.5s on + 0.5s off = 1s per checkpoint,
+     * totaling 8s for 8 checkpoints.  This killed USB because the
+     * host handle timed out.  Now: 50ms pulse + 50ms gap = 100ms
+     * per checkpoint, <1s total for all 8.
+     *
+     * Uses r4-r7 (caller-saved at this point, no C ABI yet).
+     * Requires MPM2_MPM_SLEEP_TIMETICK (32768 Hz).
      *--------------------------------------------------------------*/
     .macro checkpoint
-    /* Configure green LED as output */
     ldr     r4, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
     mov     r5, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
     str     r5, [r4]
-    /* Green ON */
     ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     movs    r5, #GPIO_OUT_BIT
     str     r5, [r4]
-    /* Delay 0.5s using sleep timetick (16384 ticks = 500ms) */
     ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
-    ldr     r5, [r4]            /* start tick */
+    ldr     r7, =1638           /* 50ms at 32768 Hz */
+    ldr     r5, [r4]
 99: ldr     r6, [r4]
     sub     r6, r6, r5
-    ldr     r7, =16384          /* 32768 Hz * 0.5s */
     cmp     r6, r7
     blo     99b
-    /* Green OFF */
     ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
     movs    r5, #0
     str     r5, [r4]
-    /* Delay 0.5s gap */
     ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
     ldr     r5, [r4]
 98: ldr     r6, [r4]
     sub     r6, r6, r5
-    ldr     r7, =16384
     cmp     r6, r7
     blo     98b
     .endm
 
-    /*--------------------------------------------------------------
-     * checkpoint_cpu: uses HW sleep timetick (same as checkpoint).
-     * Originally used CPU loops, but at 800 MHz (after GPLL0) those
-     * are too fast to see (~10ms).  The 32768 Hz timetick is clock-
-     * independent and confirmed working.  Keeping the name to avoid
-     * churn in the checkpoint comments.
-     *--------------------------------------------------------------*/
+    /* checkpoint_cpu: same as checkpoint (both use HW timetick now) */
     .macro checkpoint_cpu
-    /* Configure green LED as output */
-    ldr     r4, =GPIO_CFG_ADDR(LED_GREEN_GPIO)
-    mov     r5, #(GPIO_OE_ENABLE << GPIO_OE_SHIFT)
-    str     r5, [r4]
-    /* Green ON */
-    ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
-    movs    r5, #GPIO_OUT_BIT
-    str     r5, [r4]
-    /* Delay 0.5s using sleep timetick (16384 ticks = 500ms) */
-    ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
-    ldr     r5, [r4]            /* start tick */
-96: ldr     r6, [r4]
-    sub     r6, r6, r5
-    ldr     r7, =16384          /* 32768 Hz * 0.5s */
-    cmp     r6, r7
-    blo     96b
-    /* Green OFF */
-    ldr     r4, =GPIO_IN_OUT_ADDR(LED_GREEN_GPIO)
-    movs    r5, #0
-    str     r5, [r4]
-    /* Delay 0.5s gap */
-    ldr     r4, =MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL
-    ldr     r5, [r4]
-95: ldr     r6, [r4]
-    sub     r6, r6, r5
-    ldr     r7, =16384
-    cmp     r6, r7
-    blo     95b
+    checkpoint
     .endm
 
     /*--------------------------------------------------------------

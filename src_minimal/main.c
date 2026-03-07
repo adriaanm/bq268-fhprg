@@ -581,80 +581,12 @@ void main(void)
     /* Solid green = main reached, about to init USB */
     led_on(LED_GREEN_GPIO);
 
-    /* Stop → configure → start USB controller.
-     * entry.S already halted the controller (protecting PBL's dQH).
-     * We reconfigure with our own dQH and restart.
-     * The host keeps the same handle (same VID/PID 05C6:9008). */
+    /* Inherit PBL's live USB session — no stop/start.
+     * usb_init() sets online since host already configured the device
+     * during Sahara. usb_poll() handles any pending events. */
     usb_init();
-
-    /* Poll IMMEDIATELY — the host will enumerate us now.
-     * Any delay (like blink_led) risks missing setup packets
-     * because the dQH only holds one setup packet at a time.
-     *
-     * Timeout detection: if no SET_CONFIGURATION after ~10s, blink
-     * an error pattern to indicate what went wrong. */
-    {
-        volatile unsigned int *tick =
-            (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-        unsigned int start = *tick;
-        int signaled = 0;
-
-        while (!usb_poll()) {
-            unsigned int elapsed = *tick - start;
-
-            if (!signaled && elapsed > 10 * 32768) {
-                /* >10s with no SET_CONFIGURATION — signal error via LEDs.
-                 * Check what USBSTS events we've seen to narrow down cause. */
-                unsigned int sts = usb_get_status();
-
-                if (sts == 0) {
-                    /* No host activity at all — controller not running,
-                     * clocks wrong, or host completely lost the device.
-                     * Pattern: 3× red blink + pause */
-                    int i;
-                    for (i = 0; i < 3; i++) {
-                        led_on(LED_RED_GPIO);
-                        while ((*tick - start) < elapsed + (i*2+1) * 8192);
-                        led_off(LED_RED_GPIO);
-                        while ((*tick - start) < elapsed + (i*2+2) * 8192);
-                    }
-                } else if ((sts & STS_URI) && !(sts & STS_UI)) {
-                    /* USB reset seen but no setup/transfer activity —
-                     * host re-enumerating but not completing configuration.
-                     * Pattern: 2× red blink + pause */
-                    int i;
-                    for (i = 0; i < 2; i++) {
-                        led_on(LED_RED_GPIO);
-                        while ((*tick - start) < elapsed + (i*2+1) * 8192);
-                        led_off(LED_RED_GPIO);
-                        while ((*tick - start) < elapsed + (i*2+2) * 8192);
-                    }
-                } else {
-                    /* Host sending events but no SET_CONFIGURATION —
-                     * handle may be stale, or enumeration stuck.
-                     * Pattern: alternating red/green, 500ms each */
-                    int i;
-                    for (i = 0; i < 4; i++) {
-                        if (i & 1) {
-                            led_off(LED_RED_GPIO);
-                            led_on(LED_GREEN_GPIO);
-                        } else {
-                            led_off(LED_GREEN_GPIO);
-                            led_on(LED_RED_GPIO);
-                        }
-                        while ((*tick - start) < elapsed + (i+1) * 16384);
-                    }
-                    led_off(LED_RED_GPIO);
-                }
-
-                /* Reset LEDs back to solid green and keep trying */
-                led_on(LED_GREEN_GPIO);
-                signaled = 1;
-                start = *tick;  /* reset timer for next signal cycle */
-                signaled = 0;  /* allow re-signaling after another 10s */
-            }
-        }
-    }
+    if (!usb_poll())
+        while (!usb_poll());
 
     /* Online — green off, red on */
     led_off(LED_GREEN_GPIO);

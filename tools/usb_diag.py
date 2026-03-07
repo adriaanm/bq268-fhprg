@@ -340,11 +340,6 @@ def main():
                         help="Upload programmer ELF via Sahara then connect")
     parser.add_argument("--sahara-timeout", type=int, default=10,
                         help="Sahara device discovery timeout (seconds)")
-    parser.add_argument("--wait", type=float, default=3.0,
-                        help="Seconds to wait after Sahara upload for programmer boot (default: 3)")
-    parser.add_argument("--reconnect", action="store_true",
-                        help="Release Sahara handle and re-find device after upload "
-                             "(use if host always re-enumerates after stop→start)")
     parser.add_argument("--install-udev", action="store_true",
                         help=f"Install udev rules to {UDEV_RULES_PATH} (needs sudo)")
     args = parser.parse_args()
@@ -361,24 +356,8 @@ def main():
         except RuntimeError as e:
             print(f"Sahara upload failed: {e}", file=sys.stderr)
             sys.exit(1)
-        print(f"Programmer running — waiting {args.wait}s for boot...")
-        time.sleep(args.wait)
-
-        if args.reconnect:
-            # Release old handle, find the device again
-            print("Reconnect mode: releasing Sahara handle...")
-            try:
-                usb.util.release_interface(dev, 0)
-                usb.util.dispose_resources(dev)
-            except Exception:
-                pass
-            dev = find_device(timeout=args.timeout, vid=vid, pid=pid)
-            if dev is None:
-                print("Device not found after reconnect.", file=sys.stderr)
-                sys.exit(1)
-            dev = setup_device(dev)
-        else:
-            print("Keeping Sahara handle (same VID/PID).")
+        print("Programmer running — waiting 3s for boot...")
+        time.sleep(3)
 
     if dev is None:
         dev = find_device(timeout=args.timeout, vid=vid, pid=pid)
