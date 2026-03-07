@@ -1,5 +1,19 @@
 # Minimal Firehose Programmer
 
+## Guiding Principle
+
+**Replicate the original firehose programmer.** The original `fhprg_peek.bin` is a
+known-working reference that boots, initializes hardware, and communicates over USB on
+this exact SoC. Every subsystem in the minimal programmer (USB, clocks, DDR, eMMC)
+must be implemented by studying the decompiled original (`src/fhprg/`) and replicating
+its register sequences, init order, and protocol handling for the subset of functionality
+we need.
+
+Do not invent alternative approaches (e.g., "skip the PHY config", "inherit PBL state
+instead of reinitializing") without explicit user consent. Deviating from the original's
+proven behavior is the primary source of hard-to-debug hardware failures on this platform.
+When something doesn't work, the first question is always: "what does the original do?"
+
 ## Goal & Current Status
 
 A self-contained programmer for **MSM8909** (BQ268 UdoSmart) loaded via **EDL/Sahara** mode.
@@ -11,7 +25,7 @@ check in the eMMC write path (EXT_CSD byte 160). This minimal programmer removes
 check, allowing writes to WP-protected partitions.
 
 **Current status**: DDR init confirmed working. USB diagnostic mode implemented. USB
-communication under active debugging (VID/PID fix applied, error diagnostics added).
+init now replicates original fhprg sequence (BCR reset + ULPI PHY config).
 
 All source lives in `src_minimal/`. Build with `make minimal-elf`.
 

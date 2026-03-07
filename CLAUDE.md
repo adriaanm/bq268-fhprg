@@ -10,6 +10,12 @@ Byte-for-byte reproduction of the original binary is **not a goal**. The origina
 
 The `aboot.bin` (Qualcomm LK bootloader) tooling in `tools/preprocess.py` and `src/aboot.ld` is from earlier work on the same infrastructure.
 
+## Minimal Programmer: Replicate the Original
+
+The minimal programmer (`src_minimal/`) must be developed by **studying and replicating the original firehose programmer** (`src/fhprg/` decompiled source). The original is the only known-working reference for this SoC. Every hardware subsystem (USB, clocks, DDR, eMMC) should match the original's register sequences and init order for the subset of functionality we use.
+
+**Do not invent alternative approaches** (skipping init steps, inheriting PBL state instead of reinitializing, etc.) without explicit user approval. When something doesn't work, always check what the original does first.
+
 ## Workflow
 
 - **Commit regularly** — after each logical change (rename batch, tool fix, build fix, etc.), stage and commit. Don't let changes accumulate across multiple tasks.
