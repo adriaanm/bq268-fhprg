@@ -424,6 +424,7 @@ static void cmd_info(void)
         p = put_str(resp, p, "\r\n");
     }
 
+    p = put_str(resp, p, "> ");
     usb_write(resp, p);
 }
 
@@ -443,7 +444,7 @@ static void cmd_read(const char *args)
     p = put_hex32(resp, p, addr);
     p = put_str(resp, p, ": ");
     p = put_hex32(resp, p, val);
-    p = put_str(resp, p, "\r\n");
+    p = put_str(resp, p, "\r\n> ");
 
     usb_write(resp, p);
 }
@@ -467,7 +468,7 @@ static void cmd_write(const char *args)
     p = put_hex32(resp, p, addr);
     p = put_str(resp, p, " = ");
     p = put_hex32(resp, p, val);
-    p = put_str(resp, p, "\r\n");
+    p = put_str(resp, p, "\r\n> ");
 
     usb_write(resp, p);
 }
@@ -504,7 +505,7 @@ static void cmd_dump(const char *args)
             p = 0;
         }
     }
-    p = put_str(resp, p, "\r\n");
+    p = put_str(resp, p, "\r\n> ");
     usb_write(resp, p);
 }
 
@@ -553,6 +554,7 @@ static void cmd_ddr_test(void)
     p = put_str(resp, p, "  [3] = "); p = put_hex32(resp, p, ddr[3]);
     p = put_str(resp, p, (ddr[3] == 0x00000000) ? " OK\r\n" : " FAIL\r\n");
 
+    p = put_str(resp, p, "> ");
     usb_write(resp, p);
 }
 
@@ -598,7 +600,7 @@ void main(void)
             cmd_buf[--n] = '\0';
 
         if (n == 0) {
-            usb_write("> ", 2);
+            usb_write("> ", 2);  /* no prior TX, just RX→TX — safe */
             continue;
         }
 
@@ -623,15 +625,12 @@ void main(void)
             break;
         default:
             p = 0;
-            p = put_str(resp, p, "? unknown cmd\r\n");
+            p = put_str(resp, p, "? unknown cmd\r\n> ");
             usb_write(resp, p);
             break;
         }
 
         led_off(LED_RED_GPIO);
-
-        /* Prompt */
-        usb_write("> ", 2);
     }
 }
 
