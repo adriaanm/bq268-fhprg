@@ -266,15 +266,20 @@ def setup_device(dev, set_config=True):
     return dev
 
 
-def read_response(dev, timeout=2000):
-    """Read all available data from the device."""
+def read_response(dev, timeout=2000, follow_timeout=500):
+    """Read all available data from the device.
+
+    After the first chunk arrives, keep reading with a shorter timeout
+    (follow_timeout) to catch multi-write responses from the device.
+    """
     data = b""
+    cur_timeout = timeout
     while True:
         try:
-            chunk = dev.read(EP_IN, 4096, timeout=timeout)
+            chunk = dev.read(EP_IN, 4096, timeout=cur_timeout)
             data += bytes(chunk)
-            if len(chunk) < 512:
-                break
+            # After first data, use shorter timeout for follow-up chunks
+            cur_timeout = follow_timeout
         except usb.core.USBTimeoutError:
             break
         except usb.core.USBError as e:
