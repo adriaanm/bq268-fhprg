@@ -437,10 +437,11 @@ void usb_init(void)
 
     cache_flush_inv(dqh_table, 4 * sizeof(struct ept_queue_head));
 
-    /* Enable EP1 with bulk type, reset data toggle */
-    writel(CTRL_TXE | CTRL_TXR | CTRL_TXT_BULK |
-           CTRL_RXE | CTRL_RXR | CTRL_RXT_BULK,
-           USB_ENDPTCTRL(1));
+    /* Leave EP1 ENDPTCTRL alone — PBL already configured it as bulk
+     * during Sahara. The flush cancelled pending transfers but preserved
+     * the endpoint configuration and data toggle state. Touching
+     * ENDPTCTRL would reset the data toggle, causing mismatch with
+     * the host side (which we can't reset from the device). */
 
     /* Already configured by host during Sahara — we're online */
     usb_online = 1;
