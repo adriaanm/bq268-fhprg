@@ -586,105 +586,146 @@ void main(void)
     led_off(LED_RED_GPIO);
     led_off(LED_GREEN_GPIO);
 
-    /* Solid green = main reached, about to init USB */
-    led_on(LED_GREEN_GPIO);
-
-    /* USB init: BCR reset + ULPI PHY config + fresh dQH + RS=1.
-     * Replicates the original firehose programmer's init sequence.
-     * BCR resets digital core only (PHY keeps D+ asserted), so the
-     * host handle survives. After RS=1, host re-enumerates us. */
-    usb_init();
-
-    /* usb_poll() with timeout — if enumeration doesn't happen in 10s,
-     * blink diagnostic info via LEDs so we can debug on hardware. */
+    /* Inherit test v3: use PBL's dQH in-place (no ENDPOINTLISTADDR swap).
+     * Link our dTD into PBL's dQH[3] (EP1 IN) directly.
+     * dTD and data buffer in DDR — USB DMA can't access OCIMEM.
+     *
+     * CONFIRMED WORKING (2026-03-07): host receives banner string.
+     *
+     * LED diagnostics:
+     *   ×2 blink: did ENDPTPRIME clear? (green=yes, red=stuck)
+     *   ×3 blink: is EP1 IN in ENDPTSTAT? (green=yes, red=no)
+     *   ×4 blink: any USB events in 5s? (green=yes, red=silence)
+     */
     {
-        volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
-        unsigned int start = *tick;
-        unsigned int timeout_ticks = (10u * 32768u);  /* 10 seconds */
-        int online = 0;
+        /* dTD and banner MUST be in DDR — USB DMA can't access OCIMEM */
+        static struct ept_queue_item dtd __attribute__((aligned(32), section(".ddr_bss")));
+        static char ddr_banner[64] __attribute__((aligned(32), section(".ddr_bss")));
+        static const char banner[] = "=== MSM8909 Inherit Test ===\r\n";
 
-        while (!online) {
-            online = usb_poll();
-            if (online) break;
+        volatile unsigned int *eplist_reg = (volatile unsigned int *)USB_ENDPOINTLISTADDR;
+        volatile unsigned int *flush_reg  = (volatile unsigned int *)USB_ENDPTFLUSH;
+        volatile unsigned int *prime_reg  = (volatile unsigned int *)USB_ENDPTPRIME;
+        volatile unsigned int *sts_reg    = (volatile unsigned int *)USB_USBSTS;
+        volatile unsigned int *comp_reg   = (volatile unsigned int *)USB_ENDPTCOMPLETE;
+        volatile unsigned int *tick       = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
 
-            if ((*tick - start) >= timeout_ticks) {
-                /* Timeout — blink diagnostic pattern forever:
-                 * init_progress (green blinks) + pause +
-                 * ulpi_timeouts (red blinks) + pause +
-                 * events (alternating red/green per bit) + long pause
-                 *
-                 * init_progress: 0x07 = all 3 stages complete
-                 * ulpi_timeouts: 0 = good, >0 = ULPI writes hung
-                 * events: STS_URI(0x40) STS_PCI(0x04) STS_UI(0x01) */
-                unsigned int prog = usb_get_init_progress();
-                unsigned int ulpi = usb_get_ulpi_timeouts();
-                unsigned int evts = usb_get_status();
-                unsigned int j;
+        unsigned int pbl_eplist = *eplist_reg;
+        struct ept_queue_head *dqh_ep1in = (struct ept_queue_head *)(pbl_eplist + 3 * 64);
+        unsigned int start, len, buf_addr;
+        int gpio, i;
 
-                for (;;) {
-                    /* Phase 1: blink green for init_progress count + 1
-                     * (0=1blink=stuck at clocks, 7=3blinks=all done) */
-                    led_off(LED_RED_GPIO);
-                    led_off(LED_GREEN_GPIO);
-                    for (j = 0; j < 8; j++) {
-                        if (prog & (1u << j)) {
-                            led_on(LED_GREEN_GPIO);
-                            delay_ms(300);
-                            led_off(LED_GREEN_GPIO);
-                            delay_ms(300);
-                        }
-                    }
-                    delay_ms(1000);
+        /* 1. Disable USB interrupts (PBL may have them on) */
+        {
+            volatile unsigned int *intr_reg = (volatile unsigned int *)USB_USBINTR;
+            *intr_reg = 0;
+        }
 
-                    /* Phase 2: blink red for ULPI timeout count */
-                    if (ulpi > 0) {
-                        for (j = 0; j < ulpi && j < 5; j++) {
-                            led_on(LED_RED_GPIO);
-                            delay_ms(300);
-                            led_off(LED_RED_GPIO);
-                            delay_ms(300);
-                        }
-                    } else {
-                        /* No ULPI timeouts — single green flash */
-                        led_on(LED_GREEN_GPIO);
-                        delay_ms(100);
-                        led_off(LED_GREEN_GPIO);
-                    }
-                    delay_ms(1000);
+        /* 2. Flush all endpoints (clear PBL's pending transfers) */
+        *flush_reg = 0xFFFFFFFF;
+        while (*flush_reg);
 
-                    /* Phase 3: events — red for each bit set */
-                    for (j = 0; j < 8; j++) {
-                        if (evts & (1u << j)) {
-                            led_on(LED_RED_GPIO);
-                            delay_ms(200);
-                            led_off(LED_RED_GPIO);
-                            delay_ms(200);
-                        }
-                    }
-                    delay_ms(2000);
+        /* 3. Clear pending status */
+        *sts_reg = *sts_reg;
+        *comp_reg = *comp_reg;
 
-                    /* Re-check events in case something arrived late */
-                    evts = usb_get_status();
+        /* 4. Copy banner to DDR (USB DMA can't read OCIMEM) */
+        len = sizeof(banner) - 1;
+        for (i = 0; (unsigned)i < len; i++)
+            ddr_banner[i] = banner[i];
+        buf_addr = (unsigned int)ddr_banner;
+
+        dtd.next  = TERMINATE;
+        dtd.info  = INFO_BYTES(len) | INFO_IOC | INFO_ACTIVE;
+        dtd.page0 = buf_addr;
+        dtd.page1 = (buf_addr & 0xFFFFF000u) + 0x1000;
+        dtd.page2 = (buf_addr & 0xFFFFF000u) + 0x2000;
+        dtd.page3 = (buf_addr & 0xFFFFF000u) + 0x3000;
+        dtd.page4 = (buf_addr & 0xFFFFF000u) + 0x4000;
+
+        /* Flush dTD + DDR banner from cache */
+        for (i = (int)&dtd & ~31; i < (int)&dtd + 32; i += 32)
+            __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(i));
+        for (i = (int)ddr_banner & ~31; i < (int)ddr_banner + (int)len; i += 32)
+            __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(i));
+        __asm__ volatile("dsb" ::: "memory");
+
+        /* 5. Link dTD to PBL's dQH[3] (EP1 IN) — modify in-place */
+        dqh_ep1in->next = (unsigned int)&dtd;
+        dqh_ep1in->info = 0;
+        for (i = (int)dqh_ep1in & ~31; i < (int)dqh_ep1in + 64; i += 32)
+            __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(i));
+        __asm__ volatile("dsb" ::: "memory");
+
+        /* 6. Prime EP1 IN */
+        *prime_reg = EPT_TX(1);
+
+        /* Test 1 (×2 blink): did ENDPTPRIME clear? */
+        {
+            unsigned int prime_start = *tick;
+            int prime_ok = 0;
+            while ((*tick - prime_start) < (1u * 32768u)) {
+                if (!(*prime_reg & EPT_TX(1))) {
+                    prime_ok = 1;
+                    break;
                 }
             }
+            gpio = prime_ok ? LED_GREEN_GPIO : LED_RED_GPIO;
+            for (i = 0; i < 2; i++) {
+                led_on(gpio);
+                delay_ms(600);
+                led_off(gpio);
+                delay_ms(600);
+            }
         }
+
+        delay_ms(1000);
+
+        /* Test 2 (×3 blink): is EP1 IN in ENDPTSTAT? */
+        {
+            volatile unsigned int *stat_reg = (volatile unsigned int *)USB_ENDPTSTAT;
+            int gpio2 = (*stat_reg & EPT_TX(1)) ? LED_GREEN_GPIO : LED_RED_GPIO;
+            for (i = 0; i < 3; i++) {
+                led_on(gpio2);
+                delay_ms(600);
+                led_off(gpio2);
+                delay_ms(600);
+            }
+        }
+
+        delay_ms(1000);
+
+        /* Test 3 (×4 blink): any USB events in 5s? */
+        {
+            unsigned int seen = 0;
+            int gpio3;
+            start = *tick;
+            while ((*tick - start) < (5u * 32768u)) {
+                seen |= *sts_reg;
+            }
+            gpio3 = (seen & (STS_UI | STS_UEI | STS_URI | STS_PCI))
+                    ? LED_GREEN_GPIO : LED_RED_GPIO;
+            for (i = 0; i < 4; i++) {
+                led_on(gpio3);
+                delay_ms(600);
+                led_off(gpio3);
+                delay_ms(600);
+            }
+            led_on(gpio3);
+        }
+        for (;;) __asm__ volatile("wfi");
     }
 
-    /* Online — green off, red on */
-    led_off(LED_GREEN_GPIO);
-    led_on(LED_RED_GPIO);
+    /* --- Below is unreachable while probe is active --- */
 
-    /* Send banner — the host's read_response() will pick this up */
+    /* Send banner */
     usb_write(banner, sizeof(banner) - 1);
 
     /* Command loop */
     for (;;) {
         n = usb_read(cmd_buf, sizeof(cmd_buf) - 1);
-        if (n <= 0) {
-            /* USB reset — wait for re-enumeration */
-            while (!usb_poll());
+        if (n <= 0)
             continue;
-        }
 
         cmd_buf[n] = '\0';
 
