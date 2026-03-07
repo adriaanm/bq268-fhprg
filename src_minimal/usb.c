@@ -3,11 +3,10 @@
  * Implements USB device enumeration + bulk IN/OUT transfers using polling.
  * All buffers in OCIMEM — no DDR required.
  *
- * Based on LK's hsusb.c (platform/msm_shared/).
+ * Based on decompiled original firehose programmer FUN_0801aba0 + FUN_0803016c.
  *
  * Hardware: ChipIdea USB 2.0 HS controller at 0x078D9000.
- * PBL already initialized clocks and PHY for Sahara protocol.
- * We inherit PBL's live USB session — no stop/start (D+ stays asserted).
+ * Does BCR reset with proper clock disable/enable sequence matching original.
  */
 
 #include "usb.h"
@@ -355,10 +354,11 @@ static void handle_setup(void)
 #define GCC_USB_HS_AHB_CBCR        0x01841008
 #define GCC_USB_HS_SYSTEM_CMD_RCGR 0x01841010
 #define GCC_USB_HS_SYSTEM_CFG_RCGR 0x01841014
+#define GCC_USB_HS_CBCR_0x30       0x01841030  /* third USB CBCR — original enables/disables alongside SYSTEM+AHB */
 #define GCC_USB2A_PHY_SLEEP_CBCR   0x01841034
 #define GCC_USB_HS_PHY_CFG_AHB_CBCR 0x0184103C
 
-static void usb_clock_init(void)
+static void usb_clock_enable(void)
 {
     /* Configure RCG: source = GPLL0 (src_sel=1), divider = 10
      * CFG_RCGR: bits [8:8] = src_sel=1, bits [4:0] = 2*div-1 = 19 */
@@ -368,14 +368,26 @@ static void usb_clock_init(void)
     writel(1, GCC_USB_HS_SYSTEM_CMD_RCGR);
     while (readl(GCC_USB_HS_SYSTEM_CMD_RCGR) & 1);  /* wait for update */
 
-    /* Enable branch clocks (bit 0 = enable) */
+    /* Enable all 3 branch clocks + poll CLK_OFF (bit 31) until clear.
+     * Original FUN_0800abf4 enables SYSTEM, AHB, and 0x30 CBCRs via
+     * FUN_0800b140(addr, 1) which sets bit 0 then polls bit 31. */
     writel(readl(GCC_USB_HS_SYSTEM_CBCR) | 1, GCC_USB_HS_SYSTEM_CBCR);
-    writel(readl(GCC_USB_HS_AHB_CBCR) | 1, GCC_USB_HS_AHB_CBCR);
-
-    /* Wait for clocks to stabilize (bit 31 = CLK_OFF, should clear) */
     while (readl(GCC_USB_HS_SYSTEM_CBCR) & (1u << 31));
+
+    writel(readl(GCC_USB_HS_AHB_CBCR) | 1, GCC_USB_HS_AHB_CBCR);
     while (readl(GCC_USB_HS_AHB_CBCR) & (1u << 31));
 
+    writel(readl(GCC_USB_HS_CBCR_0x30) | 1, GCC_USB_HS_CBCR_0x30);
+    while (readl(GCC_USB_HS_CBCR_0x30) & (1u << 31));
+}
+
+/* Disable all 3 USB branch clocks before BCR reset.
+ * Original FUN_0800a80c clears bit 0 of each CBCR (no CLK_OFF poll). */
+static void usb_clock_disable(void)
+{
+    writel(readl(GCC_USB_HS_SYSTEM_CBCR) & ~1u, GCC_USB_HS_SYSTEM_CBCR);
+    writel(readl(GCC_USB_HS_AHB_CBCR) & ~1u, GCC_USB_HS_AHB_CBCR);
+    writel(readl(GCC_USB_HS_CBCR_0x30) & ~1u, GCC_USB_HS_CBCR_0x30);
 }
 
 /*========================================================================
@@ -407,14 +419,16 @@ static void ulpi_write(unsigned char reg, unsigned char val)
  * Exact sequence from decompiled FUN_0801aba0 + FUN_0803016c:
  *
  * FUN_0801aba0 (PHY + clock reset):
- *   1. Assert GCC_USB_HS_BCR
- *   2. Enable PHY_CFG_AHB_CBCR, wait 10ms, disable it
- *   3. Wait 75ms, deassert BCR, wait 10ms
- *   4. PORTSC = 0x80000000 (select ULPI transceiver — CRITICAL)
- *   5. Enable PHY_SLEEP_CBCR
- *   6. ULPI viewport writes (PHY config)
- *   7. Wait 10ms, disable PHY_SLEEP_CBCR, wait 75ms
- *   8. ULPI reg 0x96=0x03, set bits in SBUSCFG/USBCMD
+ *   1. Disable SYSTEM/AHB/0x30 clocks (FUN_0800a80c)
+ *   2. Assert GCC_USB_HS_BCR
+ *   3. Enable PHY_CFG_AHB_CBCR, wait 10ms, disable it
+ *   4. Wait 75ms, deassert BCR, wait 10ms
+ *   5. Enable SYSTEM/AHB/0x30 clocks with CLK_OFF poll (FUN_0800abf4)
+ *   6. PORTSC = 0x80000000 (select ULPI transceiver — CRITICAL)
+ *   7. Enable PHY_SLEEP_CBCR
+ *   8. ULPI viewport writes (PHY config)
+ *   9. Wait 10ms, disable PHY_SLEEP_CBCR, wait 75ms
+ *  10. ULPI reg 0x96=0x03, set bits in SBUSCFG/USBCMD
  *
  * FUN_0803016c (controller config):
  *   9. USBMODE = device mode
@@ -430,45 +444,44 @@ void usb_init(void)
     usb_highspeed = 0;
     usb_seen_events = 0;
 
-    /* Ensure USB core clocks are on */
-    usb_clock_init();
-
     /* ---- FUN_0801aba0: BCR reset + PHY init ---- */
+    /* Original sequence: disable clocks → BCR assert → PHY AHB → BCR deassert → enable clocks.
+     * Asserting BCR with clocks running puts the controller in a bad state. */
 
-    /* 1. Assert BCR + enable PHY AHB clock during reset */
+    /* 1. Disable USB clocks BEFORE asserting BCR (FUN_0800a80c) */
+    usb_clock_disable();
+
+    /* 2. Assert BCR + enable PHY AHB clock during reset */
     writel(1, GCC_USB_HS_BCR);
     writel(1, GCC_USB_HS_PHY_CFG_AHB_CBCR);
     delay_ms(10);
 
-    /* 2. Disable PHY AHB clock, wait for PHY to settle */
+    /* 3. Disable PHY AHB clock, wait for PHY to settle */
     writel(0, GCC_USB_HS_PHY_CFG_AHB_CBCR);
     delay_ms(75);
 
-    /* 3. Deassert BCR — controller comes up halted (RS=0) */
+    /* 4. Deassert BCR — controller comes up halted (RS=0) */
     writel(0, GCC_USB_HS_BCR);
     delay_ms(10);
 
-    /* Re-enable core clocks after BCR (reset may gate them) */
-    writel(readl(GCC_USB_HS_SYSTEM_CBCR) | 1, GCC_USB_HS_SYSTEM_CBCR);
-    writel(readl(GCC_USB_HS_AHB_CBCR) | 1, GCC_USB_HS_AHB_CBCR);
-    while (readl(GCC_USB_HS_SYSTEM_CBCR) & (1u << 31));
-    while (readl(GCC_USB_HS_AHB_CBCR) & (1u << 31));
+    /* 5. Re-enable USB clocks with CLK_OFF polling (FUN_0800abf4) */
+    usb_clock_enable();
 
-    /* 4. PORTSC = 0x80000000 — select ULPI transceiver (PTS=10).
+    /* 6. PORTSC = 0x80000000 — select ULPI transceiver (PTS=10).
      * WITHOUT this, the controller defaults to UTMI+ mode after BCR
      * and ULPI viewport writes are ignored. */
     writel(0x80000000, USB_PORTSC);
 
-    /* 5. Enable PHY sleep clock for ULPI access */
+    /* 7. Enable PHY sleep clock for ULPI access */
     writel(1, GCC_USB2A_PHY_SLEEP_CBCR);
 
-    /* 6. ULPI PHY configuration */
+    /* 8. ULPI PHY configuration */
     ulpi_write(0x80, 0x33);
     ulpi_write(0x81, 0x33);
     ulpi_write(0x82, 0x07);
     ulpi_write(0x83, 0x13);
 
-    /* 7. Disable PHY sleep clock, wait for settle */
+    /* 9. Disable PHY sleep clock, wait for settle */
     delay_ms(10);
     writel(0, GCC_USB2A_PHY_SLEEP_CBCR);
     delay_ms(75);
@@ -487,8 +500,9 @@ void usb_init(void)
     for (i = 0; i < sizeof(dqh_table); i++)
         ((unsigned char *)dqh_table)[i] = 0;
 
-    dqh_table[0].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT | CONFIG_IOS;
-    dqh_table[1].config = CONFIG_MAX_PKT(64) | CONFIG_ZLT;
+    /* Original uses 0x408000 (IOS) and 0x400000 — no ZLT bit */
+    dqh_table[0].config = CONFIG_MAX_PKT(64) | CONFIG_IOS;  /* EP0 OUT */
+    dqh_table[1].config = CONFIG_MAX_PKT(64);                /* EP0 IN */
     cache_flush_inv(dqh_table, sizeof(dqh_table));
 
     /* Install dQH — controller is halted after BCR, safe to write */
