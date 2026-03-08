@@ -351,37 +351,92 @@ typedef uint  mmc_handle_t;  /* word-indexed partition handle (use as mmc_handle
 typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10]) */
 
 /* mmc_dev_t field indices (word offsets unless noted).
- * Device struct is 0x94 bytes, embedded in slot context at +0x0C. */
-#define DEV_SLOT               0     /* SDCC slot number (0 or 1) */
-#define DEV_CUR_PARTITION      1     /* cached current partition index */
-#define DEV_CARD_TYPE          2     /* card type (byte: 0=none 1=SD 2=MMC 5=SDHC 6=eMMC) */
-#define DEV_LAST_ERROR         4     /* last error code from sdcc_write_data */
-#define DEV_SECTOR_SIZE        9     /* sector size in bytes (typically 0x200) */
-#define DEV_RELIABLE_WR_CNT  0x0D    /* reliable write sector count */
-#define DEV_CUSTOM_SECTOR    0x16    /* non-zero if device uses custom sector size */
-#define DEV_HOTPLUG_DESC      0x24    /* pointer to hotplug descriptor ([0]=slot, +0xA4=ADMA flag) */
+ * Device struct is 0x94 bytes, embedded in slot context at +0x0C.
+ *
+ * Layout (word index → byte offset → content):
+ *   [0]    +0x00  slot            SDCC slot number (0=eMMC, 1=SD)
+ *   [1]    +0x04  cur_partition   cached current partition index (0-7)
+ *   [2]    +0x08  card_type(byte) +0x09=init_phase(byte) +0x0A=rca(short)
+ *   [4]    +0x10  last_error      last error code from sdcc_write_data
+ *   [7]    +0x1C  user_sectors    total user-area sector count
+ *   [8]    +0x20  card_id         card identifier
+ *   [9]    +0x24  sector_size     sector size in bytes (typically 0x200)
+ *   [0xB]  +0x2C  block_count     total block count
+ *   [0xD]  +0x34  reliable_wr_cnt reliable write sector count
+ *   [0x10] +0x40  speed_mode      speed mode (low 16 bits)
+ *   [0x16] +0x58  custom_sector   non-zero = use dev[9] for byte count
+ *   [0x18] +0x60  phys_part_count (byte) number of physical partitions
+ *   [0x21] +0x84  clock_khz       current clock frequency in kHz
+ *   [0x24] +0x90  hotplug_desc    pointer to hotplug/ADMA context struct
+ * Byte-offset fields (not word-aligned):
+ *   +0x09  init_phase     0=unready, 2=active (set by mmc_set_speed)
+ *   +0x0A  rca            Relative Card Address (uint16_t)
+ *   +0x5D  bus_width_sup  EXT_CSD bus-width capability (<4=SDR, >=4=DDR)
+ *   +0x5F  speed_grade    2=HS26(26MHz), 3=HS52(52MHz), 4=DDR
+ *   +0x61  part_switch    non-zero = device supports partition switching
+ *   +0x78  partition_cfg  cached PARTITION_CONFIG (EXT_CSD[179])
+ *   +0x7C  partition_mask bitmask of existing partitions (uint32_t)
+ */
+#define DEV_SLOT               0      /* +0x00: SDCC slot number (0 or 1) */
+#define DEV_CUR_PARTITION      1      /* +0x04: cached current partition index */
+#define DEV_CARD_TYPE          2      /* +0x08: card type byte (0=none 1=SD 2=MMC 5=SDHC 6=eMMC) */
+#define DEV_LAST_ERROR         4      /* +0x10: last error code from sdcc_write_data */
+#define DEV_USER_SECTORS       7      /* +0x1C: total user-area sectors (CSD/EXT_CSD) */
+#define DEV_CARD_ID            8      /* +0x20: card identifier */
+#define DEV_SECTOR_SIZE        9      /* +0x24: sector size in bytes (typically 0x200) */
+#define DEV_BLOCK_COUNT        0x0B   /* +0x2C: total block count */
+#define DEV_RELIABLE_WR_CNT    0x0D   /* +0x34: reliable write sector count */
+#define DEV_SPEED_MODE         0x10   /* +0x40: speed mode (low 16 bits used as short) */
+#define DEV_CUSTOM_SECTOR      0x16   /* +0x58: non-zero = use dev[9] for byte count */
+#define DEV_CLOCK_KHZ          0x21   /* +0x84: current clock frequency in kHz */
+#define DEV_HOTPLUG_DESC       0x24   /* +0x90: ptr to hotplug/ADMA context struct */
 
-/* mmc_dev_t field indices (byte offsets — accessed via *(char*)(dev + N)) */
-#define DEV_BYTE_PARTITION_CONFIG  0x78  /* PARTITION_CONFIG (EXT_CSD[179]) */
-#define DEV_BYTE_PARTITION_MASK    0x7C  /* bitmask of available partitions (word) */
+/* mmc_dev_t byte offsets (accessed via *(char*)(dev + offset) or *(uint*)(dev + offset)) */
+#define DEV_BYTE_CARD_TYPE     0x08   /* byte: card type (same as low byte of dev[2]) */
+#define DEV_BYTE_INIT_PHASE    0x09   /* byte: init phase (0=unready, 2=active) */
+#define DEV_HALF_RCA           0x0A   /* uint16_t: Relative Card Address */
+#define DEV_BYTE_BUS_WIDTH     0x5D   /* byte: bus-width support from EXT_CSD */
+#define DEV_BYTE_SPEED_GRADE   0x5F   /* byte: speed grade (2=HS26, 3=HS52, 4=DDR) */
+#define DEV_BYTE_PART_SWITCH   0x61   /* byte: partition switch support flag */
+#define DEV_BYTE_PART_CONFIG   0x78   /* byte: cached PARTITION_CONFIG (EXT_CSD[179]) */
+#define DEV_WORD_PART_MASK     0x7C   /* uint32_t: bitmask of existing partitions */
 
 /* mmc_handle_t field indices (word offsets).
- * Handle is a 3-word struct allocated from partition table. */
+ * Handle is a 3-word (12-byte) struct from partition table at DAT_08059efc.
+ *   [0] = pointer to mmc_dev_t
+ *   [1] = partition index (0-7, -1=user)
+ *   [2] = open flags */
 #define HANDLE_DEV_PTR         0     /* pointer to mmc_dev_t (device struct) */
 #define HANDLE_PARTITION_IDX   1     /* partition index (0-7, -1=user) */
+#define HANDLE_FLAGS           2     /* open flags */
 
 /* mmc_cmd_t field indices (word offsets).
- * Command struct is 10 words (40 bytes). */
-#define CMD_NUM                0     /* command number (CMD0=0, CMD17=0x11, CMD24=0x18...) */
-#define CMD_ARG                1     /* command argument */
-#define CMD_RESP_TYPE          2     /* response type byte (0=none, 1=R1, 4=R2) */
-#define CMD_RESP_DATA          3     /* response data (4 words: [3]-[6]) */
-#define CMD_BUSY_WAIT          7     /* 1=wait for busy signal to clear */
-#define CMD_STATUS             8     /* status code (filled on return) */
-#define CMD_FLAGS              9     /* flags: bit0=write, bit1=data xfer, bit2=ADMA */
+ * Command struct is 10 words (40 bytes):
+ *   [0] cmd_num     MMC command number (CMD0=0, CMD17=0x11, CMD24=0x18...)
+ *   [1] cmd_arg     command argument (sector addr, RCA<<16, CMD6 arg...)
+ *   [2] resp_type   response type byte (0=none, 1=R1/R1B, 4=R2)
+ *   [3..6] resp     response data (R1: [3]=status, R2: [3..6]=128-bit)
+ *   [7] busy_wait   1=wait for DAT0 busy signal to clear
+ *   [8] status      MCI_STATUS on return (filled by sdcc_setup_data_xfer)
+ *   [9] flags       bit0=write/stop, bit1=data xfer, bit2=ADMA */
+#define CMD_NUM                0
+#define CMD_ARG                1
+#define CMD_RESP_TYPE          2
+#define CMD_RESP_DATA          3     /* 4 words: [3]-[6] */
+#define CMD_BUSY_WAIT          7
+#define CMD_STATUS             8
+#define CMD_FLAGS              9
 
 /* Slot context layout (0xBC bytes per slot).
- * Contains header fields + embedded device struct at +0x0C. */
+ * Contains header fields + embedded device struct at +0x0C.
+ *   +0x00  slot_num         slot number
+ *   +0x04  hw_enabled(byte) 1 when SDCC hardware is enabled
+ *   +0x0C  dev[...]         embedded mmc_dev_t (0x94 bytes)
+ *   +0x15  init_state(byte) = dev.init_phase: 0=uninit, 1=identified, 2=ready
+ *   +0x94  adma_mode        ADMA mode from sdcc_get_adma_mode (0x20)
+ *   +0x98  init_flag(byte)  flag set during mmc_init_card
+ *   +0x9C  self_ptr         self-reference pointer back to slot_context base
+ *   +0xB4  caps[2]          SDHCI capabilities (CAPS_REG1, CAPS_REG2) */
 #define SLOT_CTX_INIT_STATE    0x15  /* byte offset: init state (1=identified) */
 #define SLOT_CTX_SELF_PTR      0x27  /* word index: self-reference pointer */
 
