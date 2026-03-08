@@ -98,15 +98,16 @@ void sdcc_event_notify(int flags, int addr, uint size)
   return;
 }
 
-/* orig: 0x08032d8c sdcc_post_write_cleanup — send CMD12 (STOP) if needed, wait ready */
+/* orig: 0x08032d8c sdcc_post_write_cleanup — send CMD12 (STOP) if needed, wait ready.
+ *
+ * After a multi-block transfer, sends CMD12 (STOP_TRANSMISSION) to
+ * terminate the transfer. For reliable writes, also waits for the
+ * card to return to transfer state via CMD13.
+ */
 undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
 {
   undefined4 uVar1;
-  undefined4 local_30;
-  undefined4 local_2c;
-  undefined1 local_28;
-  uint local_14;
-  undefined4 local_c;
+  int cmd[10]; /* command struct for CMD12 */
 
   uVar1 = 0;
   if (need_stop == 0) {
@@ -115,12 +116,11 @@ undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
     }
   }
   else {
-    local_30 = 0xc;
-    local_28 = 1;
-    local_14 = (uint)(need_busy == 1);
-    local_2c = 0;
-    local_c = 0;
-    uVar1 = sdcc_send_cmd(dev,&local_30);
+    memset_zero(cmd, sizeof(cmd));
+    cmd[0] = 0xc;                                 /* CMD12: STOP_TRANSMISSION */
+    *(undefined1 *)&cmd[2] = 1;                   /* resp_type: R1 */
+    cmd[7] = (need_busy == 1) ? 1 : 0;            /* busy_wait */
+    uVar1 = sdcc_send_cmd(dev, cmd);
   }
   return uVar1;
 }
@@ -267,63 +267,47 @@ undefined4 sdcc_wait_complete(int slot, uint mask, uint *out_status)
   return uVar2;
 }
 
-/* orig: 0x08034a40 mmc_switch_cmd6 — send CMD6 (SWITCH) then CMD13 to verify */
+/* orig: 0x08034a40 mmc_switch_cmd6 — send CMD6 (SWITCH) then CMD13 to verify.
+ *
+ * CMD6 (SWITCH) modifies the EXT_CSD register. After switching, CMD13
+ * (SEND_STATUS) verifies the card is back in transfer state (state 4)
+ * and checks the SWITCH_ERROR bit (bit 7 of status).
+ *
+ * cmd6_arg encodes: [25:24]=access, [23:16]=index, [15:8]=value, [7:0]=cmd_set
+ * For partition switch: access=3 (write), index=179 (PARTITION_CONFIG)
+ */
 int mmc_switch_cmd6(int *dev, undefined4 cmd6_arg)
 {
-  int iVar1;
-  undefined4 local_60;
-  int local_5c;
-  undefined1 local_58;
-  int local_54;
-  undefined4 local_44;
-  undefined4 local_3c;
-  undefined4 local_38;
-  undefined4 uStack_34;
-  undefined1 local_30;
-  undefined4 local_1c;
-  undefined4 local_14;
+  int ret;
+  int cmd[10]; /* command struct (reused for CMD6 then CMD13) */
 
-  local_38 = 6;
-  local_30 = 1;
-  local_1c = 1;
-  local_14 = 0;
-  uStack_34 = cmd6_arg;
-  iVar1 = sdcc_send_cmd(dev,&local_38);
-  if (iVar1 == 0) {
-    local_60 = 0xd;
-    local_58 = 1;
-    local_44 = 0;
-    local_5c = (uint)*(ushort *)((int)dev + 10) << 0x10;
-    local_3c = 0;
-    iVar1 = sdcc_send_cmd(dev,&local_60);
-    if (iVar1 == 0) {
-      if ((uint)(local_54 << 0x13) >> 0x1c == 4) {
-        iVar1 = 0;
-        if (local_54 << 0x18 < 0) {
-          iVar1 = 0x13;
+  /* CMD6: SWITCH */
+  memset_zero(cmd, sizeof(cmd));
+  cmd[0] = 6;                                     /* CMD6: SWITCH */
+  cmd[1] = (int)cmd6_arg;                         /* switch argument */
+  *(undefined1 *)&cmd[2] = 1;                     /* resp_type: R1 */
+  cmd[7] = 1;                                     /* busy_wait */
+  ret = sdcc_send_cmd(dev, cmd);
+  if (ret == 0) {
+    /* CMD13: SEND_STATUS — verify switch completed */
+    memset_zero(cmd, sizeof(cmd));
+    cmd[0] = 0xd;                                 /* CMD13: SEND_STATUS */
+    cmd[1] = (uint)*(ushort *)((int)dev + 10) << 0x10; /* RCA */
+    *(undefined1 *)&cmd[2] = 1;                   /* resp_type: R1 */
+    ret = sdcc_send_cmd(dev, cmd);
+    if (ret == 0) {
+      if ((uint)(cmd[3] << 0x13) >> 0x1c == 4) {  /* state == transfer? */
+        ret = 0;
+        if (cmd[3] << 0x18 < 0) {                 /* SWITCH_ERROR bit? */
+          ret = 0x13;
         }
       }
       else {
-        iVar1 = 8;
+        ret = 8; /* not in transfer state */
       }
     }
   }
-  return iVar1;
-}
-
-/* Lightweight trace for hang diagnosis */
-static char _htbuf[64];
-static void _htrace(const char *tag, unsigned int val)
-{
-  int p = 0;
-  const char *s;
-  for (s = tag; *s; s++) _htbuf[p++] = *s;
-  { int i; for (i = 28; i >= 0; i -= 4) {
-    int nib = (val >> i) & 0xF;
-    _htbuf[p++] = (nib < 10) ? ('0' + nib) : ('A' - 10 + nib);
-  }}
-  _htbuf[p++] = '\r'; _htbuf[p++] = '\n';
-  usb_write(_htbuf, p);
+  return ret;
 }
 
 /* orig: 0x08034b88 sdcc_setup_data_xfer — poll status after firing command, check for errors */
@@ -339,8 +323,6 @@ undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
   uVar5 = 1;
   uVar1 = 0;
   uVar3 = 0;
-  _htrace("DX:slot=", iVar4);
-  _htrace("DX:stat=", sdcc_read_status(iVar4));
   do {
     if (0x7ffff < uVar3) goto LAB_08034c08;
     uVar1 = sdcc_read_status(iVar4);
@@ -451,93 +433,110 @@ LAB_08034c9e:
   return uVar5;
 }
 
-/* orig: 0x08034eaa sdcc_adma_write — send CMD55 (APP_CMD) then the actual data command */
+/* orig: 0x08034eaa sdcc_adma_write — send CMD55 (APP_CMD) then the actual data command.
+ *
+ * Sends CMD55 (APP_CMD) with RCA, then the actual data command.
+ * CMD55 signals that the next command is an application-specific command.
+ *
+ * Command struct layout: [0]=cmd_num, [1]=arg, [2]=resp_type (byte),
+ *   [3-6]=resp_data, [7]=busy_wait, [8]=status, [9]=flags
+ */
 undefined4 sdcc_adma_write(int *dev, undefined4 *cmd)
 {
-  undefined4 local_38;
-  int local_34;
-  undefined1 local_30;
-  undefined4 local_1c;
-  undefined4 local_14;
+  int app_cmd[10];
 
-  local_38 = 0x37;
-  local_34 = (uint)*(ushort *)((int)dev + 10) << 0x10;
-  local_30 = 1;
-  local_1c = 0;
-  local_14 = 0;
-  sdcc_send_cmd(dev,&local_38);
-  sdcc_send_cmd(dev,cmd);
+  memset_zero(app_cmd, sizeof(app_cmd));
+  app_cmd[0] = 0x37;                             /* CMD55: APP_CMD */
+  app_cmd[1] = (uint)*(ushort *)((int)dev + 10) << 0x10; /* RCA */
+  *(undefined1 *)&app_cmd[2] = 1;                /* resp_type: R1 */
+  sdcc_send_cmd(dev, app_cmd);
+  sdcc_send_cmd(dev, (int *)cmd);
   return 0;
 }
 
 /* orig: 0x08034edc sdcc_pre_cmd_hook — clear pending status, configure command register */
+/* sdcc_pre_cmd_hook — clear pending SDCC status, then build and fire
+ * the hardware command register via sdcc_cleanup().
+ *
+ * The cmd_config struct passed to sdcc_cleanup is 10 shorts (20 bytes):
+ *   [0] = data_present_enable (1 for CMD17/18/24/25/53)
+ *   [1] = busy_signal_enable (from cmd[7])
+ *   [2] = has_response (1 if resp_type != 0)
+ *   [3] = (unused)
+ *   [4] = index_check (1 for R2 response)
+ *   [5] = crc_check (1 if resp_type != 0)
+ *   [6] = command_index (CMD number)
+ *   [7] = (unused)
+ *   [8..9] = command_argument (32-bit, overlaid as int at byte offset 16)
+ *
+ * IMPORTANT: These must be contiguous in memory — sdcc_cleanup reads
+ * them by array index. Using separate locals would let the compiler
+ * reorder them, breaking the layout.
+ */
 void sdcc_pre_cmd_hook(int *dev, int *cmd)
 {
   uint uVar1;
-  int iVar2;
+  int cmd_num;
   uint uVar3;
-  int iVar4;
-  undefined2 local_30;
-  undefined2 local_2e;
-  undefined2 local_2c;
-  undefined2 local_28;
-  undefined2 local_26;
-  undefined2 local_24;
-  int local_20;
+  int slot;
+  /* cmd_config: 10 shorts = 20 bytes, contiguous for sdcc_cleanup */
+  short cmd_config[10];
 
-  iVar4 = *dev;
+  slot = *dev;
   uVar3 = 0;
-  memset_zero(&local_30,0x14);
+  memset_zero(cmd_config, 0x14);
   do {
-    *(undefined4 *)((&DAT_0804e2c8)[iVar4] + 0x38) = 0x18007ff;
+    *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x38) = 0x18007ff;
     uVar3 = uVar3 + 1;
-    uVar1 = sdcc_read_status(iVar4);
-    if ((uVar1 & 0x18007ff) == 0) goto LAB_08034f26;
+    uVar1 = sdcc_read_status(slot);
+    if ((uVar1 & 0x18007ff) == 0) goto status_clear;
   } while (uVar3 < 1000);
-  *(uint *)((&DAT_0804e2c8)[iVar4] + 0x2c) = *(uint *)((&DAT_0804e2c8)[iVar4] + 0x2c) & 0xfffffffe;
-  sdcc_enable_clock(iVar4);
-LAB_08034f26:
-  local_24 = (undefined2)*cmd;
-  local_2c = 1;
-  if (((char)cmd[2] != '\0') && (local_26 = 1, (char)cmd[2] == '\x04')) {
-    local_28 = 1;
+  *(uint *)((&DAT_0804e2c8)[slot] + 0x2c) = *(uint *)((&DAT_0804e2c8)[slot] + 0x2c) & 0xfffffffe;
+  sdcc_enable_clock(slot);
+status_clear:
+  cmd_config[6] = (short)*cmd;          /* command index */
+  cmd_config[2] = 1;                     /* has_response */
+  if ((char)cmd[2] != '\0') {
+    cmd_config[5] = 1;                   /* crc_check */
+    if ((char)cmd[2] == '\x04') {
+      cmd_config[4] = 1;                 /* index_check (R2) */
+    }
   }
   if (cmd[7] != 0) {
-    local_2e = 1;
+    cmd_config[1] = 1;                   /* busy_signal_enable */
   }
-  iVar2 = *cmd;
-  if ((((iVar2 == 0x35) || (iVar2 == 0x11)) || (iVar2 == 0x12)) ||
-     ((iVar2 == 0x18 || (iVar2 == 0x19)))) {
-    local_30 = 1;
+  cmd_num = *cmd;
+  if (cmd_num == 0x35 || cmd_num == 0x11 || cmd_num == 0x12 ||
+      cmd_num == 0x18 || cmd_num == 0x19) {
+    cmd_config[0] = 1;                   /* data_present_enable */
   }
-  local_20 = cmd[1];
-  sdcc_cleanup(iVar4,&local_30);
-  return;
+  *(int *)(cmd_config + 8) = cmd[1];    /* command argument (32-bit at offset 16) */
+  sdcc_cleanup(slot, cmd_config);
 }
 
-/* orig: 0x08034f80 sdcc_get_card_status — send CMD13 and return card state nibble */
+/* orig: 0x08034f80 sdcc_get_card_status — send CMD13 and return R1 state nibble.
+ *
+ * Sends CMD13 (SEND_STATUS) with RCA and extracts the card state
+ * from bits [12:9] of the R1 response (CURRENT_STATE field).
+ * Returns: 0=idle, 3=standby, 4=transfer, 5=data, 6=receive, 7=program
+ * Returns 9 on failure.
+ */
 uint sdcc_get_card_status(int *dev)
 {
-  int iVar1;
-  uint uVar2;
-  undefined4 local_30;
-  int local_2c;
-  undefined1 local_28;
-  int local_24;
-  undefined4 local_14;
-  undefined4 local_c;
+  int ret;
+  uint state;
+  int cmd[10]; /* command struct: [0]=num [1]=arg [2]=resp [3-6]=resp_data ... */
 
-  uVar2 = 9;
-  local_30 = 0xd;
-  local_28 = 1;
-  local_14 = 0;
-  local_c = 0;
-  local_2c = (uint)*(ushort *)((int)dev + 10) << 0x10;
-  iVar1 = sdcc_send_cmd(dev,&local_30);
-  if (iVar1 == 0) {
-    uVar2 = (uint)(local_24 << 0x13) >> 0x1c;
+  state = 9;
+  memset_zero(cmd, sizeof(cmd));
+  cmd[0] = 0xd;                                   /* CMD13: SEND_STATUS */
+  cmd[1] = (uint)*(ushort *)((int)dev + 10) << 0x10; /* RCA in bits [31:16] */
+  *(undefined1 *)&cmd[2] = 1;                     /* resp_type: R1 */
+  ret = sdcc_send_cmd(dev, cmd);
+  if (ret == 0) {
+    state = (uint)(cmd[3] << 0x13) >> 0x1c;       /* bits [12:9] = CURRENT_STATE */
   }
-  return uVar2;
+  return state;
 }
 
 /* orig: 0x080350be sdcc_wait_card_ready — poll CMD13 status until card is in transfer state */
