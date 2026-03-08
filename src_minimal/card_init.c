@@ -328,26 +328,20 @@ static undefined4 sdcc_set_bus_speed_mode(int slot, undefined4 speed)
 static uint csd_get_rca(int dev)
 {
   uint uVar1;
-  undefined4 local_30;
-  undefined4 local_2c;
-  undefined1 local_28;
-  uint local_24;
-  undefined4 local_14;
-  undefined4 local_c;
+  int cmd[10];
 
-  local_30 = 3;
-  local_28 = 1;
-  local_14 = 0;
-  local_c = 0;
+  memset_zero(cmd, sizeof(cmd));
+  cmd[0] = 3;                                      /* CMD3: SEND_RELATIVE_ADDR */
+  *(undefined1 *)&cmd[2] = 1;                      /* resp_type: R1 */
   if ((*(char *)(dev + 8) == '\x02') || (*(char *)(dev + 8) == '\x06')) {
     uVar1 = 2;
-    local_2c = 0x20000;
-    sdcc_send_cmd((int *)dev,&local_30);
+    cmd[1] = 0x20000;                              /* MMC: assigned RCA */
+    sdcc_send_cmd((int *)dev, cmd);
   }
   else {
-    local_2c = 0;
-    sdcc_send_cmd((int *)dev,&local_30);
-    uVar1 = local_24 >> 0x10;
+    cmd[1] = 0;
+    sdcc_send_cmd((int *)dev, cmd);
+    uVar1 = (uint)cmd[3] >> 0x10;                  /* SD: RCA from response */
   }
   return uVar1;
 }
@@ -439,23 +433,13 @@ static undefined4 mmc_parse_ext_csd(byte *data, short *out)
 static undefined4 cmd7_select_card(int dev, int select)
 {
   undefined4 uVar1;
-  undefined4 local_30;
-  int local_2c;
-  undefined1 local_28;
-  undefined4 local_14;
-  undefined4 local_c;
+  int cmd[10];
 
-  if (select == 0) {
-    local_2c = 0;
-  }
-  else {
-    local_2c = (uint)*(ushort *)(dev + 10) << 0x10;
-  }
-  local_30 = 7;
-  local_28 = 1;
-  local_14 = 0;
-  local_c = 0;
-  uVar1 = sdcc_send_cmd((int *)dev,&local_30);
+  memset_zero(cmd, sizeof(cmd));
+  cmd[0] = 7;                                      /* CMD7: SELECT/DESELECT */
+  cmd[1] = (select != 0) ? ((uint)*(ushort *)(dev + 10) << 0x10) : 0;
+  *(undefined1 *)&cmd[2] = 1;                      /* resp_type: R1 */
+  uVar1 = sdcc_send_cmd((int *)dev, cmd);
   if (select == 0) {
     uVar1 = 0;
   }
@@ -467,22 +451,16 @@ static int mmc_send_cid(int dev)
 {
   int iVar1;
   int iVar2;
-  undefined4 local_38;
-  int local_34;
-  undefined1 local_30;
-  undefined1 auStack_2c[16];
-  undefined4 local_1c;
-  undefined4 local_14;
+  int cmd[10];
 
-  local_38 = 10;
-  local_34 = (uint)*(ushort *)(dev + 10) << 0x10;
-  local_30 = 4;
-  local_1c = 0;
-  local_14 = 0;
-  iVar1 = sdcc_send_cmd((int *)dev,&local_38);
+  memset_zero(cmd, sizeof(cmd));
+  cmd[0] = 10;                                     /* CMD10: SEND_CID */
+  cmd[1] = (uint)*(ushort *)(dev + 10) << 0x10;    /* RCA */
+  *(undefined1 *)&cmd[2] = 4;                      /* resp_type: R2 */
+  iVar1 = sdcc_send_cmd((int *)dev, cmd);
   /* eMMC only: always MMC type '\x02' or '\x06' */
   if ((iVar1 == 0) &&
-     (iVar2 = csd_parse_mmc((int *)auStack_2c,dev), iVar2 == 0)) {
+     (iVar2 = csd_parse_mmc(cmd + 3, dev), iVar2 == 0)) {
     iVar1 = 0x14;
   }
   return iVar1;
@@ -529,21 +507,14 @@ int mmc_config_bus(int dev)
   undefined2 uVar1;
   int iVar2;
   int iVar3;
-  undefined4 local_38;
-  undefined4 local_34;
-  undefined1 local_30;
-  undefined1 auStack_2c[16];
-  undefined4 local_1c;
-  undefined4 local_14;
+  int cmd[10];
 
-  local_38 = 2;
-  local_30 = 4;
-  local_34 = 0;
-  local_1c = 0;
-  local_14 = 0;
-  iVar2 = sdcc_send_cmd((int *)dev,&local_38);
+  memset_zero(cmd, sizeof(cmd));
+  cmd[0] = 2;                                      /* CMD2: ALL_SEND_CID */
+  *(undefined1 *)&cmd[2] = 4;                      /* resp_type: R2 */
+  iVar2 = sdcc_send_cmd((int *)dev, cmd);
   if (iVar2 == 0) {
-    iVar3 = csd_parse_mmc((int *)auStack_2c,dev);
+    iVar3 = csd_parse_mmc(cmd + 3, dev);
     if (iVar3 == 0) {
       iVar2 = 0x14;
     }
@@ -558,41 +529,32 @@ int mmc_config_bus(int dev)
 /* orig: 0x08033b30 mmc_identify_card — send CMD9, extract CSD capacity fields */
 int mmc_identify_card(int dev)
 {
-  char cVar1;
   int iVar2;
   int iVar3;
   undefined1 uVar4;
-  char local_68[4];
-  char local_64;
-  sbyte local_60;
-  int local_58;
-  undefined1 local_50;
-  undefined4 local_40;
-  int local_3c;
-  undefined1 local_38;
-  undefined1 auStack_34[16];
-  undefined4 local_24;
-  undefined4 local_1c;
+  /* CSD parsed output struct — 0x28 bytes, contiguous for memset_zero.
+   * Layout: [0x04]=speed_class, [0x08]=c_size_mult, [0x10]=c_size, [0x18]=read_bl_len */
+  char csd_parsed[0x28];
+  int cmd[10];  /* command struct for CMD9 */
 
   iVar2 = sdcc_get_card_status((int *)dev);
   iVar3 = 9;
   if (iVar2 == 3) {
-    local_40 = 9;
-    local_38 = 4;
-    uVar4 = 0;
-    local_24 = 0;
-    local_1c = 0;
-    local_3c = (uint)*(ushort *)(dev + 10) << 0x10;
-    iVar3 = sdcc_send_cmd((int *)dev,&local_40);
+    memset_zero(cmd, sizeof(cmd));
+    cmd[0] = 9;                                    /* CMD9: SEND_CSD */
+    cmd[1] = (uint)*(ushort *)(dev + 10) << 0x10;  /* RCA */
+    *(undefined1 *)&cmd[2] = 4;                    /* resp_type: R2 */
+    iVar3 = sdcc_send_cmd((int *)dev, cmd);
     if (iVar3 == 0) {
-      memset_zero(local_68,0x28);
-      mmc_parse_csd_fields(dev,auStack_34,local_68);
+      memset_zero(csd_parsed, 0x28);
+      mmc_parse_csd_fields(dev, (undefined1 *)(cmd + 3), csd_parsed);
       /* eMMC only: card type is always '\x02' (MMC) or '\x06' (eMMC) */
       uVar4 = 3;
       if (*(char *)(dev + 8) != '\x06') {
-        mmc_calc_capacity(dev,local_60,local_50,local_58);
+        mmc_calc_capacity(dev, (sbyte)csd_parsed[0x08],
+                          (undefined1)csd_parsed[0x18], *(int *)(csd_parsed + 0x10));
       }
-      if (local_64 != '2') {
+      if (csd_parsed[0x04] != '2') {
         *(undefined1 *)(dev + 0x5f) = 2;
         return 0;
       }
@@ -675,11 +637,7 @@ int mmc_set_speed(int *dev)
   char cVar1;
   int iVar2;
   int iVar3;
-  undefined4 local_50;
-  undefined4 uStack_4c;
-  undefined1 local_48;
-  undefined4 local_34;
-  undefined4 local_2c;
+  int cmd[10];
 
   iVar3 = *dev;
   iVar2 = cmd7_select_card((int)dev,1);
@@ -688,12 +646,11 @@ int mmc_set_speed(int *dev)
   }
   *(undefined1 *)((int)dev + 9) = 2;
   dev[0x16] = 1;
-  local_48 = 1;
-  local_34 = 0;
-  local_50 = 0x10;
-  uStack_4c = 0x200;
-  local_2c = 0;
-  iVar2 = sdcc_send_cmd(dev,&local_50);
+  memset_zero(cmd, sizeof(cmd));
+  cmd[0] = 0x10;       /* CMD16 SET_BLOCKLEN */
+  cmd[1] = 0x200;      /* arg: 512 bytes */
+  cmd[2] = 1;          /* resp_type: R1 */
+  iVar2 = sdcc_send_cmd(dev,(undefined4 *)cmd);
   if (iVar2 == 0) {
     dev[9] = 0x200;
     *(uint *)((&DAT_0804e2c8)[*dev] + 0x2c) =
@@ -777,17 +734,9 @@ char mmc_classify_error(int *handle)
 {
   int iVar1;
   uint uVar2;
-  undefined4 uVar3;
+  uint uVar3;
   int iVar4;
-  undefined4 local_50;
-  undefined4 local_4c;
-  uint local_48;
-  int local_44;
-  undefined1 local_40;
-  uint local_3c;
-  undefined4 local_34;
-  undefined4 local_2c;
-  undefined4 local_24;
+  int cmd[10];
 
   uVar2 = *(uint *)*handle;
   if (2 < uVar2) {
@@ -814,59 +763,51 @@ char mmc_classify_error(int *handle)
   mmc_set_bus_width((undefined4 *)*handle,0,0,0);
   uVar2 = sdcc_get_slot_status(uVar2);
   if ((uVar2 & 1) != 0) {
-    /* MMC detection path */
+    /* MMC detection path: CMD0 (GO_IDLE) then CMD1 (SEND_OP_COND) loop */
     iVar4 = *handle;
-    local_40 = 0;
-    local_48 = 0;
-    local_44 = 0;
-    local_2c = 0;
-    local_24 = 0;
-    sdcc_send_cmd((int *)iVar4,&local_48);
+    memset_zero(cmd, sizeof(cmd));
+    /* CMD0: no response */
+    sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
     uVar2 = 0;
     while( true ) {
-      local_40 = 1;
-      local_2c = 0;
-      local_48 = 1;
-      local_44 = 0x40ff8000;
-      local_24 = 0;
-      iVar1 = sdcc_send_cmd((int *)iVar4,&local_48);
+      memset_zero(cmd, sizeof(cmd));
+      cmd[0] = 1;            /* CMD1 SEND_OP_COND */
+      cmd[1] = 0x40ff8000;   /* arg: sector mode + voltage window */
+      cmd[2] = 1;            /* resp_type: R3 (uses R1 code) */
+      iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
       if (iVar1 != 0) {
         return 0;
       }
-      if ((int)local_3c < 0) break;
+      if ((int)cmd[3] < 0) break;  /* busy bit set = ready */
       thunk_FUN_080199b4(50000);
       uVar2 = uVar2 + 1;
       if (0x13 < uVar2) {
         return 0;
       }
     }
-    if (((local_3c >> 0x1e & 1) != 0) && ((local_3c >> 0x1d & 1) == 0)) {
-      return 6;
+    if ((((uint)cmd[3] >> 0x1e & 1) != 0) && (((uint)cmd[3] >> 0x1d & 1) == 0)) {
+      return 6;   /* sector-mode MMC */
     }
-    return 2;
+    return 2;      /* byte-mode MMC */
   }
-  /* SD detection path */
+  /* SD detection path: CMD0, CMD8, then CMD55+ACMD41 loop */
   iVar4 = *handle;
   uVar3 = 0xff8000;
-  local_48 = local_48 & 0xffffff00;
-  local_50 = 0;
-  local_4c = 0;
-  local_34 = 0;
-  local_2c = 0;
-  sdcc_send_cmd((int *)iVar4,&local_50);
+  memset_zero(cmd, sizeof(cmd));
+  /* CMD0: no response */
+  sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
   uVar2 = 0;
   do {
-    local_48 = CONCAT31(_GHIDRA_FIELD(local_48, 1, uint24_t),1);
-    local_50 = 8;
-    local_4c = 0x1aa;
-    local_34 = 0;
-    local_2c = 0;
-    iVar1 = sdcc_send_cmd((int *)iVar4,&local_50);
+    memset_zero(cmd, sizeof(cmd));
+    cmd[0] = 8;       /* CMD8 SEND_IF_COND */
+    cmd[1] = 0x1aa;   /* arg: voltage + check pattern */
+    cmd[2] = 1;       /* resp_type: R7 (uses R1 code) */
+    iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
     if (iVar1 == 0) {
-      if (local_44 != 0x1aa) {
+      if (cmd[3] != 0x1aa) {   /* check pattern mismatch */
         return 0;
       }
-      uVar3 = 0x40ff8000;
+      uVar3 = 0x40ff8000;   /* SD 2.0: request HCS */
       break;
     }
     thunk_FUN_080199b4(1000);
@@ -874,29 +815,28 @@ char mmc_classify_error(int *handle)
   } while (uVar2 < 3);
   uVar2 = 0;
   do {
-    _GHIDRA_FIELD(local_48, 0, byte) = 1;
-    local_50 = 0x37;
-    local_4c = 0;
-    local_34 = 0;
-    local_2c = 0;
-    iVar1 = sdcc_send_cmd((int *)iVar4,&local_50);
+    /* CMD55 APP_CMD (prefix for ACMD) */
+    memset_zero(cmd, sizeof(cmd));
+    cmd[0] = 0x37;    /* CMD55 */
+    cmd[2] = 1;       /* resp_type: R1 */
+    iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
     if (iVar1 != 0) {
       return 0;
     }
-    local_48 = CONCAT31(_GHIDRA_FIELD(local_48, 1, uint24_t),1);
-    local_50 = 0x29;
-    local_34 = 0;
-    local_2c = 0;
-    local_4c = uVar3;
-    iVar1 = sdcc_send_cmd((int *)iVar4,&local_50);
+    /* ACMD41 SD_SEND_OP_COND */
+    memset_zero(cmd, sizeof(cmd));
+    cmd[0] = 0x29;    /* ACMD41 */
+    cmd[1] = uVar3;   /* arg: HCS + voltage window */
+    cmd[2] = 1;       /* resp_type: R3 (uses R1 code) */
+    iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
     if (iVar1 != 0) {
       return 0;
     }
-    if (local_44 < 0) {
-      if (local_44 << 1 < 0) {
-        return 5;
+    if (cmd[3] < 0) {   /* busy bit set = ready */
+      if (cmd[3] << 1 < 0) {
+        return 5;   /* SDHC */
       }
-      return 1;
+      return 1;     /* SD */
     }
     thunk_FUN_080199b4(50000);
     uVar2 = uVar2 + 1;
