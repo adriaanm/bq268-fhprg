@@ -699,7 +699,7 @@ static void cmd_emmc_status(void)
     }
 
     {
-        unsigned int status = sdcc_get_card_status((mmc_dev_t *)(uintptr_t)emmc_handle[0]);
+        unsigned int status = sdcc_get_card_status((mmc_dev_t *)(uintptr_t)emmc_handle->dev_ptr);
         /* Card state nibble: 0=idle, 1=ready, 2=ident, 3=stby, 4=tran, 5=data, 6=rcv, 7=prg */
         static const char *state_names[] = {
             "idle", "ready", "ident", "stby",
@@ -755,14 +755,14 @@ static void cmd_sector_read(const char *args)
     p = put_str(resp, p, "handle=");
     p = put_hex32(resp, p, (unsigned int)emmc_handle);
     p = put_str(resp, p, " h[0]=");
-    p = put_hex32(resp, p, emmc_handle[0]);
+    p = put_hex32(resp, p, emmc_handle->dev_ptr);
     p = put_str(resp, p, " h[1]=");
-    p = put_hex32(resp, p, emmc_handle[1]);
+    p = put_hex32(resp, p, emmc_handle->partition_idx);
     p = put_str(resp, p, "\r\n");
     usb_write(resp, p); p = 0;
 
     {
-        mmc_dev_t *dev = (mmc_dev_t *)(uintptr_t)emmc_handle[0];
+        mmc_dev_t *dev = (mmc_dev_t *)(uintptr_t)emmc_handle->dev_ptr;
         p = put_str(resp, p, "dev=");
         p = put_hex32(resp, p, (unsigned int)dev);
         p = put_str(resp, p, " slot=");
@@ -778,9 +778,9 @@ static void cmd_sector_read(const char *args)
         p = put_str(resp, p, "ensure: dev[1]=");
         p = put_hex32(resp, p, dev[1]);
         p = put_str(resp, p, " h[1]=");
-        p = put_hex32(resp, p, emmc_handle[1]);
+        p = put_hex32(resp, p, emmc_handle->partition_idx);
         p = put_str(resp, p, " match=");
-        p = put_dec(resp, p, (dev[1] == (int)emmc_handle[1]) ? 1 : 0);
+        p = put_dec(resp, p, (dev[1] == (int)emmc_handle->partition_idx) ? 1 : 0);
         p = put_str(resp, p, "\r\n");
         usb_write(resp, p); p = 0;
 

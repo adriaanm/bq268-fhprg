@@ -46,8 +46,8 @@ uint sdcc_dma_base[2] = { 0, 0 };
 uint sdcc_hc_base[2] = { 0, 0 };
 uint sdcc_hc_base_alt[2] = { 0, 0 };
 
-/* Partition table: 32 entries × 3 words */
-uint partition_table[96] = { 0 };
+/* Partition table: 32 entries, each is an mmc_handle_t (3 words = 12 bytes) */
+mmc_handle_t partition_table[32] = { {0} };
 
 /*========================================================================
  * Slot context — always needed (both embedded and firehose modes).

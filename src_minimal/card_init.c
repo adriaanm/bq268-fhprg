@@ -84,12 +84,10 @@ static void gcc_clock_divider_set(uint freq, uint source)
   sdcc_set_clock_rate((uint)freq);
 }
 
-/* Partition table: 32 entries × 3 words each.
- * In the original binary at 0x08059efc; in our build, allocated in globals.c.
- * Ghidra decompiled the loop bound as the hardcoded address 0x0805a071 —
- * we replace that with partition_table_end (= &partition_table + 96). */
-extern uint partition_table[96];   /* partition table: 32 entries × 3 words */
-#define partition_table_end  ((int *)(partition_table + 96))
+/* Partition table: 32 entries, each an mmc_handle_t (12 bytes).
+ * In the original binary at 0x08059efc; in our build, allocated in globals.c. */
+extern mmc_handle_t partition_table[32];
+#define partition_table_end  (&partition_table[32])
 extern int sdcc_free_slots;        /* free partition slot counter (init: 0x20) */
 
 /* MMIO timer for qtimer_init */
@@ -231,12 +229,12 @@ static void sdcc_qtimer_init(void)
 }
 
 /* orig: 0x08032b7c — release a partition slot entry */
-static void sdcc_release_partition(int *entry)
+static void sdcc_release_partition(mmc_handle_t *entry)
 {
   /* Clear the partition table entry and increment free counter */
-  *entry = 0;
-  entry[1] = 0;
-  entry[2] = 0;
+  entry->dev_ptr = 0;
+  entry->partition_idx = 0;
+  entry->flags = 0;
   sdcc_free_slots = sdcc_free_slots + 1;
   return;
 }
@@ -637,22 +635,23 @@ void mmc_finalize_init(int dev)
  *   The function zeroes *handle_ptr on release. */
 void mmc_release_slot(mmc_handle_t **handle_ptr)
 {
-  int *piVar1;
+  mmc_handle_t *h;
+  mmc_handle_t *pt;
   int iVar2;
 
-  piVar1 = (int *)*handle_ptr;
-  if (piVar1 != (int *)0x0) {
-    if ((char)((int *)*piVar1)[2] == '\0') {
-      iVar2 = *(int *)*piVar1;
-      for (piVar1 = (int *)&partition_table; piVar1 < partition_table_end; piVar1 = piVar1 + 3) {
-        if (((int *)*piVar1 != (int *)0x0) && (*(int *)*piVar1 == iVar2)) {
-          sdcc_release_partition(piVar1);
+  h = *handle_ptr;
+  if (h != (mmc_handle_t *)0x0) {
+    if ((char)((int *)h->dev_ptr)[2] == '\0') {
+      iVar2 = *(int *)h->dev_ptr;
+      for (pt = partition_table; pt < partition_table_end; pt++) {
+        if ((pt->dev_ptr != 0) && (*(int *)pt->dev_ptr == iVar2)) {
+          sdcc_release_partition(pt);
         }
         if (sdcc_free_slots == 0x20) break;
       }
     }
     else {
-      sdcc_release_partition(piVar1);
+      sdcc_release_partition(h);
     }
     *handle_ptr = 0;
   }
@@ -669,13 +668,13 @@ char mmc_classify_error(mmc_handle_t *handle)
   int iVar4;
   mmc_cmd_t cmd;
 
-  uVar2 = *(uint *)*handle;
+  uVar2 = *(uint *)handle->dev_ptr;
   if (2 < uVar2) {
     return 0;
   }
   MCI_REG(uVar2, MCI_POWER) = MCI_REG(uVar2, MCI_POWER) | 1;
   sdcc_enable_clock(uVar2);
-  if (*(char *)(*handle + 0x8c) == '\0') {
+  if (*(char *)(handle->dev_ptr + 0x8c) == '\0') {
     MCI_REG(uVar2, MCI_CLK) = MCI_REG(uVar2, MCI_CLK) | 0x100;
     sdcc_enable_clock(uVar2);
     sdcc_set_flow_control(uVar2,0);
@@ -691,11 +690,11 @@ char mmc_classify_error(mmc_handle_t *handle)
     delay_us(1000);
     sdcc_set_led(uVar2,1);
   }
-  mmc_set_bus_width((mmc_dev_t *)*handle,0,0,0);
+  mmc_set_bus_width((mmc_dev_t *)handle->dev_ptr,0,0,0);
   uVar2 = sdcc_get_slot_status(uVar2);
   if ((uVar2 & 1) != 0) {
     /* MMC detection path: CMD0 (GO_IDLE) then CMD1 (SEND_OP_COND) loop */
-    iVar4 = *handle;
+    iVar4 = handle->dev_ptr;
     memset_zero(&cmd, sizeof(cmd));
     /* CMD0: no response */
     sdcc_send_cmd((mmc_dev_t *)iVar4, &cmd);
@@ -722,7 +721,7 @@ char mmc_classify_error(mmc_handle_t *handle)
     return 2;      /* byte-mode MMC */
   }
   /* SD detection path: CMD0, CMD8, then CMD55+ACMD41 loop */
-  iVar4 = *handle;
+  iVar4 = handle->dev_ptr;
   uVar3 = 0xff8000;
   memset_zero(&cmd, sizeof(cmd));
   /* CMD0: no response */
@@ -778,12 +777,11 @@ char mmc_classify_error(mmc_handle_t *handle)
 /* orig: 0x08034888 mmc_setup_partitions — check if partition entry exists */
 uint mmc_setup_partitions(int dev)
 {
-  int *piVar1;
+  mmc_handle_t *pt;
 
-  piVar1 = (int *)&partition_table;
   if (sdcc_free_slots != 0x20) {
-    for (; piVar1 < partition_table_end; piVar1 = piVar1 + 3) {
-      if ((*piVar1 != 0) && (*piVar1 == dev)) {
+    for (pt = partition_table; pt < partition_table_end; pt++) {
+      if ((pt->dev_ptr != 0) && ((int)pt->dev_ptr == dev)) {
         return 1;
       }
     }
@@ -792,30 +790,30 @@ uint mmc_setup_partitions(int dev)
 }
 
 /* orig: 0x08034cb4 mmc_alloc_handle — allocate partition table entry */
-mmc_handle_t *mmc_alloc_handle(short slot, int flags)
+mmc_handle_t *mmc_alloc_handle(short slot, int partition_idx)
 {
   int iVar1;
-  mmc_handle_t *piVar2;
+  mmc_handle_t *h;
 
   if (sdcc_free_slots < 1) {
     return (mmc_handle_t *)0x0;  /* no free partition slots */
   }
-  for (piVar2 = (mmc_handle_t *)&partition_table; piVar2 < (mmc_handle_t *)partition_table_end; piVar2 = piVar2 + 3) {
-    if (*piVar2 == 0) goto LAB_08034cd8;
+  for (h = partition_table; h < partition_table_end; h++) {
+    if (h->dev_ptr == 0) goto LAB_08034cd8;
   }
   /* all entries occupied */
-  piVar2 = (mmc_handle_t *)0x0;
+  h = (mmc_handle_t *)0x0;
 LAB_08034cd8:
-  if (piVar2 != (mmc_handle_t *)0x0) {
+  if (h != (mmc_handle_t *)0x0) {
     iVar1 = mmc_get_slot_context((int)slot);
     if (iVar1 == 0) {
       return (mmc_handle_t *)0x0;  /* slot context not found */
     }
-    *piVar2 = iVar1 + 0xc;
-    piVar2[1] = flags;
+    h->dev_ptr = iVar1 + 0xc;
+    h->partition_idx = partition_idx;
     sdcc_free_slots = sdcc_free_slots + -1;
   }
-  return piVar2;
+  return h;
 }
 
 

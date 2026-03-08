@@ -137,7 +137,14 @@ extern uint sdcc_hc_base_alt[2];   /* SDCC SDHCI host-controller base (alt) [slo
  * eMMC driver types
  *========================================================================*/
 typedef uint  mmc_dev_t;     /* word-indexed device struct (use as mmc_dev_t*) */
-typedef uint  mmc_handle_t;  /* word-indexed partition handle (use as mmc_handle_t*) */
+
+/* Partition handle — 3-word (12-byte) struct from partition_table[].
+ * Previously: typedef uint mmc_handle_t with [0]=dev_ptr, [1]=partition, [2]=flags. */
+typedef struct {
+    uint dev_ptr;         /* pointer to mmc_dev_t (stored as uint) */
+    uint partition_idx;   /* partition index (0-7, -1=user) */
+    uint flags;           /* open flags */
+} mmc_handle_t;
 
 /* eMMC command struct (40 bytes, 10 words).
  * Passed to sdcc_send_cmd and related functions. */
@@ -240,7 +247,7 @@ char mmc_classify_error(mmc_handle_t *handle);
 int  mmc_identify_card(int dev);
 int  mmc_config_bus(int dev);
 uint mmc_init_card(int slot);
-mmc_handle_t *mmc_alloc_handle(short slot, int flags);
+mmc_handle_t *mmc_alloc_handle(short slot, int partition_idx);
 uint mmc_setup_partitions(int dev);
 
 
@@ -299,14 +306,8 @@ uint mmc_setup_partitions(int dev);
 #define DEV_BYTE_PART_CONFIG   0x78   /* byte: cached PARTITION_CONFIG (EXT_CSD[179]) */
 #define DEV_WORD_PART_MASK     0x7C   /* uint32_t: bitmask of existing partitions */
 
-/* mmc_handle_t field indices (word offsets).
- * Handle is a 3-word (12-byte) struct from partition table (partition_table[]).
- *   [0] = pointer to mmc_dev_t
- *   [1] = partition index (0-7, -1=user)
- *   [2] = open flags */
-#define HANDLE_DEV_PTR         0     /* pointer to mmc_dev_t (device struct) */
-#define HANDLE_PARTITION_IDX   1     /* partition index (0-7, -1=user) */
-#define HANDLE_FLAGS           2     /* open flags */
+/* mmc_handle_t field layout now encoded in the struct definition above.
+ * Old HANDLE_DEV_PTR/PARTITION_IDX/FLAGS defines removed. */
 
 /* mmc_cmd_t field layout is documented in the struct definition above.
  * Old #define CMD_NUM/CMD_ARG/etc. indices replaced by struct fields. */
