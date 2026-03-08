@@ -230,44 +230,44 @@ extern char LAB_08028888;       /* callback for xml send-and-wait */
  *========================================================================*/
 
 /* ---- sdcc_regs.c ---- */
-void sdcc_set_transfer_mode(int slot, ushort *mode);
-void sdcc_cleanup(int slot, short *cmd_config);
-void sdcc_set_all_irq(int slot);
-uint sdcc_read_status(int slot);
-void sdcc_enable_clock(int slot);
-uint sdcc_read_present(int slot);
-uint sdcc_read_present_state(int slot);
-void sdcc_read_response(int slot, uint *resp, int is_r2);
-void sdcc_clear_status(int slot, uint mask);
-void sdcc_set_block_count(int slot, undefined2 count);
-void sdcc_set_block_size(int slot, undefined2 size);
-void sdcc_set_cmd_arg(int slot, undefined4 arg);
-void sdcc_fire_cmd(int slot, byte *cmd_desc);
-void sdcc_set_irq_mask(int slot, undefined1 mask);
-void sdcc_set_transfer_ctrl(int slot, byte *ctrl);
-void sdcc_reset_data_line(int slot, byte bits);
-void sdcc_set_clock_divider(int slot, uint divider);
-void sdcc_set_adma_addr_lo(int slot, undefined4 addr);
-void sdcc_set_adma_addr_hi(int slot, undefined4 addr);
-void sdcc_set_8bit_mode(int slot, int enable);
-void sdcc_trigger_vendor_reset(int slot);
-void sdcc_set_clock_mode(int slot);
-void sdcc_set_hs_mode(int slot, char enable);
-void sdcc_read_caps(int slot, undefined4 *caps);
-byte sdcc_read_power_mode(int slot);
-void sdcc_wait_pll_lock(int slot);
-void sdcc_set_int_enable(int slot, uint mask, int enable);
-void sdcc_set_int_signal(int slot, uint mask, int enable);
-uint sdcc_read_clock_stable(int slot);
-void sdcc_set_led(int slot, int enable);
-void sdcc_set_dma_mode(int slot, int mode);
-void sdcc_setup_caps(int slot);
-void sdcc_set_bus_power(int slot, byte enable);
-void sdcc_set_voltage(int slot, byte voltage);
-void sdcc_set_bus_width_bit(int slot, int enable);
-void sdcc_init_bases(void);
-void sdcc_set_flow_control(int slot, int enable);
-void sdcc_set_bus_speed(int slot, int speed);
+void     sdcc_set_transfer_mode(int slot, ushort *mode);
+void     sdcc_cleanup(int slot, short *cmd_config);
+void     sdcc_set_all_irq(int slot);
+uint     sdcc_read_status(int slot);        /* MCI_STATUS (MCI+0x34) */
+void     sdcc_enable_clock(int slot);       /* poll MCI_STATUS2 bit 0 */
+uint     sdcc_read_present(int slot);       /* NRML_INT_STS_REG (HC+0x30) */
+uint     sdcc_read_present_state(int slot); /* PRESENT_STATE_REG (HC+0x24) */
+void     sdcc_read_response(int slot, uint *resp, int is_r2);
+void     sdcc_clear_status(int slot, uint mask);
+void     sdcc_set_block_count(int slot, uint16_t count);
+void     sdcc_set_block_size(int slot, uint16_t size);
+void     sdcc_set_cmd_arg(int slot, uint arg);
+void     sdcc_fire_cmd(int slot, byte *cmd_desc);
+void     sdcc_set_irq_mask(int slot, uint8_t mask); /* TIMEOUT_REG (HC+0x2E) */
+void     sdcc_set_transfer_ctrl(int slot, byte *ctrl);
+void     sdcc_reset_data_line(int slot, byte bits); /* RESET_REG (HC+0x2F) */
+void     sdcc_set_clock_divider(int slot, uint divider);
+void     sdcc_set_adma_addr_lo(int slot, uint addr);
+void     sdcc_set_adma_addr_hi(int slot, uint addr);
+void     sdcc_set_8bit_mode(int slot, int enable);
+void     sdcc_trigger_vendor_reset(int slot);
+void     sdcc_set_clock_mode(int slot);
+void     sdcc_set_hs_mode(int slot, char enable);
+void     sdcc_read_caps(int slot, uint *caps);
+uint8_t  sdcc_read_power_mode(int slot);
+void     sdcc_wait_pll_lock(int slot);
+void     sdcc_set_int_enable(int slot, uint mask, int enable);  /* NRML_INT_SIG_EN_REG (HC+0x38) */
+void     sdcc_set_int_signal(int slot, uint mask, int enable);  /* NRML_INT_STS_EN_REG (HC+0x34) */
+uint     sdcc_read_clock_stable(int slot);
+void     sdcc_set_led(int slot, int enable);
+void     sdcc_set_dma_mode(int slot, int mode);
+void     sdcc_setup_caps(int slot);
+void     sdcc_set_bus_power(int slot, uint8_t enable);
+void     sdcc_set_voltage(int slot, uint8_t voltage);
+void     sdcc_set_bus_width_bit(int slot, int enable);
+void     sdcc_init_bases(void);
+void     sdcc_set_flow_control(int slot, int enable);
+void     sdcc_set_bus_speed(int slot, int speed);
 
 /* ---- sdcc_helpers.c ---- */
 void adma_bounce_read(int slot, int buf, int *remaining);
@@ -300,7 +300,7 @@ char mmc_classify_error(int *handle);
 int  mmc_identify_card(int dev);
 int  mmc_config_bus(int dev);
 undefined4 mmc_init_card(int slot);
-int *mmc_read_ext_csd(short slot, int flags);
+int *mmc_alloc_handle(short slot, int flags);
 undefined4 mmc_setup_partitions(int dev);
 
 /* ---- xml.c ---- */
@@ -359,7 +359,7 @@ typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10
 #define DEV_SECTOR_SIZE        9     /* sector size in bytes (typically 0x200) */
 #define DEV_RELIABLE_WR_CNT  0x0D    /* reliable write sector count */
 #define DEV_CUSTOM_SECTOR    0x16    /* non-zero if device uses custom sector size */
-#define DEV_EXT_CSD_PTR      0x24    /* pointer to hotplug descriptor ([0]=slot, +0xA4=ADMA flag) */
+#define DEV_HOTPLUG_DESC      0x24    /* pointer to hotplug descriptor ([0]=slot, +0xA4=ADMA flag) */
 
 /* mmc_dev_t field indices (byte offsets — accessed via *(char*)(dev + N)) */
 #define DEV_BYTE_PARTITION_CONFIG  0x78  /* PARTITION_CONFIG (EXT_CSD[179]) */

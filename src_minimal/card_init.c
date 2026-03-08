@@ -159,7 +159,7 @@ void sdcc_clock_init(void)
  * mmc_init_card checks byte 0x15 of the slot context: if '\x01' (card
  * identified), it skips directly to return 1. But the slot context also
  * needs to have the device struct fields set up for subsequent functions
- * (mmc_read_ext_csd, mmc_setup_partitions, etc.).
+ * (mmc_alloc_handle, mmc_setup_partitions, etc.).
  *
  * This function sets up:
  *   - SDCC register base addresses (sdcc_init_bases)
@@ -174,11 +174,12 @@ void sdcc_clock_init(void)
  *   +0x00 (word 0):  slot number
  *   +0x04 (word 1):  init phase (byte at +0x04)
  *   +0x0C (word 3):  device struct start (0x94 bytes)
- *     dev+0x00: slot number
- *     dev+0x04: cached partition (current)
- *     dev+0x08: card type (byte: 6=eMMC)
- *     dev+0x24: sector size
- *     dev+0x90: hotplug descriptor ptr (used by sdcc_write_data)
+ *     dev[0]  (+0x00): slot number
+ *     dev[1]  (+0x04): cached partition (current)
+ *     dev[2]  (+0x08): card type (byte: 6=eMMC)
+ *     dev[9]  (+0x24): sector size (0x200)
+ *     dev[0x16] (+0x58): custom sector mode flag (1=use dev[9] for byte counts)
+ *     dev[0x24] (+0x90): hotplug descriptor ptr (used by sdcc_write_data)
  *   +0x15 (byte):    init_state (0=none, 1=identified, 2=ready)
  *   +0x9C (word 0x27): self-pointer (back-reference to context)
  *
@@ -221,7 +222,7 @@ void sdcc_pre_init_slot(int slot)
   /* Hotplug descriptor stub — slot number at [0], ADMA disabled (+0xA4=0).
    * sdcc_write_data dereferences dev[0x24] for PIO/ADMA transfer config. */
   hotplug_desc_stub[0] = slot;
-  dev[DEV_EXT_CSD_PTR] = (int)hotplug_desc_stub;
+  dev[DEV_HOTPLUG_DESC] = (int)hotplug_desc_stub;
 
   /* Register device in slot handle table */
   DAT_0804e2b8[slot] = (uint)(int)dev;
@@ -864,8 +865,8 @@ undefined4 mmc_setup_partitions(int dev)
   return 0;
 }
 
-/* orig: 0x08034cb4 mmc_read_ext_csd — allocate partition table entry */
-int *mmc_read_ext_csd(short slot, int flags)
+/* orig: 0x08034cb4 mmc_alloc_handle — allocate partition table entry */
+int *mmc_alloc_handle(short slot, int flags)
 {
   int iVar1;
   int *piVar2;

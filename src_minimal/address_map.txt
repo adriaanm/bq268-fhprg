@@ -139,7 +139,7 @@
 0x08034704  card_init.c     mmc_init_card                    — full card init with identification
 0x08034888  card_init.c     mmc_setup_partitions             — check if partition entry exists
 0x080345b8  card_init.c     mmc_config_bus                   — send CMD2 and parse CSD to get RCA
-0x08034cb4  card_init.c     mmc_read_ext_csd                 — allocate partition table entry
+0x08034cb4  card_init.c     mmc_alloc_handle                 — allocate partition table entry
 0x08034e78  card_init.c     cmd7_select_card (static)        — send CMD7 (SELECT_CARD) to transfer state
 
 # ---- emmc.c ----

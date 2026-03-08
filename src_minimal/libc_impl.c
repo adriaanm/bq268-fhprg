@@ -317,7 +317,7 @@ int *get_ctype_table(void)
 /* QTimer MMIO at 0x004a1000 — mapped by linker script */
 volatile uint _DAT_004a1000 __attribute__((section(".mmio_qtimer"))) = 0;
 
-/* Partition table — 32 entries × 3 words each (iterated by mmc_read_ext_csd
+/* Partition table — 32 entries × 3 words each (iterated by mmc_alloc_handle
  * and mmc_release_slot from 0x08059efc to 0x0805a070 in 12-byte strides).
  * In firehose mode, this is defined in globals.c instead. */
 #ifdef MINIMAL_EMBEDDED_PAYLOAD

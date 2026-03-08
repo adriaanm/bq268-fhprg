@@ -846,7 +846,7 @@ int mmc_open_device(int slot, uint flags)
     iVar2 = mmc_get_slot_context(slot);
     if (iVar2 != 0) {
       iVar4 = iVar2 + 0xc;
-      local_20 = (int)mmc_read_ext_csd(slot,flags);
+      local_20 = (int)mmc_alloc_handle(slot,flags);
       if (local_20 == 0) {
         iVar2 = mmc_setup_partitions(iVar4);
         if (iVar2 != 0) {

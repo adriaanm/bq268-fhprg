@@ -608,11 +608,11 @@ int sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks)
   else {
     iVar2 = dev[0x21] * iVar2;
   }
-  *(int *)(DAT_0804e2c8[(short)uVar1] + 0x24) = iVar2;
+  *(int *)(DAT_0804e2c8[(int)uVar1] + 0x24) = iVar2;
   if (dev[0x16] == 1) {
     uVar3 = dev[9] & 0xffff;
   }
-  *(uint *)(DAT_0804e2c8[(short)uVar1] + 0x28) = uVar3 * num_blocks;
+  *(uint *)(DAT_0804e2c8[(int)uVar1] + 0x28) = uVar3 * num_blocks;
   return uVar3 * num_blocks;
 }
 
