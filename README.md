@@ -13,38 +13,14 @@ needed to read and write eMMC partitions over EDL (Emergency Download) mode.
 
 The project was built almost entirely with [Claude Code](https://claude.ai/code).
 
-There are two main pieces:
-
 ### Minimal programmer (`src_minimal/`)
 
 A bare-metal ARM program loaded by the SoC's Primary Boot Loader (PBL) via the
 Sahara protocol. It initializes DDR, clocks, eMMC, and USB, then speaks the
 Firehose XML protocol to accept read/write commands from the host.
 
-Build:
-
 ```bash
 make minimal-elf    # produces tmp/minimal.elf (MBN-wrapped for Sahara)
-```
-
-### Host client (`client/`)
-
-A Go CLI (`bq268-edl`) that handles the Sahara handshake, uploads the
-programmer, and issues Firehose commands (backup, restore, read, write,
-verify, print GPT).
-
-Build:
-
-```bash
-cd client && go build -o bq268-edl .
-```
-
-Usage:
-
-```bash
-bq268-edl --loader tmp/minimal.elf backup aboot aboot_backup.bin
-bq268-edl --loader tmp/minimal.elf restore aboot aboot_new.bin
-bq268-edl --loader tmp/minimal.elf printgpt
 ```
 
 ### Supporting tools (`tools/`)
@@ -71,5 +47,3 @@ MSM8909.
 
 This project is released under the [Unlicense](https://unlicense.org/) — public
 domain. See `LICENSE` for the full text.
-
-The Go client in `client/` is separately licensed under GPL-3.0.
