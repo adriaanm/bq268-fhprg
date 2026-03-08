@@ -111,6 +111,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
   /* eMMC path (card[0x23] != 1, not SPI mode) */
   iVar7 = 0;
   sdcc_pre_cmd_hook(dev, cmd);
+  _trace("SC:hook ", *cmd);
   if (*cmd == 0) {
     /* CMD0 (GO_IDLE_STATE): poll until card responds */
     iVar7 = *dev; /* slot number */

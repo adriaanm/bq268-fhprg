@@ -311,6 +311,21 @@ int mmc_switch_cmd6(int *dev, undefined4 cmd6_arg)
   return iVar1;
 }
 
+/* Lightweight trace for hang diagnosis */
+static char _htbuf[64];
+static void _htrace(const char *tag, unsigned int val)
+{
+  int p = 0;
+  const char *s;
+  for (s = tag; *s; s++) _htbuf[p++] = *s;
+  { int i; for (i = 28; i >= 0; i -= 4) {
+    int nib = (val >> i) & 0xF;
+    _htbuf[p++] = (nib < 10) ? ('0' + nib) : ('A' - 10 + nib);
+  }}
+  _htbuf[p++] = '\r'; _htbuf[p++] = '\n';
+  usb_write(_htbuf, p);
+}
+
 /* orig: 0x08034b88 sdcc_setup_data_xfer — poll status after firing command, check for errors */
 undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
 {
@@ -324,6 +339,8 @@ undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
   uVar5 = 1;
   uVar1 = 0;
   uVar3 = 0;
+  _htrace("DX:slot=", iVar4);
+  _htrace("DX:stat=", sdcc_read_status(iVar4));
   do {
     if (0x7ffff < uVar3) goto LAB_08034c08;
     uVar1 = sdcc_read_status(iVar4);
