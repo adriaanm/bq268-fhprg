@@ -19,7 +19,7 @@ The minimal programmer (`src_minimal/`) must be developed by **studying and repl
 ## Workflow
 
 - **Commit regularly** — after each logical change (rename batch, tool fix, build fix, etc.), stage and commit. Don't let changes accumulate across multiple tasks.
-- **Improve decompiled code as you go** — when analyzing a function (debugging, tracing, reviewing), rename local variables to meaningful names, update comments to reflect what the code actually does, and fix misleading Ghidra artifacts (wrong function names, incorrect comments about command numbers, etc.). These improvements accumulate and make future debugging faster.
+- **Embody what you learn in the source** — when analyzing a function (debugging, tracing, reviewing), always capture what you learned directly in the code: rename locals to meaningful names, update comments, fix misleading Ghidra artifacts. Local changes (variable names, comments, correcting a function's own name) are always welcome. Avoid changes that ripple through the codebase (renaming a widely-used extern, changing a struct layout) unless that's the task at hand.
 
 ## Build Commands
 
