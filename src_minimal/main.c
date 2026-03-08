@@ -890,11 +890,11 @@ static void cmd_sector_read(const char *args)
         return;
     }
 
-    /* Hex dump the sector */
+    /* Hex dump the sector (labels = byte offset within sector) */
     for (i = 0; i < 512; i++) {
         if ((i & 0xF) == 0) {
             if (i > 0) { p = put_str(resp, p, "\r\n"); }
-            p = put_hex32(resp, p, sector * 512 + i);
+            p = put_hex32(resp, p, (unsigned int)&sector_buf[i]);
             p = put_str(resp, p, ": ");
         }
         p = put_hex8(resp, p, (unsigned char)sector_buf[i]);

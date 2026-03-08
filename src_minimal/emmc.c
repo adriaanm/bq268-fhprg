@@ -204,7 +204,9 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
       dev[4] = 0x14;
       return 0x14;
     }
-    /* If device has custom sector size, use it */
+    /* Custom sector mode: replace block count with sector size.
+     * sdcc_set_transfer_mode encodes this into MCI_DATA_CTL bits [7:4].
+     * In standard mode (dev[0x16]=0), num_blocks stays as the count. */
     if (dev[0x16] != 0) {
       num_blocks = dev[9];
     }

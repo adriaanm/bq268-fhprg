@@ -213,6 +213,10 @@ void sdcc_pre_init_slot(int slot)
   dev[DEV_CUR_PARTITION] = 0;  /* user partition */
   *(char *)&dev[DEV_CARD_TYPE] = '\x06';  /* eMMC */
   dev[DEV_SECTOR_SIZE] = 0x200;  /* 512 bytes */
+  dev[0x16] = 1;  /* custom sector mode — use dev[9] for byte count in transfers.
+                   * Normally set by mmc_set_speed after CMD16 SET_BLOCKLEN.
+                   * Without this, sdcc_pre_write_setup writes 1 (not 512)
+                   * to MCI_DATA_LENGTH register, causing all-zero reads. */
 
   /* Hotplug descriptor stub — slot number at [0], ADMA disabled (+0xA4=0).
    * sdcc_write_data dereferences dev[0x24] for PIO/ADMA transfer config. */
