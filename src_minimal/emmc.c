@@ -93,7 +93,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
   sdcc_pre_cmd_hook(dev, cmd);
   if (cmd->cmd_num == 0) {
     /* CMD0 (GO_IDLE_STATE): poll until card responds */
-    iVar7 = *dev; /* slot number */
+    iVar7 = dev->slot;
     uVar8 = 0;
     while ((uVar4 = uVar8 + 1, uVar8 < 800 &&
             (uVar8 = sdcc_read_status(iVar7), (uVar8 & 0x80) == 0)))
@@ -130,7 +130,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
           uVar8 = 1; /* R1/R1B: 1 word */
         }
         for (uVar4 = 0; uVar4 < uVar8; uVar4 = uVar4 + 1) {
-          cmd->resp[uVar4] = MCI_REG(*dev, MCI_RESP_0 + uVar4 * 4);
+          cmd->resp[uVar4] = MCI_REG(dev->slot, MCI_RESP_0 + uVar4 * 4);
         }
         /* Check R1 error bits for CMD52 (0x34) and CMD53 (0x35) */
         if ((cmd->cmd_num == 0x34 || cmd->cmd_num == 0x35) && (cmd->resp[0] & 0xcf00U) != 0) {
@@ -143,7 +143,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
       iVar7 = sdcc_busy_wait(dev);
     }
     memset_zero(&local_28, sizeof(local_28));
-    sdcc_cleanup(*dev, &local_28);
+    sdcc_cleanup(dev->slot, &local_28);
   }
   return iVar7;
 }
@@ -191,7 +191,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
   /* eMMC path (card[0x23] != 1, not SPI mode) */
   {
     uVar4 = cmd->flags;
-    iVar5 = dev[DEV_HOTPLUG_DESC]; /* hotplug/ADMA context */
+    iVar5 = dev->hotplug_desc; /* hotplug/ADMA context */
     iVar8 = 0;
     local_38 = (int)(uVar4 << 0x1e) >> 0x1f; /* bit 1 of flags: reliable write */
     iVar6 = 0;
@@ -199,14 +199,14 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
     /* Pre-write DMA/buffer setup */
     iVar1 = sdcc_pre_write_setup(dev,local_38 + 1,num_blocks);
     if (iVar1 == 0) {
-      dev[DEV_LAST_ERROR] = 0x14;
+      dev->last_error = 0x14;
       return 0x14;
     }
     /* Custom sector mode: replace block count with sector size.
      * sdcc_set_transfer_mode encodes this into MCI_DATA_CTL bits [7:4].
      * In standard mode (dev[0x16]=0), num_blocks stays as the count. */
-    if (dev[DEV_CUSTOM_SECTOR] != 0) {
-      num_blocks = dev[DEV_SECTOR_SIZE];
+    if (dev->custom_sector != 0) {
+      num_blocks = dev->sector_size;
     }
     xfer_mode[0] = num_blocks & 0xffff;  /* block count in low 16 bits */
     xfer_mode[1] = 0x100; /* transfer mode: write */
@@ -218,7 +218,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
     /* Reliable write: set multi-block flag */
     if ((int)(uVar4 << 0x1e) < 0) {
       xfer_mode[1] = 0x101; /* multi-block write */
-      sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
+      sdcc_set_transfer_mode(dev->slot,(ushort *)xfer_mode);
     }
     /* Send the command (CMD17/CMD18 for read, CMD24/CMD25 for write) */
     if ((int)(uVar4 << 0x1d) < 0) {
@@ -229,7 +229,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
     }
     /* Check R1 address out of range bit */
     if (((uint)cmd->resp[0] >> 0x1a & 1) != 0) {
-      dev[DEV_LAST_ERROR] = 0x1d; /* address out of range */
+      dev->last_error = 0x1d; /* address out of range */
       return 0x1d;
     }
     if (iVar2 == 0) {
@@ -245,7 +245,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
         iVar6 = (**(code **)(iVar5 + 0xac))(iVar5,buf,iVar1,uVar3);
         if (iVar6 == 0) {
           if ((uVar4 & 1) != 0) {
-            sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
+            sdcc_set_transfer_mode(dev->slot,(ushort *)xfer_mode);
           }
           iVar8 = sdcc_post_write_check(dev);
         }
@@ -263,21 +263,21 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
        * disabled (our case), we must convert here.
        */
       {
-        int xfer_bytes = (dev[DEV_CUSTOM_SECTOR] != 0) ? iVar1
-                         : iVar1 * (int)dev[DEV_SECTOR_SIZE];
+        int xfer_bytes = (dev->custom_sector != 0) ? iVar1
+                         : iVar1 * (int)dev->sector_size;
         if ((int)(uVar4 << 0x1e) < 0) {
-          iVar8 = sdcc_adma_transfer((mmc_dev_t *)iVar5,(uint *)buf,xfer_bytes);
+          iVar8 = sdcc_adma_transfer((uint *)iVar5,(uint *)buf,xfer_bytes);
         }
         else {
           /* Clear DMA enable flag, keep block count */
           xfer_mode[0] = (uint)(ushort)xfer_mode[0];
-          sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
-          iVar8 = sdcc_pio_transfer((mmc_dev_t *)iVar5,(byte *)buf,xfer_bytes);
+          sdcc_set_transfer_mode(dev->slot,(ushort *)xfer_mode);
+          iVar8 = sdcc_pio_transfer((uint *)iVar5,(byte *)buf,xfer_bytes);
         }
       }
       xfer_mode[0] = 0;
       xfer_mode[1] = 0;
-      sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
+      sdcc_set_transfer_mode(dev->slot,(ushort *)xfer_mode);
     }
 LAB_0803376e:
     /* Post-write: send stop command if needed (CMD12 for multi-block) */
@@ -301,7 +301,7 @@ LAB_0803376e:
     if (iVar8 == 0) {
       iVar8 = iVar1;
     }
-    dev[DEV_LAST_ERROR] = iVar8; /* store result in device struct */
+    dev->last_error = iVar8; /* store result in device struct */
     return iVar8;
   }
 
@@ -345,14 +345,14 @@ uint mmc_close_handle(mmc_handle_t *handle)
 int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
 {
   int iVar1;
-  uint *puVar2;
+  mmc_dev_t *puVar2;
   mmc_cmd_t cmd; /* command struct (reused for CMD35/36/38) */
 
-  if (((handle == (mmc_handle_t *)0x0) || (puVar2 = (uint *)handle->dev_ptr, puVar2 == (uint *)0x0)) ||
-     (2 < *puVar2)) {
+  if (((handle == (mmc_handle_t *)0x0) || (puVar2 = (mmc_dev_t *)handle->dev_ptr, puVar2 == (mmc_dev_t *)0x0)) ||
+     (2 < puVar2->slot)) {
     iVar1 = 0x14;
   }
-  else if (((char)puVar2[DEV_CARD_TYPE] == '\x06') || ((char)puVar2[DEV_CARD_TYPE] == '\x02')) {
+  else if ((puVar2->card_type == 6) || (puVar2->card_type == 2)) {
     /* Card must be MMC or eMMC (type 2 or 6) */
     iVar1 = mmc_ensure_partition(handle);
     if (iVar1 == 0) {
@@ -368,7 +368,7 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
       iVar1 = sdcc_send_cmd(puVar2, &cmd);
       if (iVar1 == 0) {
         /* CMD36: ERASE_GROUP_END */
-        if ((char)puVar2[DEV_CARD_TYPE] == '\x06') {
+        if (puVar2->card_type == 6) {
           cmd.cmd_arg = sector + count + -1;       /* HC: sector-addressed */
         }
         else {
@@ -435,20 +435,20 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
  */
 uint mmc_get_partition_info(mmc_handle_t *handle, char *info)
 {
-    uint *puVar3;
+    mmc_dev_t *puVar3;
     uint uVar2;
     uint uVar4 = 0;
     uint local_28 = 0;
     uint local_24 = 0;
 
-    if (((handle == (mmc_handle_t *)0x0) || (puVar3 = (uint *)handle->dev_ptr, puVar3 == (uint *)0x0)) ||
-        (2 < *puVar3) || (info == (char *)0x0)) {
+    if (((handle == (mmc_handle_t *)0x0) || (puVar3 = (mmc_dev_t *)handle->dev_ptr, puVar3 == (mmc_dev_t *)0x0)) ||
+        (2 < puVar3->slot) || (info == (char *)0x0)) {
         return 0x14;
     }
     memset_zero(info, 0x40); /* memset(info, 0, 64) */
-    *info = (char)puVar3[DEV_CARD_TYPE]; /* card type */
-    *(uint *)(info + 0xc) = puVar3[DEV_SECTOR_SIZE]; /* sector size */
-    uVar2 = sdcc_get_slot_status(*(uint *)handle->dev_ptr);
+    *info = (char)puVar3->card_type; /* card type */
+    *(uint *)(info + 0xc) = puVar3->sector_size; /* sector size */
+    uVar2 = sdcc_get_slot_status(((mmc_dev_t *)handle->dev_ptr)->slot);
     if ((uVar2 & 1) == 0) {
         info[0x18] = '\0';  /* card not present */
     } else {
@@ -457,22 +457,22 @@ uint mmc_get_partition_info(mmc_handle_t *handle, char *info)
     /* eMMC only: get capacity from partition table */
     uVar4 = mmc_get_capacity(handle, &local_28, &local_24);
     *(uint *)(info + 4) = local_28; /* total sectors */
-    info[0x10] = (char)puVar3[0x18]; /* num physical partitions (DEV+0x60) */
-    *(uint *)(info + 0x14) = puVar3[DEV_BLOCK_COUNT]; /* block count */
+    info[0x10] = (char)puVar3->phys_part_count; /* num physical partitions (DEV+0x60) */
+    *(uint *)(info + 0x14) = puVar3->block_count; /* block count */
     {
         char cVar1 = mmc_is_partition_active(handle);
         info[0x24] = cVar1; /* is active */
     }
-    *(uint *)(info + 8) = puVar3[DEV_CARD_ID]; /* card identifier */
+    *(uint *)(info + 8) = puVar3->card_id; /* card identifier */
     *(uint *)(info + 0x20) = local_24; /* partition type */
-    *(uint *)(info + 0x1c) = puVar3[DEV_RELIABLE_WR_CNT]; /* reliable write count */
-    *(uint16_t *)(info + 0x26) = *(uint16_t *)((int)puVar3 + 0x3e); /* speed class */
-    *(short *)(info + 0x28) = (short)puVar3[DEV_SPEED_MODE]; /* speed mode */
-    memcpy(info + 0x2a, (char *)puVar3 + 0x42, 7); /* manufacturer ID */
-    info[0x31] = *(char *)((int)puVar3 + 0x49); /* product revision */
-    *(uint *)(info + 0x34) = puVar3[0x13]; /* GPP1 size */
-    *(uint *)(info + 0x38) = puVar3[0x14]; /* GPP2 size */
-    *(uint *)(info + 0x3c) = puVar3[0x15]; /* GPP3 size */
+    *(uint *)(info + 0x1c) = puVar3->reliable_wr_cnt; /* reliable write count */
+    *(uint16_t *)(info + 0x26) = puVar3->csd_spec_vers; /* speed class */
+    *(short *)(info + 0x28) = (short)puVar3->speed_mode; /* speed mode */
+    memcpy(info + 0x2a, puVar3->mfr_id, 7); /* manufacturer ID */
+    info[0x31] = (char)puVar3->product_rev; /* product revision */
+    *(uint *)(info + 0x34) = puVar3->gpp_attr[0]; /* GPP1 size */
+    *(uint *)(info + 0x38) = puVar3->gpp_attr[1]; /* GPP2 size */
+    *(uint *)(info + 0x3c) = puVar3->gpp_attr[2]; /* GPP3 size */
     sdcc_write_complete_notify();
     return uVar4;
 }
@@ -492,16 +492,16 @@ int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
 {
   char cVar1;
   int iVar2;
-  uint *puVar3;
+  mmc_dev_t *puVar3;
   mmc_cmd_t cmd;
 
-  if (((handle == (mmc_handle_t *)0x0) || (puVar3 = (uint *)handle->dev_ptr, puVar3 == (uint *)0x0)) ||
-     (2 < *puVar3)) {
+  if (((handle == (mmc_handle_t *)0x0) || (puVar3 = (mmc_dev_t *)handle->dev_ptr, puVar3 == (mmc_dev_t *)0x0)) ||
+     (2 < puVar3->slot)) {
     iVar2 = 0x14;
   }
   /* >>> WP CHECK REMOVED — allow writes regardless of EXT_CSD[160] <<< */
   else if (1) {
-    cVar1 = (char)puVar3[DEV_CARD_TYPE]; /* card type */
+    cVar1 = (char)puVar3->card_type; /* card type */
     if (cVar1 == '\0') {
       iVar2 = 0x15; /* no card */
     }
@@ -521,8 +521,8 @@ int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
         cmd.busy_wait = 0;              /* reserved */
         cmd.cmd_arg = sector;           /* cmd_arg */
         /* Convert sector number to byte address for non-HC cards */
-        if (((char)puVar3[DEV_CARD_TYPE] != '\x05') && ((char)puVar3[DEV_CARD_TYPE] != '\x06')) {
-          cmd.cmd_arg = sector * puVar3[DEV_SECTOR_SIZE]; /* sector * sector_size */
+        if ((puVar3->card_type != 5) && (puVar3->card_type != 6)) {
+          cmd.cmd_arg = sector * puVar3->sector_size; /* sector * sector_size */
         }
         cmd.flags = 2;                  /* flags: bit 1 = data transfer */
         iVar2 = sdcc_write_data(puVar3, &cmd, buf, num_blocks);
@@ -552,25 +552,23 @@ int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
 int mmc_switch_partition(mmc_handle_t *handle)
 {
   int iVar1;
-  uint *puVar2;
-  int iVar3;
+  mmc_dev_t *puVar2;
   uint uVar4;
 
   if (((handle == (mmc_handle_t *)0x0) || (puVar2 = (mmc_dev_t *)handle->dev_ptr, puVar2 == (mmc_dev_t *)0x0)) ||
-     (2 < *puVar2)) {
+     (2 < puVar2->slot)) {
     return 0x14;
   }
   /* Must be MMC (type 2) or eMMC (type 6) */
-  if (((char)puVar2[DEV_CARD_TYPE] != '\x02') && ((char)puVar2[DEV_CARD_TYPE] != '\x06')) {
+  if ((puVar2->card_type != 2) && (puVar2->card_type != 6)) {
     return 0x16;
   }
-  iVar3 = (int)handle->dev_ptr; /* device struct */
   uVar4 = handle->partition_idx; /* requested partition */
   if (uVar4 == 0xffffffff) {
     uVar4 = 0; /* default to user partition */
   }
   /* Validate partition index against max partitions */
-  if (*(uint *)(iVar3 + 0x34) <= uVar4) {
+  if (puVar2->reliable_wr_cnt <= uVar4) {
     return 0x14;
   }
   /* Check if already on the right partition */
@@ -580,8 +578,8 @@ int mmc_switch_partition(mmc_handle_t *handle)
   }
   else {
     /* Restore current partition field first if needed */
-    if ((*(int *)(iVar3 + 4) != 0) &&
-       (iVar1 = mmc_switch_cmd6((mmc_dev_t *)iVar3,(uint)*(byte *)(iVar3 + DEV_BYTE_PART_CONFIG) << 0xb | 0x3b30000), iVar1 != 0)) {
+    if ((puVar2->cur_partition != 0) &&
+       (iVar1 = mmc_switch_cmd6(puVar2,(uint)puVar2->partition_cfg << 0xb | 0x3b30000), iVar1 != 0)) {
       /* CMD6 SWITCH: Access=3 (write), Index=0xB3 (PARTITION_CONFIG),
        * Value=current partition << 3, Cmd_set=0 */
       return iVar1;
@@ -595,9 +593,9 @@ int mmc_switch_partition(mmc_handle_t *handle)
      *   bits[2:0] = PARTITION_ACCESS (which partition to access)
      *   bits[5:3] = BOOT_PARTITION_ENABLE
      *   bit[6]    = BOOT_ACK */
-    iVar1 = mmc_switch_cmd6((mmc_dev_t *)iVar3,(*(uint *)(iVar3 + 4) | uVar4 << 3) << 8 | 0x3b30000);
+    iVar1 = mmc_switch_cmd6(puVar2,(puVar2->cur_partition | uVar4 << 3) << 8 | 0x3b30000);
     if (iVar1 == 0) {
-      *(char *)(iVar3 + DEV_BYTE_PART_CONFIG) = (char)uVar4; /* update cached partition */
+      puVar2->partition_cfg = (uint8_t)uVar4; /* update cached partition */
       return 0;
     }
   }
@@ -622,17 +620,17 @@ int mmc_switch_partition(mmc_handle_t *handle)
  */
 int mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
 {
-    uint *puVar3;
+    mmc_dev_t *puVar3;
     char cVar1;
     int iVar2;
     mmc_cmd_t cmd;
 
-    if (((handle == (mmc_handle_t *)0x0) || (puVar3 = (uint *)handle->dev_ptr, puVar3 == (uint *)0x0)) ||
-        (2 < *puVar3)) {
+    if (((handle == (mmc_handle_t *)0x0) || (puVar3 = (mmc_dev_t *)handle->dev_ptr, puVar3 == (mmc_dev_t *)0x0)) ||
+        (2 < puVar3->slot)) {
         return 0x14;
     }
     /* >>> WP CHECK REMOVED — allow writes regardless of EXT_CSD[160] <<< */
-    cVar1 = (char)puVar3[DEV_CARD_TYPE];
+    cVar1 = (char)puVar3->card_type;
     if (cVar1 == '\0') {
         return 0x15;
     }
@@ -650,8 +648,8 @@ int mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_blocks
             cmd.busy_wait = 0;               /* reserved */
             cmd.cmd_arg = sector;
             /* Convert to byte address for non-HC cards */
-            if (((char)puVar3[DEV_CARD_TYPE] != '\x05') && ((char)puVar3[DEV_CARD_TYPE] != '\x06')) {
-                cmd.cmd_arg = sector * puVar3[DEV_SECTOR_SIZE];  /* sector * sector_size */
+            if ((puVar3->card_type != 5) && (puVar3->card_type != 6)) {
+                cmd.cmd_arg = sector * puVar3->sector_size;  /* sector * sector_size */
             }
             cmd.flags = 1;                   /* flags: bit 0 = write direction */
             iVar2 = sdcc_write_data(puVar3, &cmd, buf, num_blocks);
@@ -675,54 +673,54 @@ uint mmc_get_capacity(mmc_handle_t *handle, uint *sectors, uint *part_type)
 {
   uint uVar1;
   uint uVar2;
-  int iVar3;
+  mmc_dev_t *dev;
 
-  iVar3 = handle->dev_ptr;       /* device struct */
+  dev = (mmc_dev_t *)handle->dev_ptr; /* device struct */
   uVar1 = handle->partition_idx; /* partition index */
   if (uVar1 == 0xffffffff) {
     uVar1 = 0;
   }
   /* Non-user partitions require partition switching support */
-  if ((uVar1 != 0) && (*(char *)(iVar3 + DEV_BYTE_PART_SWITCH) == '\0')) {
+  if ((uVar1 != 0) && (dev->part_switch == 0)) {
     return 0x16;
   }
-  /* Check partition exists (bitmask at dev+0x7C) */
-  if ((1 << (uVar1 & 0xff) & *(uint *)(iVar3 + DEV_WORD_PART_MASK)) == 0) {
+  /* Check partition exists (bitmask at dev->partition_mask) */
+  if ((1 << (uVar1 & 0xff) & dev->partition_mask) == 0) {
     return 0x14;
   }
   if (uVar1 == 0) {
-    *sectors = *(uint *)(iVar3 + 0x1c); /* user area: total sectors from CSD */
+    *sectors = dev->user_sectors; /* user area: total sectors from CSD */
     uVar2 = 0;
   }
   else {
     if (uVar1 == 1) {
       /* Boot partition 1: EXT_CSD[226-227] * 128KB / 512 */
-      *sectors = (uint)(*(int *)(iVar3 + 100) << 10) >> 9;
+      *sectors = (uint)((int)dev->boot_part_size << 10) >> 9;
       *part_type = 1;
       return 0;
     }
     if (uVar1 == 2) {
       /* Boot partition 2: same size as boot1 */
-      *sectors = (uint)(*(int *)(iVar3 + 100) << 10) >> 9;
+      *sectors = (uint)((int)dev->boot_part_size << 10) >> 9;
       uVar2 = 2;
     }
     else if (uVar1 == 4) {
-      *sectors = *(uint *)(iVar3 + 0x68); /* GP1 */
+      *sectors = dev->gp_sectors[0]; /* GP1 */
       uVar2 = 4;
     }
     else if (uVar1 == 5) {
-      *sectors = *(uint *)(iVar3 + 0x6c); /* GP2 */
+      *sectors = dev->gp_sectors[1]; /* GP2 */
       uVar2 = 5;
     }
     else if (uVar1 == 6) {
-      *sectors = *(uint *)(iVar3 + 0x70); /* GP3 */
+      *sectors = dev->gp_sectors[2]; /* GP3 */
       uVar2 = 6;
     }
     else {
       if (uVar1 != 7) {
         return 0x14;
       }
-      *sectors = *(uint *)(iVar3 + 0x74); /* GP4 */
+      *sectors = dev->gp_sectors[3]; /* GP4 */
       uVar2 = 7;
     }
   }
@@ -744,7 +742,7 @@ uint mmc_is_partition_active(mmc_handle_t *handle)
   if (iVar2 == -1) {
     iVar2 = 0;
   }
-  cVar1 = *(char *)(handle->dev_ptr + DEV_BYTE_PART_CONFIG); /* current partition */
+  cVar1 = (char)((mmc_dev_t *)handle->dev_ptr)->partition_cfg; /* current partition */
   if (cVar1 == '\x01') {
     if (iVar2 == 1) {
       return 1; /* boot1 already active */
@@ -773,43 +771,45 @@ int mmc_ensure_partition(mmc_handle_t *handle)
 {
   char cVar1;
   int iVar2;
-  int iVar3;
+  mmc_dev_t *dev;
   uint uVar4;
 
   if (handle == (mmc_handle_t *)0x0) {
     return 0x14;
   }
-  iVar3 = handle->partition_idx; /* requested partition */
-  if (iVar3 == -1) {
-    iVar3 = 0;
-  }
-  /* Already on the right partition? */
-  if (*(int *)(handle->dev_ptr + 4) == iVar3) {
-    return 0;
+  {
+    int iVar3 = handle->partition_idx; /* requested partition */
+    if (iVar3 == -1) {
+      iVar3 = 0;
+    }
+    /* Already on the right partition? */
+    if ((int)((mmc_dev_t *)handle->dev_ptr)->cur_partition == iVar3) {
+      return 0;
+    }
   }
   /* Must be MMC/eMMC for partition switching */
-  cVar1 = *(char *)(handle->dev_ptr + DEV_BYTE_CARD_TYPE);
+  cVar1 = (char)((mmc_dev_t *)handle->dev_ptr)->card_type;
   if ((cVar1 != '\x02') && (cVar1 != '\x06')) {
     return 0x16;
   }
-  iVar3 = handle->dev_ptr;
+  dev = (mmc_dev_t *)handle->dev_ptr;
   uVar4 = handle->partition_idx;
   if (uVar4 == 0xffffffff) {
     uVar4 = 0;
   }
-  if ((uVar4 != 0) && (*(char *)(iVar3 + DEV_BYTE_PART_SWITCH) == '\0')) {
+  if ((uVar4 != 0) && (dev->part_switch == 0)) {
     return 0x16; /* device doesn't support partition switching */
   }
-  if ((1 << (uVar4 & 0xff) & *(uint *)(iVar3 + DEV_WORD_PART_MASK)) == 0) {
+  if ((1 << (uVar4 & 0xff) & dev->partition_mask) == 0) {
     return 0x14; /* partition doesn't exist */
   }
   /* CMD6 SWITCH: write PARTITION_CONFIG
    * Arg format: 0x03B30000 | (boot_config | partition_access) << 8
-   * boot_config = dev+0x78 current config, shifted left 3 bits
+   * boot_config = dev->partition_cfg current config, shifted left 3 bits
    * partition_access = requested partition index */
-  iVar2 = mmc_switch_cmd6((mmc_dev_t *)iVar3,(uVar4 | (uint)*(byte *)(iVar3 + DEV_BYTE_PART_CONFIG) << 3) << 8 | 0x3b30000);
+  iVar2 = mmc_switch_cmd6(dev,(uVar4 | (uint)dev->partition_cfg << 3) << 8 | 0x3b30000);
   if (iVar2 == 0) {
-    *(uint *)(iVar3 + 4) = uVar4; /* cache new partition */
+    dev->cur_partition = uVar4; /* cache new partition */
   }
   return iVar2;
 }
@@ -833,7 +833,7 @@ int mmc_open_device(int slot, uint flags)
   char cVar1;
   int iVar2;
   int iVar3;
-  int iVar4;
+  mmc_dev_t *pDev;
   int local_20;
 
   local_20 = 0;
@@ -844,14 +844,14 @@ int mmc_open_device(int slot, uint flags)
     }
     iVar2 = mmc_get_slot_context(slot);
     if (iVar2 != 0) {
-      iVar4 = iVar2 + 0xc;
+      pDev = (mmc_dev_t *)(iVar2 + 0xc);
       local_20 = (int)mmc_alloc_handle(slot,flags);
       if (local_20 == 0) {
-        iVar2 = mmc_setup_partitions(iVar4);
+        iVar2 = mmc_setup_partitions(pDev);
         if (iVar2 != 0) {
           return local_20;
         }
-        mmc_finalize_init(iVar4);
+        mmc_finalize_init(pDev);
         return local_20;
       }
       /* Error handling: classify and potentially recover */
@@ -866,23 +866,23 @@ int mmc_open_device(int slot, uint flags)
         *(char *)(iVar2 + 0x24) = cVar1;
         if (cVar1 != '\0') {
           if (cVar1 == '\x04') goto LAB_08034086;
-          iVar3 = mmc_config_bus(iVar4);
+          iVar3 = mmc_config_bus(pDev);
           if (iVar3 == 0) {
             if (*(char *)(iVar2 + 0x98) == '\0') {
               MCI_REG(slot, MCI_CLK) =
                    MCI_REG(slot, MCI_CLK) | 0x1000;
               sdcc_enable_clock(slot);
             }
-            iVar3 = mmc_identify_card(iVar4);
+            iVar3 = mmc_identify_card(pDev);
             if (iVar3 == 0) {
-              mmc_set_bus_width((uint *)iVar4,1,0,0);
-              iVar4 = mmc_set_speed((mmc_dev_t *)iVar4);
-              if (iVar4 == 0) {
+              mmc_set_bus_width(pDev,1,0,0);
+              iVar3 = mmc_set_speed(pDev);
+              if (iVar3 == 0) {
                 *(uint8_t *)(iVar2 + SLOT_CTX_INIT_STATE) = 2;
                 *(uint8_t *)(iVar2 + 0xa0) = 0;
                 return local_20;
               }
-              *(int *)(iVar2 + 0x1c) = iVar4;
+              *(int *)(iVar2 + 0x1c) = iVar3;
               *(uint8_t *)(iVar2 + 0x14) = 0;
               goto LAB_080340c6;
             }

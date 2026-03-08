@@ -766,31 +766,31 @@ static void cmd_sector_read(const char *args)
         p = put_str(resp, p, "dev=");
         p = put_hex32(resp, p, (unsigned int)dev);
         p = put_str(resp, p, " slot=");
-        p = put_hex32(resp, p, dev[0]);
+        p = put_hex32(resp, p, dev->slot);
         p = put_str(resp, p, " type=");
-        p = put_hex8(resp, p, (unsigned char)dev[2]);
+        p = put_hex8(resp, p, dev->card_type);
         p = put_str(resp, p, " curpart=");
-        p = put_hex32(resp, p, dev[1]);
+        p = put_hex32(resp, p, dev->cur_partition);
         p = put_str(resp, p, "\r\n");
         usb_write(resp, p); p = 0;
 
-        /* Trace ensure_partition decision: compare dev[1] vs handle[1] */
+        /* Trace ensure_partition decision: compare dev->cur_partition vs handle[1] */
         p = put_str(resp, p, "ensure: dev[1]=");
-        p = put_hex32(resp, p, dev[1]);
+        p = put_hex32(resp, p, dev->cur_partition);
         p = put_str(resp, p, " h[1]=");
         p = put_hex32(resp, p, emmc_handle->partition_idx);
         p = put_str(resp, p, " match=");
-        p = put_dec(resp, p, (dev[1] == (int)emmc_handle->partition_idx) ? 1 : 0);
+        p = put_dec(resp, p, (dev->cur_partition == emmc_handle->partition_idx) ? 1 : 0);
         p = put_str(resp, p, "\r\n");
         usb_write(resp, p); p = 0;
 
         /* Trace transfer path config */
         {
-            int hpd = dev[DEV_HOTPLUG_DESC]; /* hotplug descriptor ptr */
+            int hpd = dev->hotplug_desc; /* hotplug descriptor ptr */
             p = put_str(resp, p, "xfer: custom=");
-            p = put_hex32(resp, p, dev[DEV_CUSTOM_SECTOR]);
+            p = put_hex32(resp, p, dev->custom_sector);
             p = put_str(resp, p, " sectorsz=");
-            p = put_hex32(resp, p, dev[DEV_SECTOR_SIZE]);
+            p = put_hex32(resp, p, dev->sector_size);
             p = put_str(resp, p, " hpd=");
             p = put_hex32(resp, p, hpd);
             p = put_str(resp, p, " adma=");

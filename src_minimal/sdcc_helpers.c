@@ -292,9 +292,9 @@ int sdcc_fifo_write(mmc_dev_t *dev, mmc_cmd_t *cmd, uint *buf, uint byte_count)
   uint local_28;
 
   local_28 = 0;
-  iVar4 = *dev;                          /* slot index */
-  if (dev[DEV_CUSTOM_SECTOR] == 1) {                  /* DEV_CUSTOM_SECTOR: multi-block mode */
-    uVar6 = dev[DEV_SECTOR_SIZE];                      /* DEV_SECTOR_SIZE */
+  iVar4 = dev->slot;                     /* slot index */
+  if (dev->custom_sector == 1) {                  /* custom_sector: multi-block mode */
+    uVar6 = dev->sector_size;                      /* sector_size */
     uVar5 = byte_count / uVar6;          /* number of blocks */
   }
   else {
@@ -514,7 +514,7 @@ int mmc_switch_cmd6(mmc_dev_t *dev, uint cmd6_arg)
     /* CMD13: SEND_STATUS — verify card returned to transfer state */
     memset_zero(&cmd, sizeof(cmd));
     cmd.cmd_num = 0xd;                             /* CMD13: SEND_STATUS */
-    cmd.cmd_arg = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
+    cmd.cmd_arg = (uint)dev->rca << 0x10; /* RCA in bits [31:16] */
     *(uint8_t *)&cmd.resp_type = 1;                /* resp_type: R1 */
     ret = sdcc_send_cmd(dev, &cmd);
     if (ret == 0) {
@@ -563,7 +563,7 @@ uint sdcc_setup_data_xfer(mmc_dev_t *dev, mmc_cmd_t *cmd)
   int iVar4;
   uint uVar5;
 
-  iVar4 = *dev;                          /* slot index */
+  iVar4 = dev->slot;                      /* slot index */
   uVar5 = 1;
   uVar1 = 0;
   uVar3 = 0;
@@ -636,7 +636,7 @@ LAB_08034c08:
  *   The `dev + 3` passed to mmc_set_bus_width is a pointer to the device
  *   struct's third word (bus width / speed configuration).
  */
-uint sdcc_adma_transfer(mmc_dev_t *dev, uint *buf, int byte_count)
+uint sdcc_adma_transfer(uint *hotplug, uint *buf, int byte_count)
 {
   uint uVar1;
   uint uVar2;
@@ -646,7 +646,7 @@ uint sdcc_adma_transfer(mmc_dev_t *dev, uint *buf, int byte_count)
   bool bVar6;
   int local_20;
 
-  iVar4 = *dev;                          /* slot index */
+  iVar4 = *hotplug;                      /* slot index */
   bVar6 = ((uint)buf & 3) != 0;          /* true if buffer is NOT word-aligned */
   uVar5 = 0;
   local_20 = 0;
@@ -707,9 +707,9 @@ uint sdcc_adma_transfer(mmc_dev_t *dev, uint *buf, int byte_count)
     if (false) {
 LAB_08034c9e:
       /* Save MCI register state, reset clock, then restore registers */
-      mmc_set_bus_width(dev + 3, 5, 0, 0);
+      mmc_set_bus_width((mmc_dev_t *)(hotplug + 3), 5, 0, 0);
       {
-        int iVar2 = *dev;
+        int iVar2 = *hotplug;
         uint saved_clk  = MCI_REG(iVar2, MCI_CLK);       /* MCI_CLK   (+0x04): save before reset */
         uint saved_pwr  = MCI_REG(iVar2, MCI_POWER);     /* MCI_POWER (+0x00): save before reset */
         uint saved_mask = MCI_REG(iVar2, MCI_INT_MASK0);  /* MCI_INT_MASK0 (+0x3C): save before reset */
@@ -719,7 +719,7 @@ LAB_08034c9e:
         MCI_REG(iVar2, MCI_POWER)     = saved_pwr;  /* MCI_POWER: restore */
         sdcc_enable_clock(iVar2);
         MCI_REG(iVar2, MCI_INT_MASK0) = saved_mask; /* MCI_INT_MASK0: restore */
-        mmc_set_bus_width(dev + 3, *(char *)((int)dev + 0x15) == '\x02', 0, 0);
+        mmc_set_bus_width((mmc_dev_t *)(hotplug + 3), *(char *)((int)hotplug + 0x15) == '\x02', 0, 0);
       }
     }
     sdcc_set_all_irq(iVar4);             /* MCI_CLEAR (+0x38) = 0x18007ff: clear all status bits */
@@ -750,7 +750,7 @@ uint sdcc_adma_write(mmc_dev_t *dev, mmc_cmd_t *cmd)
 
   memset_zero(&app_cmd, sizeof(app_cmd));
   app_cmd.cmd_num = 0x37;                         /* CMD55: APP_CMD (precedes all ACMDs) */
-  app_cmd.cmd_arg = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
+  app_cmd.cmd_arg = (uint)dev->rca << 0x10; /* RCA in bits [31:16] */
   *(uint8_t *)&app_cmd.resp_type = 1;             /* resp_type: R1 */
   sdcc_send_cmd(dev, &app_cmd);
   sdcc_send_cmd(dev, cmd);                        /* fire the actual ACMD */
@@ -799,7 +799,7 @@ void sdcc_pre_cmd_hook(mmc_dev_t *dev, mmc_cmd_t *cmd)
   int slot;
   sdcc_cmd_config_t cfg;
 
-  slot = *dev;
+  slot = dev->slot;
   uVar3 = 0;
   memset_zero(&cfg, sizeof(cfg));
   do {
@@ -856,7 +856,7 @@ uint sdcc_get_card_status(mmc_dev_t *dev)
   state = 9;   /* default: error / unknown */
   memset_zero(&cmd, sizeof(cmd));
   cmd.cmd_num = 0xd;                               /* CMD13: SEND_STATUS */
-  cmd.cmd_arg = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
+  cmd.cmd_arg = (uint)dev->rca << 0x10; /* RCA in bits [31:16] */
   *(uint8_t *)&cmd.resp_type = 1;                  /* resp_type: R1 */
   ret = sdcc_send_cmd(dev, &cmd);
   if (ret == 0) {
@@ -930,10 +930,10 @@ int sdcc_pre_write_setup(mmc_dev_t *dev, int is_reliable, int num_blocks)
   int iVar2;
   uint uVar3;
 
-  uVar1 = *dev;                          /* slot index */
+  uVar1 = dev->slot;                      /* slot index */
   uVar3 = 1;
   iVar2 = 5000;                          /* default timeout base (ms per block) */
-  if ((*(char *)((int)dev + DEV_BYTE_CARD_TYPE) == '\x02') || (*(char *)((int)dev + DEV_BYTE_CARD_TYPE) == '\x06')) {
+  if ((dev->card_type == 2) || (dev->card_type == 6)) {
     /* SD or SDHC card type (0x02 = SD, 0x06 = eMMC subtype mapped to SD path?) */
     if (is_reliable != 0) {
       iVar2 = 2000;                      /* reliable write: tighter per-block timeout */
@@ -943,16 +943,16 @@ int sdcc_pre_write_setup(mmc_dev_t *dev, int is_reliable, int num_blocks)
     /* MMC/eMMC card type, reliable write */
     iVar2 = 400;
   }
-  if (dev[DEV_CLOCK_KHZ] == 0) {
+  if (dev->clock_khz == 0) {
     iVar2 = iVar2 * 50000;               /* unknown clock: use large fallback multiplier */
   }
   else {
-    iVar2 = dev[DEV_CLOCK_KHZ] * iVar2;           /* scale by device max clock ticks per ms */
+    iVar2 = dev->clock_khz * iVar2;           /* scale by device max clock ticks per ms */
   }
   /* MCI_DATA_TIMER (+0x24): data transfer timeout in controller clock ticks */
   MCI_REG((short)uVar1, MCI_DATA_TIMER) = iVar2;
-  if (dev[DEV_CUSTOM_SECTOR] == 1) {                  /* DEV_CUSTOM_SECTOR: multi-block device */
-    uVar3 = dev[DEV_SECTOR_SIZE] & 0xffff;            /* DEV_SECTOR_SIZE: low 16 bits */
+  if (dev->custom_sector == 1) {                  /* custom_sector: multi-block device */
+    uVar3 = dev->sector_size & 0xffff;            /* sector_size: low 16 bits */
   }
   /* MCI_DATA_LENGTH (+0x28): total byte count for this transfer */
   MCI_REG((short)uVar1, MCI_DATA_LENGTH) = uVar3 * num_blocks;
@@ -986,7 +986,7 @@ uint sdcc_post_write_check(mmc_dev_t *dev)
   uint uVar2;
   uint uVar3;
 
-  uVar3 = *dev;                          /* slot index */
+  uVar3 = dev->slot;                      /* slot index */
   uVar2 = 0;
   do {
     if (0x7ffff < uVar2) {
@@ -1033,7 +1033,7 @@ uint sdcc_busy_wait(mmc_dev_t *dev)
   uint uVar3;
   int iVar4;
 
-  iVar4 = *dev;                          /* slot index */
+  iVar4 = dev->slot;                      /* slot index */
   uVar3 = 7;                             /* default return: timeout/error */
   uVar2 = 0;
   do {
@@ -1090,7 +1090,7 @@ LAB_0803517c:
  * Note: `if (true)` around the DATA_END wait loop is a Ghidra artifact
  * (always-true guard on a do-while → while transformation); no effect.
  */
-uint sdcc_pio_transfer(mmc_dev_t *dev, byte *buf, int byte_count)
+uint sdcc_pio_transfer(uint *hotplug, byte *buf, int byte_count)
 {
   int iVar1;
   uint uVar2;
@@ -1103,7 +1103,7 @@ uint sdcc_pio_transfer(mmc_dev_t *dev, byte *buf, int byte_count)
   bool bVar9;
   int local_28;
 
-  iVar7 = *dev;                          /* slot index */
+  iVar7 = *hotplug;                      /* slot index */
   uVar8 = 0;
   bVar9 = ((uint)buf & 3) != 0;          /* true if buffer is NOT word-aligned */
   uVar6 = 0;
