@@ -570,7 +570,7 @@ static char sector_buf[512] __attribute__((section(".ddr_bss"), aligned(32)));
 
 /* Track whether eMMC has been initialized */
 static int emmc_inited = 0;
-static unsigned int emmc_handle = 0;  /* handle from mmc_open_device */
+static mmc_handle_t *emmc_handle = 0;  /* handle from mmc_open_device */
 
 /* Step-by-step SDCC1 clock enable with diagnostic output.
  * Each register write is followed by a readback so we can see
@@ -727,12 +727,12 @@ static void cmd_emmc_init(void)
     usb_write(resp, p); p = 0;
 
     {
-        unsigned int handle = mmc_open_device(0, 0);
+        mmc_handle_t *handle = (mmc_handle_t *)(uintptr_t)mmc_open_device(0, 0);
         if (handle != 0) {
             emmc_handle = handle;
             emmc_inited = 1;
             p = put_str(resp, p, "eMMC init OK, handle=");
-            p = put_hex32(resp, p, handle);
+            p = put_hex32(resp, p, (unsigned int)handle);
             p = put_str(resp, p, "\r\n");
         } else {
             p = put_str(resp, p, "eMMC init FAILED (no handle)\r\n");
@@ -756,7 +756,7 @@ static void cmd_emmc_status(void)
     }
 
     {
-        unsigned int status = sdcc_get_card_status(*(int **)emmc_handle);
+        unsigned int status = sdcc_get_card_status((int *)(uintptr_t)emmc_handle[0]);
         /* Card state nibble: 0=idle, 1=ready, 2=ident, 3=stby, 4=tran, 5=data, 6=rcv, 7=prg */
         static const char *state_names[] = {
             "idle", "ready", "ident", "stby",
@@ -808,20 +808,41 @@ static void cmd_sector_read(const char *args)
     for (i = 0; i < 512; i++) sector_buf[i] = 0;
 
     /* Debug: dump handle chain */
+    /* Debug: dump handle and device struct fields */
     p = put_str(resp, p, "handle=");
-    p = put_hex32(resp, p, emmc_handle);
-    p = put_str(resp, p, " &handle=");
-    p = put_hex32(resp, p, (unsigned int)&emmc_handle);
-    p = put_str(resp, p, " *handle=");
-    p = put_hex32(resp, p, *(unsigned int *)emmc_handle);
-    p = put_str(resp, p, " buf=");
-    p = put_hex32(resp, p, (unsigned int)sector_buf);
+    p = put_hex32(resp, p, (unsigned int)emmc_handle);
+    p = put_str(resp, p, " h[0]=");
+    p = put_hex32(resp, p, emmc_handle[0]);
+    p = put_str(resp, p, " h[1]=");
+    p = put_hex32(resp, p, emmc_handle[1]);
     p = put_str(resp, p, "\r\n");
     usb_write(resp, p); p = 0;
 
-    /* mmc_read_blocks: param1=handle_ptr (ptr to device struct ptr),
-     * param2=start_sector, param3=buffer_addr, param4=num_sectors */
-    ret = mmc_read_blocks((void *)emmc_handle, sector, (unsigned int)sector_buf, 1);
+    {
+        mmc_dev_t *dev = (mmc_dev_t *)(uintptr_t)emmc_handle[0];
+        p = put_str(resp, p, "dev=");
+        p = put_hex32(resp, p, (unsigned int)dev);
+        p = put_str(resp, p, " slot=");
+        p = put_hex32(resp, p, dev[0]);
+        p = put_str(resp, p, " type=");
+        p = put_hex8(resp, p, (unsigned char)dev[2]);
+        p = put_str(resp, p, " curpart=");
+        p = put_hex32(resp, p, dev[1]);
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p); p = 0;
+
+        /* Trace ensure_partition decision: compare dev[1] vs handle[1] */
+        p = put_str(resp, p, "ensure: dev[1]=");
+        p = put_hex32(resp, p, dev[1]);
+        p = put_str(resp, p, " h[1]=");
+        p = put_hex32(resp, p, emmc_handle[1]);
+        p = put_str(resp, p, " match=");
+        p = put_dec(resp, p, (dev[1] == (int)emmc_handle[1]) ? 1 : 0);
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p); p = 0;
+    }
+
+    ret = mmc_read_blocks(emmc_handle, sector, (unsigned int)sector_buf, 1);
 
     p = put_str(resp, p, "Read sector ");
     p = put_hex32(resp, p, sector);
@@ -880,7 +901,7 @@ static void cmd_sector_write(const char *args)
 
     /* mmc_write_sectors: param1=handle_ptr, param2=start_sector,
      * param3=buffer_addr, param4=num_sectors */
-    ret = mmc_write_sectors((void *)emmc_handle, sector, (unsigned int)sector_buf, 1);
+    ret = mmc_write_sectors(emmc_handle, sector, (unsigned int)sector_buf, 1);
 
     p = put_str(resp, p, "Write sector ");
     p = put_hex32(resp, p, sector);

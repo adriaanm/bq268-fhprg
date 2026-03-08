@@ -2,7 +2,7 @@
  *
  * This is the critical layer for understanding writes. The write path is:
  *   handle_program -> storage_write_sectors -> mmc_write_sectors ->
- *   mmc_read_blocks -> sdcc_write_data -> sdcc_send_cmd
+ *   sdcc_write_data -> sdcc_send_cmd
  *
  * SDCC = Secure Digital Card Controller (Qualcomm's SD/eMMC controller IP).
  * Commands follow the eMMC JEDEC spec (CMD0, CMD6, CMD24, CMD25, etc.).
@@ -76,7 +76,7 @@ uint sdcc_get_slot_status(uint slot)
  * Returns: 0=success, 0x14=invalid params, 3=timeout, 6=CMD0 timeout,
  *          7=busy timeout, 0xb=R1 error bits set
  */
-int sdcc_send_cmd(int *dev, int *cmd)
+int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
 {
   int iVar3;
   uint uVar4;
@@ -171,7 +171,7 @@ void sdcc_write_complete_notify(void)
  * This function does NOT check write protection — that's done by
  * mmc_write_sectors() before calling this.
  */
-int sdcc_write_data(undefined4 *dev, int *cmd, undefined4 buf, uint num_blocks)
+int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
 {
   int iVar1;
   int iVar2;
@@ -305,7 +305,7 @@ LAB_0803376e:
 }
 
 /* orig: 0x08033cbc mmc_get_card_type — always MMC for eMMC-only build */
-undefined4 mmc_get_card_type(undefined4 slot, undefined1 *type_out, undefined1 *subtype_out)
+uint mmc_get_card_type(uint slot, undefined1 *type_out, undefined1 *subtype_out)
 {
   *type_out = 0; /* MMC */
   *subtype_out = 0; /* MMC */
@@ -314,7 +314,7 @@ undefined4 mmc_get_card_type(undefined4 slot, undefined1 *type_out, undefined1 *
 
 /* orig: 0x08033d28 mmc_close_handle — close a device handle.
  * Deinitializes and releases the SDCC slot. */
-undefined4 mmc_close_handle(int *handle)
+uint mmc_close_handle(mmc_handle_t *handle)
 {
   int *local_10;
 
@@ -337,7 +337,7 @@ undefined4 mmc_close_handle(int *handle)
  * sector = start sector
  * count = sector count
  */
-int mmc_erase_range(undefined4 *handle, int sector, int count)
+int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
 {
   int iVar1;
   uint *puVar2;
@@ -426,7 +426,7 @@ int mmc_erase_range(undefined4 *handle, int sector, int count)
  *   +0x31: product revision (from dev+0x49)
  *   +0x34-0x3C: GPP sizes
  */
-uint mmc_get_partition_info(uint *handle, char *info)
+uint mmc_get_partition_info(mmc_handle_t *handle, char *info)
 {
     uint *puVar3;
     uint uVar2;
@@ -481,7 +481,7 @@ uint mmc_get_partition_info(uint *handle, char *info)
  * buf = data buffer (must be DMA-accessible, i.e. DDR)
  * num_blocks = block count (1=CMD17 single, >1=CMD18 multi)
  */
-int mmc_read_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blocks)
+int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
 {
   char cVar1;
   int iVar2;
@@ -546,7 +546,7 @@ int mmc_read_blocks(undefined4 *handle, int sector, undefined4 buf, int num_bloc
  *   handle[0] = ptr to device struct
  *   handle[1] = requested partition (-1 or 0..7)
  */
-int mmc_switch_partition(int *handle)
+int mmc_switch_partition(mmc_handle_t *handle)
 {
   int iVar1;
   uint *puVar2;
@@ -617,7 +617,7 @@ int mmc_switch_partition(int *handle)
  * EXT_CSD[160] = SEC_TRIM_MULT / WR_REL_SET area. The firmware uses this
  * byte as a general "write permitted" flag.
  */
-int mmc_write_sectors(uint *handle, int sector, uint buf, int num_blocks)
+int mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
 {
     uint *puVar3;
     char cVar1;
@@ -669,7 +669,7 @@ int mmc_write_sectors(uint *handle, int sector, uint buf, int num_blocks)
  * *sectors = sector count (output)
  * *part_type = partition type code (output)
  */
-undefined4 mmc_get_capacity(int *handle, uint *sectors, undefined4 *part_type)
+uint mmc_get_capacity(mmc_handle_t *handle, uint *sectors, uint *part_type)
 {
   uint uVar1;
   undefined4 uVar2;
@@ -733,7 +733,7 @@ undefined4 mmc_get_capacity(int *handle, uint *sectors, undefined4 *part_type)
  *
  * Compares handle[1] (requested partition) against the cached current
  * partition at dev+0x78. Returns 1 if already active, 0 otherwise. */
-undefined4 mmc_is_partition_active(int *handle)
+uint mmc_is_partition_active(mmc_handle_t *handle)
 {
   char cVar1;
   int iVar2;
@@ -767,7 +767,7 @@ undefined4 mmc_is_partition_active(int *handle)
  * This is called before every read/write/erase operation to make sure
  * we're talking to the right partition.
  */
-int mmc_ensure_partition(int *handle)
+int mmc_ensure_partition(mmc_handle_t *handle)
 {
   char cVar1;
   int iVar2;
@@ -826,7 +826,7 @@ int mmc_ensure_partition(int *handle)
  * succeeds, the device struct is fully populated and subsequent
  * read/write commands can proceed.
  */
-int mmc_open_device(int slot, undefined4 flags)
+int mmc_open_device(int slot, uint flags)
 {
   char cVar1;
   int iVar2;
