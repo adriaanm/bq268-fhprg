@@ -72,9 +72,14 @@ extern uint sdcc_hc_base[2];       /* SDCC SDHCI host-controller base [slot] */
 extern uint sdcc_hc_base_alt[2];   /* SDCC SDHCI host-controller base (alt) [slot] */
 
 /*========================================================================
+ * eMMC driver types
+ *========================================================================*/
+typedef uint  mmc_dev_t;     /* word-indexed device struct (use as mmc_dev_t*) */
+typedef uint  mmc_handle_t;  /* word-indexed partition handle (use as mmc_handle_t*) */
+typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10]) */
+
+/*========================================================================
  * Forward declarations — organized by file / subsystem
- *
- * All use K&R-style empty parentheses (). In gnu89, () = unspecified args.
  *========================================================================*/
 
 /* ---- sdcc_regs.c ---- */
@@ -121,43 +126,40 @@ void     sdcc_set_bus_speed(int slot, int speed);
 void adma_bounce_read(int slot, int buf, int *remaining);
 void adma_bounce_write(int slot, int buf, int *remaining);
 void sdcc_event_notify(int flags, int addr, uint size);
-uint sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop);
-int  sdcc_fifo_write(int *dev, int cmd_config, uint *buf, uint byte_count);
+uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop);
+int  sdcc_fifo_write(mmc_dev_t *dev, int cmd_config, uint *buf, uint byte_count);
 uint sdcc_dma_setup(int slot, int buf, uint byte_count);
 uint sdcc_wait_complete(int slot, uint mask, uint *out_status);
-int  mmc_switch_cmd6(int *dev, uint cmd6_arg);
-uint sdcc_setup_data_xfer(int *dev, int *cmd);
-uint sdcc_adma_transfer(int *dev, uint *buf, int byte_count);
-uint sdcc_adma_write(int *dev, uint *cmd);
-void sdcc_pre_cmd_hook(int *dev, int *cmd);
-int  sdcc_pre_write_setup(uint *dev, int is_reliable, int num_blocks);
-uint sdcc_post_write_check(uint *dev);
-uint sdcc_busy_wait(int *dev);
-uint sdcc_pio_transfer(int *dev, byte *buf, int byte_count);
-uint sdcc_get_card_status(int *dev);
+int  mmc_switch_cmd6(mmc_dev_t *dev, uint cmd6_arg);
+uint sdcc_setup_data_xfer(mmc_dev_t *dev, mmc_cmd_t *cmd);
+uint sdcc_adma_transfer(mmc_dev_t *dev, uint *buf, int byte_count);
+uint sdcc_adma_write(mmc_dev_t *dev, mmc_cmd_t *cmd);
+void sdcc_pre_cmd_hook(mmc_dev_t *dev, mmc_cmd_t *cmd);
+int  sdcc_pre_write_setup(mmc_dev_t *dev, int is_reliable, int num_blocks);
+uint sdcc_post_write_check(mmc_dev_t *dev);
+uint sdcc_busy_wait(mmc_dev_t *dev);
+uint sdcc_pio_transfer(mmc_dev_t *dev, byte *buf, int byte_count);
+uint sdcc_get_card_status(mmc_dev_t *dev);
 
 /* ---- card_init.c ---- */
 void sdcc_pre_init_slot(int slot);
 void sdcc_clock_setup(int slot, uint *freq, int mode);
-void mmc_set_bus_width(uint *dev, uint speed_mode, uint unused1, uint freq_hint);
-int  mmc_set_speed(int *dev);
+void mmc_set_bus_width(mmc_dev_t *dev, uint speed_mode, uint unused1, uint freq_hint);
+int  mmc_set_speed(mmc_dev_t *dev);
 int  mmc_get_slot_context(uint slot);
 void mmc_finalize_init(int dev);
-void mmc_release_slot(uint *handle);
-char mmc_classify_error(int *handle);
+void mmc_release_slot(mmc_handle_t **handle_ptr);
+char mmc_classify_error(mmc_handle_t *handle);
 int  mmc_identify_card(int dev);
 int  mmc_config_bus(int dev);
 uint mmc_init_card(int slot);
-int *mmc_alloc_handle(short slot, int flags);
+mmc_handle_t *mmc_alloc_handle(short slot, int flags);
 uint mmc_setup_partitions(int dev);
 
 
 /*========================================================================
- * eMMC driver types and struct field indices
+ * eMMC driver struct field indices
  *========================================================================*/
-typedef uint  mmc_dev_t;     /* word-indexed device struct (use as mmc_dev_t*) */
-typedef uint  mmc_handle_t;  /* word-indexed partition handle (use as mmc_handle_t*) */
-typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10]) */
 
 /* mmc_dev_t field indices (word offsets unless noted).
  * Device struct is 0x94 bytes, embedded in slot context at +0x0C.

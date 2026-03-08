@@ -231,7 +231,7 @@ minimal: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
 minimal-elf: $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ)
 	@echo "[*] Linking minimal ELF..."
 	$(LD) -T $(MINIMAL_LD_SCRIPT) -o $(MINIMAL_ELF) $(MINIMAL_OBJ) $(MINIMAL_ASM_OBJ) \
-		$(MINIMAL_LIBGCC) -Map $(MINIMAL_MAP)
+		$(MINIMAL_LIBGCC) -Map $(MINIMAL_MAP) --no-warn-execstack
 	@echo "[*] CODE segment: $$(arm-none-eabi-size -A $(MINIMAL_ELF) | awk '/.text/{t+=$$2} /.rodata/{t+=$$2} END{print t}') bytes (limit: 294912)"
 	@echo "[*] Adding MBN hash table for Sahara..."
 	python3 tools/mbn_wrap.py $(MINIMAL_ELF)

@@ -49,7 +49,7 @@
 #include "firehose.h"
 
 /* Forward declarations for functions defined later in this file */
-static uint sdcc_wait_card_ready(int *dev);
+static uint sdcc_wait_card_ready(mmc_dev_t *dev);
 
 /* ---- DMA bounce helpers (from fhprg_8007b18.c) ---- */
 
@@ -242,7 +242,7 @@ void sdcc_event_notify(int flags, int addr, uint size)
  * If need_stop is 0 but need_busy is 1, only polls for card ready
  * (used for single-block writes with R1b busy signalling on DAT0).
  */
-uint sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
+uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop)
 {
   uint uVar1;
   int cmd[10]; /* command struct: [0]=cmd_num [1]=arg [2]=resp_type [7]=busy_wait */
@@ -289,7 +289,7 @@ uint sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
  *
  * Returns 1 immediately if neither read nor write bit is set in flags.
  */
-int sdcc_fifo_write(int *dev, int cmd_config, uint *buf, uint byte_count)
+int sdcc_fifo_write(mmc_dev_t *dev, int cmd_config, uint *buf, uint byte_count)
 {
   int iVar1;
   uint uVar2;
@@ -310,7 +310,7 @@ int sdcc_fifo_write(int *dev, int cmd_config, uint *buf, uint byte_count)
     uVar5 = 1;
     uVar6 = byte_count;
   }
-  uVar6 = uVar6 + 3 >> 2;               /* round up to word count */
+  uVar6 = (uVar6 + 3) >> 2;              /* round up to word count */
 
   /* Decode transfer direction from cmd_config flags (+0x24) */
   if ((int)(*(uint *)(cmd_config + 0x24) << 0x1e) < 0) {
@@ -507,7 +507,7 @@ uint sdcc_wait_complete(int slot, uint mask, uint *out_status)
  *
  * State extraction: (cmd[3] << 0x13) >> 0x1c  ==  (cmd[3] >> 9) & 0xF
  */
-int mmc_switch_cmd6(int *dev, uint cmd6_arg)
+int mmc_switch_cmd6(mmc_dev_t *dev, uint cmd6_arg)
 {
   int ret;
   int cmd[10]; /* command struct (reused for CMD6 then CMD13) */
@@ -564,7 +564,7 @@ int mmc_switch_cmd6(int *dev, uint cmd6_arg)
  * Each matched bit is cleared in MCI_CLEAR (+0x38) before returning.
  * cmd[8] (CMD_STATUS) is updated with the final MCI_STATUS snapshot.
  */
-uint sdcc_setup_data_xfer(int *dev, int *cmd)
+uint sdcc_setup_data_xfer(mmc_dev_t *dev, mmc_cmd_t *cmd)
 {
   uint uVar1;
   int iVar2;
@@ -645,7 +645,7 @@ LAB_08034c08:
  *   The `dev + 3` passed to mmc_set_bus_width is a pointer to the device
  *   struct's third word (bus width / speed configuration).
  */
-uint sdcc_adma_transfer(int *dev, uint *buf, int byte_count)
+uint sdcc_adma_transfer(mmc_dev_t *dev, uint *buf, int byte_count)
 {
   uint uVar1;
   uint uVar2;
@@ -754,7 +754,7 @@ LAB_08034c9e:
  * Note: this function is misnamed — it does not perform a DMA write
  * itself; it is simply the CMD55+ACMD dispatch wrapper.
  */
-uint sdcc_adma_write(int *dev, uint *cmd)
+uint sdcc_adma_write(mmc_dev_t *dev, mmc_cmd_t *cmd)
 {
   int app_cmd[10];
 
@@ -801,7 +801,7 @@ uint sdcc_adma_write(int *dev, uint *cmd)
  *   0x12 = CMD18 (READ_MULTIPLE_BLOCK), 0x18 = CMD24 (WRITE_BLOCK),
  *   0x19 = CMD25 (WRITE_MULTIPLE_BLOCK)
  */
-void sdcc_pre_cmd_hook(int *dev, int *cmd)
+void sdcc_pre_cmd_hook(mmc_dev_t *dev, mmc_cmd_t *cmd)
 {
   uint uVar1;
   int cmd_num;
@@ -858,7 +858,7 @@ status_clear:
  * byte offset 10 of the device struct.
  * State extraction: (cmd[3] << 0x13) >> 0x1c  ==  (cmd[3] >> 9) & 0xF
  */
-uint sdcc_get_card_status(int *dev)
+uint sdcc_get_card_status(mmc_dev_t *dev)
 {
   int ret;
   uint state;
@@ -887,7 +887,7 @@ uint sdcc_get_card_status(int *dev)
  * Called after a write command or CMD6 SWITCH to confirm the card is
  * ready for the next command. Delays 100 µs between CMD13 polls.
  */
-uint sdcc_wait_card_ready(int *dev)
+uint sdcc_wait_card_ready(mmc_dev_t *dev)
 {
   int iVar1;
   uint uVar2;
@@ -935,7 +935,7 @@ uint sdcc_wait_card_ready(int *dev)
  * Note: the slot index is cast to (short) for the register base array
  * lookup — this matches the original binary which stored slot as a short.
  */
-int sdcc_pre_write_setup(uint *dev, int is_reliable, int num_blocks)
+int sdcc_pre_write_setup(mmc_dev_t *dev, int is_reliable, int num_blocks)
 {
   uint uVar1;
   int iVar2;
@@ -991,7 +991,7 @@ int sdcc_pre_write_setup(uint *dev, int is_reliable, int num_blocks)
  * On DATA_END: calls sdcc_set_all_irq() to write MCI_CLEAR (+0x38) =
  * 0x18007ff, clearing all status bits.
  */
-uint sdcc_post_write_check(uint *dev)
+uint sdcc_post_write_check(mmc_dev_t *dev)
 {
   uint uVar1;
   uint uVar2;
@@ -1037,7 +1037,7 @@ uint sdcc_post_write_check(uint *dev)
  * Note: `(true) &&` in the fallback branch is a Ghidra artifact from
  * a conditional expression that always evaluates true; it has no effect.
  */
-uint sdcc_busy_wait(int *dev)
+uint sdcc_busy_wait(mmc_dev_t *dev)
 {
   uint uVar1;
   uint uVar2;
@@ -1101,7 +1101,7 @@ LAB_0803517c:
  * Note: `if (true)` around the DATA_END wait loop is a Ghidra artifact
  * (always-true guard on a do-while → while transformation); no effect.
  */
-uint sdcc_pio_transfer(int *dev, byte *buf, int byte_count)
+uint sdcc_pio_transfer(mmc_dev_t *dev, byte *buf, int byte_count)
 {
   int iVar1;
   uint uVar2;

@@ -538,7 +538,7 @@ void sdcc_set_8bit_mode(int slot, int enable)
     bVar1 = 0x10;  /* HOST_CTRL1_REG bit 4: DATA_WIDTH_8BIT */
   }
   *(uint8_t *)(sdcc_hc_base[slot] + 0x28) =
-       *(uint8_t *)(sdcc_hc_base[slot] + 0x28) & 0xe7 | bVar1;
+       (*(uint8_t *)(sdcc_hc_base[slot] + 0x28) & 0xe7) | bVar1;
   return;
 }
 
@@ -599,7 +599,7 @@ void sdcc_set_clock_mode(int slot)
 void sdcc_set_hs_mode(int slot, char enable)
 {
   *(uint8_t *)(sdcc_hc_base[slot] + 0x2c) =
-       *(uint8_t *)(sdcc_hc_base[slot] + 0x2c) & 0xfb | (uint8_t)(enable << 2);
+       (*(uint8_t *)(sdcc_hc_base[slot] + 0x2c) & 0xfb) | (uint8_t)(enable << 2);
   return;
 }
 
@@ -741,7 +741,7 @@ void sdcc_set_int_signal(int slot, uint mask, int enable)
   }
   else {
     do {
-      *puVar1 = uVar2 & ~mask | mask;  /* set bits */
+      *puVar1 = (uVar2 & ~mask) | mask;  /* set bits */
       uVar2 = *puVar1;
       if ((mask & ~uVar2) == 0) {  /* verify all requested bits are now set */
         return;
@@ -865,12 +865,12 @@ void sdcc_setup_caps(int slot)
   if ((uVar1 & 1) == 0) {
     if ((int)(uVar1 << 0x1e) < 0) {
       /* bit 1 set, bit 0 clear: set voltage bits for 1.8V-only operation */
-      uVar2 = uVar2 & 0x3bffffff | 0x3000000;
+      uVar2 = (uVar2 & 0x3bffffff) | 0x3000000;
     }
   }
   else {
     /* bit 0 set: set high-speed/voltage capability fields */
-    uVar2 = uVar2 & 0x38ffffff | 0x44040000;
+    uVar2 = (uVar2 & 0x38ffffff) | 0x44040000;
   }
   *(uint *)(iVar4 + 0x11c) = uVar2;              /* VENDOR_SPECIFIC_CAPABILITIES0 */
   *(uint *)(sdcc_hc_base[slot] + 0x120) = uVar3; /* shadow of CAPS_REG2 */
@@ -891,7 +891,7 @@ void sdcc_setup_caps(int slot)
 void sdcc_set_bus_power(int slot, uint8_t enable)
 {
   *(uint8_t *)(sdcc_hc_base[slot] + 0x29) =
-       *(uint8_t *)(sdcc_hc_base[slot] + 0x29) & 0xfe | enable;
+       (*(uint8_t *)(sdcc_hc_base[slot] + 0x29) & 0xfe) | enable;
   return;
 }
 
@@ -907,7 +907,7 @@ void sdcc_set_bus_power(int slot, uint8_t enable)
 void sdcc_set_voltage(int slot, uint8_t voltage)
 {
   *(uint8_t *)(sdcc_hc_base[slot] + 0x29) =
-       *(uint8_t *)(sdcc_hc_base[slot] + 0x29) & 0xf1 | voltage;
+       (*(uint8_t *)(sdcc_hc_base[slot] + 0x29) & 0xf1) | voltage;
   return;
 }
 
@@ -1020,7 +1020,7 @@ void sdcc_set_bus_speed(int slot, int speed)
   }
   /* MCI_CLK: clear BUS_SPEED bits then write new value */
   *(uint *)(sdcc_mci_base[slot] + 4) =
-       *(uint *)(sdcc_mci_base[slot] + 4) & 0xfffff3ff | uVar1;
+       (*(uint *)(sdcc_mci_base[slot] + 4) & 0xfffff3ff) | uVar1;
   sdcc_enable_clock(slot);
   return;
 }

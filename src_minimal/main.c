@@ -111,71 +111,6 @@ void setup_early_page_table(void)
     __asm__ volatile("isb");
 }
 
-static void setup_page_table(void)
-{
-    int i;
-
-    /* Start with all fault entries */
-    for (i = 0; i < 4096; i++)
-        page_table[i] = 0;
-
-    /* 0x00000000-0x002FFFFF: Boot ROM + IMEM (DDR blob at 0x00220000) */
-    for (i = 0; i <= 2; i++)
-        page_table[i] = SECT_DEV(i << 20);
-
-    /* 0x00400000-0x004FFFFF: BIMC + MPM2 timetick */
-    page_table[4] = SECT_DEV(0x00400000);
-
-    /* 0x01000000-0x010FFFFF: TLMM (GPIO) */
-    page_table[0x10] = SECT_DEV(0x01000000);
-
-    /* 0x01800000-0x018FFFFF: GCC (clocks) */
-    page_table[0x18] = SECT_DEV(0x01800000);
-
-    /* 0x07800000-0x07FFFFFF: PERIPH_SS (SDCC at 0x07824000, USB at 0x07FD9000) */
-    for (i = 0x78; i <= 0x7F; i++)
-        page_table[i] = SECT_DEV(i << 20);
-
-    /* 0x08000000-0x080FFFFF: OCIMEM (code + data + BSS + stack) */
-    page_table[0x80] = SECT_MEM(0x08000000);
-
-    /* 0x08600000: SYSTEM_IMEM (DDR config destination) */
-    page_table[0x86] = SECT_DEV(0x08600000);
-
-    /* 0x80000000-0x87FFFFFF: DDR (128MB) */
-    for (i = 0x800; i <= 0x87F; i++)
-        page_table[i] = SECT_MEM(i << 20);
-
-    /* Clean page table from D-cache to physical memory.
-     * The HW page table walker reads from physical RAM, not cache.
-     * DCCIMVAC = Data Cache Clean and Invalidate by MVA to PoC. */
-    {
-        unsigned int a;
-        for (a = (unsigned int)page_table;
-             a < (unsigned int)page_table + sizeof(page_table);
-             a += 32)
-            __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(a));
-    }
-    __asm__ volatile("dsb" ::: "memory");
-
-    /* Switch TTBR0 to our page table.
-     * Set cacheable walk bits: IRGN=01 (WB-WA), RGN=01 (WB-WA)
-     * so future walks can use cache. */
-    {
-        unsigned int ttbr0_val = (unsigned int)page_table
-                               | (1 << 0)   /* IRGN[0] = 1 → IRGN=01 */
-                               | (1 << 3);  /* RGN = 01 */
-        __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" :: "r"(ttbr0_val));
-    }
-
-    /* Invalidate entire TLB */
-    __asm__ volatile("mcr p15, 0, %0, c8, c7, 0" :: "r"(0));
-
-    /* Ensure everything takes effect */
-    __asm__ volatile("dsb" ::: "memory");
-    __asm__ volatile("isb");
-}
-
 /*========================================================================
  * ICB config — BIMC QoS/arbitration registers
  *========================================================================*/
@@ -764,7 +699,7 @@ static void cmd_emmc_status(void)
     }
 
     {
-        unsigned int status = sdcc_get_card_status((int *)(uintptr_t)emmc_handle[0]);
+        unsigned int status = sdcc_get_card_status((mmc_dev_t *)(uintptr_t)emmc_handle[0]);
         /* Card state nibble: 0=idle, 1=ready, 2=ident, 3=stby, 4=tran, 5=data, 6=rcv, 7=prg */
         static const char *state_names[] = {
             "idle", "ready", "ident", "stby",
