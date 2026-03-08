@@ -49,7 +49,7 @@
 #include "firehose.h"
 
 /* Forward declarations for functions defined later in this file */
-static undefined4 sdcc_wait_card_ready(int *dev);
+static uint sdcc_wait_card_ready(int *dev);
 
 /* ---- DMA bounce helpers (from fhprg_8007b18.c) ---- */
 
@@ -61,7 +61,7 @@ static undefined4 sdcc_wait_card_ready(int *dev);
  * Used by sdcc_dma_setup to fill ADMA2 descriptor address fields
  * byte-by-byte, as the descriptor table is a packed byte array.
  */
-static void write_le32(undefined4 val, undefined1 *buf)
+static void write_le32(uint val, uint8_t *buf)
 {
   *buf = (char)val;
   buf[1] = (char)((uint)val >> 8);
@@ -242,9 +242,9 @@ void sdcc_event_notify(int flags, int addr, uint size)
  * If need_stop is 0 but need_busy is 1, only polls for card ready
  * (used for single-block writes with R1b busy signalling on DAT0).
  */
-undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
+uint sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
 {
-  undefined4 uVar1;
+  uint uVar1;
   int cmd[10]; /* command struct: [0]=cmd_num [1]=arg [2]=resp_type [7]=busy_wait */
 
   uVar1 = 0;
@@ -256,7 +256,7 @@ undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
   else {
     memset_zero(cmd, sizeof(cmd));
     cmd[0] = 0xc;                                 /* CMD12: STOP_TRANSMISSION */
-    *(undefined1 *)&cmd[2] = 1;                   /* resp_type: R1 */
+    *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                   /* resp_type: R1 */
     cmd[7] = (need_busy == 1) ? 1 : 0;            /* busy_wait: 1 = wait for DAT0 deassert */
     uVar1 = sdcc_send_cmd(dev, cmd);
   }
@@ -289,16 +289,16 @@ undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
  *
  * Returns 1 immediately if neither read nor write bit is set in flags.
  */
-int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
+int sdcc_fifo_write(int *dev, int cmd_config, uint *buf, uint byte_count)
 {
   int iVar1;
   uint uVar2;
-  undefined4 uVar3;
+  uint uVar3;
   int iVar4;
   uint uVar5;
   uint uVar6;
-  undefined4 uVar7;
-  undefined4 local_28;
+  uint uVar7;
+  uint local_28;
 
   local_28 = 0;
   iVar4 = *dev;                          /* slot index */
@@ -325,7 +325,7 @@ int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
   do {
     iVar1 = sdcc_wait_complete(iVar4, uVar7, &local_28);
     if (iVar1 != 0) {
-      *(undefined4 *)(cmd_config + 0x20) = local_28; /* save error status for caller */
+      *(uint *)(cmd_config + 0x20) = local_28; /* save error status for caller */
       return iVar1;
     }
     sdcc_clear_status(iVar4, uVar7);
@@ -333,7 +333,7 @@ int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
     if ((int)(*(uint *)(cmd_config + 0x24) << 0x1e) < 0) {
       /* READ: pull words from SDHCI_BUF_DATA (DAT_0804e2d8[slot] + 0x20) */
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
-        *buf = *(undefined4 *)(DAT_0804e2d8[iVar4] + 0x20); /* SDHCI_BUF_DATA (+0x20) */
+        *buf = *(uint *)(DAT_0804e2d8[iVar4] + 0x20); /* SDHCI_BUF_DATA (+0x20) */
         buf = buf + 1;
       }
     }
@@ -342,7 +342,7 @@ int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
         uVar3 = *buf;
         buf = buf + 1;
-        *(undefined4 *)(DAT_0804e2d8[iVar4] + 0x20) = uVar3; /* SDHCI_BUF_DATA (+0x20) */
+        *(uint *)(DAT_0804e2d8[iVar4] + 0x20) = uVar3; /* SDHCI_BUF_DATA (+0x20) */
       }
     }
     uVar5 = uVar5 - 1;
@@ -388,7 +388,7 @@ static byte adma_desc_table[128 * 8]
  *
  * Original code used hardcoded 0x80201000; we use a .ddr_bss buffer.
  */
-undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
+uint sdcc_dma_setup(int slot, int buf, uint byte_count)
 {
   uint uVar1;
   byte *pbVar2;
@@ -430,7 +430,7 @@ undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
   sdcc_event_notify(2, (int)adma_desc_table, uVar1 << 3); /* cache flush: descriptor table */
   sdcc_event_notify(4, 0, 0);                    /* DMB after cache flush */
   sdcc_set_adma_addr_hi(slot, 0);                /* SDHCI_ADMA_ADDRESS_HI (+0x5C) = 0 */
-  sdcc_set_adma_addr_lo(slot, (undefined4)adma_desc_table); /* SDHCI_ADMA_ADDRESS_LO (+0x58) */
+  sdcc_set_adma_addr_lo(slot, (uint)adma_desc_table); /* SDHCI_ADMA_ADDRESS_LO (+0x58) */
   return 0;
 }
 
@@ -456,10 +456,10 @@ undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
  * sdcc_read_present (this controller packs the SDHCI error status register
  * at +0x32 into the upper half of the 32-bit read from +0x30).
  */
-undefined4 sdcc_wait_complete(int slot, uint mask, uint *out_status)
+uint sdcc_wait_complete(int slot, uint mask, uint *out_status)
 {
   uint uVar1;
-  undefined4 uVar2;
+  uint uVar2;
   uint uVar3;
 
   uVar3 = 0;
@@ -507,7 +507,7 @@ undefined4 sdcc_wait_complete(int slot, uint mask, uint *out_status)
  *
  * State extraction: (cmd[3] << 0x13) >> 0x1c  ==  (cmd[3] >> 9) & 0xF
  */
-int mmc_switch_cmd6(int *dev, undefined4 cmd6_arg)
+int mmc_switch_cmd6(int *dev, uint cmd6_arg)
 {
   int ret;
   int cmd[10]; /* command struct (reused for CMD6 then CMD13) */
@@ -516,7 +516,7 @@ int mmc_switch_cmd6(int *dev, undefined4 cmd6_arg)
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 6;                                     /* CMD6: SWITCH */
   cmd[1] = (int)cmd6_arg;                         /* switch argument */
-  *(undefined1 *)&cmd[2] = 1;                     /* resp_type: R1b */
+  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                     /* resp_type: R1b */
   cmd[7] = 1;                                     /* busy_wait: wait for DAT0 deassert */
   ret = sdcc_send_cmd(dev, cmd);
   if (ret == 0) {
@@ -524,7 +524,7 @@ int mmc_switch_cmd6(int *dev, undefined4 cmd6_arg)
     memset_zero(cmd, sizeof(cmd));
     cmd[0] = 0xd;                                 /* CMD13: SEND_STATUS */
     cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
-    *(undefined1 *)&cmd[2] = 1;                   /* resp_type: R1 */
+    *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                   /* resp_type: R1 */
     ret = sdcc_send_cmd(dev, cmd);
     if (ret == 0) {
       if ((uint)(cmd[3] << 0x13) >> 0x1c == 4) {  /* R1[12:9] CURRENT_STATE == 4 (transfer)? */
@@ -564,13 +564,13 @@ int mmc_switch_cmd6(int *dev, undefined4 cmd6_arg)
  * Each matched bit is cleared in MCI_CLEAR (+0x38) before returning.
  * cmd[8] (CMD_STATUS) is updated with the final MCI_STATUS snapshot.
  */
-undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
+uint sdcc_setup_data_xfer(int *dev, int *cmd)
 {
   uint uVar1;
   int iVar2;
   uint uVar3;
   int iVar4;
-  undefined4 uVar5;
+  uint uVar5;
 
   iVar4 = *dev;                          /* slot index */
   uVar5 = 1;
@@ -580,16 +580,16 @@ undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
     if (0x7ffff < uVar3) goto LAB_08034c08;
     uVar1 = sdcc_read_status(iVar4);     /* MCI_STATUS (+0x34) */
     if ((uVar1 & 0x40) != 0) {           /* CMD_RESPONSE_END (0x40): command completed */
-      *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 0x40; /* MCI_CLEAR (+0x38): ack CMD_RESPONSE_END */
+      *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 0x40; /* MCI_CLEAR (+0x38): ack CMD_RESPONSE_END */
       uVar5 = 0;
       if ((uVar1 & 0x800000) != 0) {     /* PROG_DONE (0x800000): card already done */
-        *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
+        *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
         cmd[7] = 0;                      /* clear busy_wait: no need to poll card busy */
       }
       goto LAB_08034c08;
     }
     if ((uVar1 & 4) != 0) {              /* CMD_TIMEOUT (0x4) */
-      *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 4; /* MCI_CLEAR (+0x38): ack CMD_TIMEOUT */
+      *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 4; /* MCI_CLEAR (+0x38): ack CMD_TIMEOUT */
       uVar5 = 2;
       goto LAB_08034c08;
     }
@@ -603,7 +603,7 @@ undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
   else {
     uVar5 = 4;                           /* genuine CRC error on other commands */
   }
-  *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 1; /* MCI_CLEAR (+0x38): ack CMD_CRC_FAIL */
+  *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 1; /* MCI_CLEAR (+0x38): ack CMD_CRC_FAIL */
 LAB_08034c08:
   cmd[8] = uVar1;                        /* CMD_STATUS: save MCI_STATUS snapshot */
   return uVar5;
@@ -645,13 +645,13 @@ LAB_08034c08:
  *   The `dev + 3` passed to mmc_set_bus_width is a pointer to the device
  *   struct's third word (bus width / speed configuration).
  */
-undefined4 sdcc_adma_transfer(int *dev, uint *buf, int byte_count)
+uint sdcc_adma_transfer(int *dev, uint *buf, int byte_count)
 {
   uint uVar1;
   uint uVar2;
   uint *puVar3;
   int iVar4;
-  undefined4 uVar5;
+  uint uVar5;
   bool bVar6;
   int local_20;
 
@@ -719,16 +719,16 @@ LAB_08034c9e:
       mmc_set_bus_width(dev + 3, 5, 0, 0);
       {
         int iVar2 = *dev;
-        undefined4 *puVar1 = (undefined4 *)DAT_0804e2c8[iVar2]; /* MCI base */
-        undefined4 uVar3 = puVar1[1];      /* MCI_CLK   (+0x04): saved before reset */
-        undefined4 uVar4a = *puVar1;       /* MCI_POWER (+0x00): saved before reset */
-        undefined4 uVar5a = puVar1[0xf];   /* MCI_INT_MASK0 (+0x3C): saved before reset */
+        uint *puVar1 = (uint *)DAT_0804e2c8[iVar2]; /* MCI base */
+        uint saved_clk  = puVar1[1];       /* MCI_CLK   (+0x04): save before reset */
+        uint saved_pwr  = *puVar1;         /* MCI_POWER (+0x00): save before reset */
+        uint saved_mask = puVar1[0xf];     /* MCI_INT_MASK0 (+0x3C): save before reset */
         sdcc_clock_setup(iVar2, 0, 2);
-        *(undefined4 *)(DAT_0804e2c8[iVar2] + 4)   = uVar3;   /* MCI_CLK (+0x04): restore */
+        *(uint *)(DAT_0804e2c8[iVar2] + 4)    = saved_clk;  /* MCI_CLK: restore */
         sdcc_enable_clock(iVar2);
-        *(undefined4 *)DAT_0804e2c8[iVar2]          = uVar4a; /* MCI_POWER (+0x00): restore */
+        *(uint *)DAT_0804e2c8[iVar2]           = saved_pwr;  /* MCI_POWER: restore */
         sdcc_enable_clock(iVar2);
-        *(undefined4 *)(DAT_0804e2c8[iVar2] + 0x3c) = uVar5a; /* MCI_INT_MASK0 (+0x3C): restore */
+        *(uint *)(DAT_0804e2c8[iVar2] + 0x3c) = saved_mask; /* MCI_INT_MASK0: restore */
         mmc_set_bus_width(dev + 3, *(char *)((int)dev + 0x15) == '\x02', 0, 0);
       }
     }
@@ -754,14 +754,14 @@ LAB_08034c9e:
  * Note: this function is misnamed — it does not perform a DMA write
  * itself; it is simply the CMD55+ACMD dispatch wrapper.
  */
-undefined4 sdcc_adma_write(int *dev, undefined4 *cmd)
+uint sdcc_adma_write(int *dev, uint *cmd)
 {
   int app_cmd[10];
 
   memset_zero(app_cmd, sizeof(app_cmd));
   app_cmd[0] = 0x37;                             /* CMD55: APP_CMD (precedes all ACMDs) */
   app_cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
-  *(undefined1 *)&app_cmd[2] = 1;                /* resp_type: R1 */
+  *(uint8_t *)&app_cmd[CMD_RESP_TYPE] = 1;                /* resp_type: R1 */
   sdcc_send_cmd(dev, app_cmd);
   sdcc_send_cmd(dev, (int *)cmd);                /* fire the actual ACMD */
   return 0;
@@ -815,7 +815,7 @@ void sdcc_pre_cmd_hook(int *dev, int *cmd)
   memset_zero(cmd_config, 0x14);
   do {
     /* MCI_CLEAR (+0x38) = 0x18007ff: write-1-to-clear all status bits */
-    *(undefined4 *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
+    *(uint *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
     uVar3 = uVar3 + 1;
     uVar1 = sdcc_read_status(slot);    /* MCI_STATUS (+0x34) */
     if ((uVar1 & 0x18007ff) == 0) goto status_clear;
@@ -868,7 +868,7 @@ uint sdcc_get_card_status(int *dev)
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 0xd;                                   /* CMD13: SEND_STATUS */
   cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
-  *(undefined1 *)&cmd[2] = 1;                     /* resp_type: R1 */
+  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                     /* resp_type: R1 */
   ret = sdcc_send_cmd(dev, cmd);
   if (ret == 0) {
     state = (uint)(cmd[3] << 0x13) >> 0x1c;       /* R1[12:9] = CURRENT_STATE */
@@ -887,7 +887,7 @@ uint sdcc_get_card_status(int *dev)
  * Called after a write command or CMD6 SWITCH to confirm the card is
  * ready for the next command. Delays 100 µs between CMD13 polls.
  */
-undefined4 sdcc_wait_card_ready(int *dev)
+uint sdcc_wait_card_ready(int *dev)
 {
   int iVar1;
   uint uVar2;
@@ -935,9 +935,9 @@ undefined4 sdcc_wait_card_ready(int *dev)
  * Note: the slot index is cast to (short) for the register base array
  * lookup — this matches the original binary which stored slot as a short.
  */
-int sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks)
+int sdcc_pre_write_setup(uint *dev, int is_reliable, int num_blocks)
 {
-  undefined4 uVar1;
+  uint uVar1;
   int iVar2;
   uint uVar3;
 
@@ -991,11 +991,11 @@ int sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks)
  * On DATA_END: calls sdcc_set_all_irq() to write MCI_CLEAR (+0x38) =
  * 0x18007ff, clearing all status bits.
  */
-undefined4 sdcc_post_write_check(undefined4 *dev)
+uint sdcc_post_write_check(uint *dev)
 {
   uint uVar1;
   uint uVar2;
-  undefined4 uVar3;
+  uint uVar3;
 
   uVar3 = *dev;                          /* slot index */
   uVar2 = 0;
@@ -1037,11 +1037,11 @@ undefined4 sdcc_post_write_check(undefined4 *dev)
  * Note: `(true) &&` in the fallback branch is a Ghidra artifact from
  * a conditional expression that always evaluates true; it has no effect.
  */
-undefined4 sdcc_busy_wait(int *dev)
+uint sdcc_busy_wait(int *dev)
 {
   uint uVar1;
   uint uVar2;
-  undefined4 uVar3;
+  uint uVar3;
   int iVar4;
 
   iVar4 = *dev;                          /* slot index */
@@ -1058,7 +1058,7 @@ LAB_0803517c:
     }
     uVar1 = sdcc_read_status(iVar4);     /* MCI_STATUS (+0x34) */
     if ((uVar1 & 0x800000) != 0) {       /* PROG_DONE (0x800000): card done programming */
-      *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
+      *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
       goto LAB_0803517c;
     }
     thunk_FUN_080199b4(10);              /* delay 10 µs */
@@ -1101,16 +1101,16 @@ LAB_0803517c:
  * Note: `if (true)` around the DATA_END wait loop is a Ghidra artifact
  * (always-true guard on a do-while → while transformation); no effect.
  */
-undefined4 sdcc_pio_transfer(int *dev, byte *buf, int byte_count)
+uint sdcc_pio_transfer(int *dev, byte *buf, int byte_count)
 {
   int iVar1;
-  undefined4 uVar2;
+  uint uVar2;
   uint uVar3;
   uint uVar4;
   byte *pbVar5;
   uint uVar6;
   int iVar7;
-  undefined4 uVar8;
+  uint uVar8;
   bool bVar9;
   int local_28;
 
@@ -1160,9 +1160,9 @@ LAB_08035218:
         }
 LAB_0803520c:
         /* Word-aligned buf, < 32 bytes or FIFO not half-full: write one word */
-        uVar2 = *(undefined4 *)buf;
+        uVar2 = *(uint *)buf;
         buf = buf + 4;
-        *(undefined4 *)(DAT_0804e2c8[iVar7] + 0x80) = uVar2; /* MCI_FIFO (+0x80): write one word */
+        *(uint *)(DAT_0804e2c8[iVar7] + 0x80) = uVar2; /* MCI_FIFO (+0x80): write one word */
       }
       byte_count = byte_count + -4;
     }

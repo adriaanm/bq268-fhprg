@@ -172,7 +172,7 @@ void sdcc_cleanup(int slot, short *cmd_config)
       uVar1 = uVar1 | 0x1000; /* bit 12: PROG_ENA (data-path enable) */
     }
     /* MCI_ARGUMENT (MCI core+0x08) ← cmd_config[8] (32-bit word at byte offset 16) */
-    *(undefined4 *)(DAT_0804e2c8[slot] + 8) = *(undefined4 *)(cmd_config + 8);
+    *(uint *)(DAT_0804e2c8[slot] + 8) = *(uint *)(cmd_config + 8);
     /* MCI_CMD (MCI core+0x0C) */
     *(uint *)(DAT_0804e2c8[slot] + 0xc) = uVar1;
     sdcc_enable_clock(slot);
@@ -342,7 +342,7 @@ void sdcc_clear_status(int slot, uint mask)
  *
  * BLK_CNT_REG = SDHCI HC base + 0x06
  */
-void sdcc_set_block_count(int slot, undefined2 count)
+void sdcc_set_block_count(int slot, uint16_t count)
 {
   *(uint16_t *)(DAT_0804e2d8[slot] + 6) = count;
   return;
@@ -355,7 +355,7 @@ void sdcc_set_block_count(int slot, undefined2 count)
  *
  * BLKSZ_REG = SDHCI HC base + 0x04
  */
-void sdcc_set_block_size(int slot, undefined2 size)
+void sdcc_set_block_size(int slot, uint16_t size)
 {
   *(uint16_t *)(DAT_0804e2d8[slot] + 4) = size;
   return;
@@ -409,7 +409,7 @@ void sdcc_fire_cmd(int slot, byte *cmd_desc)
  *
  * TIMEOUT_REG = SDHCI HC base + 0x2E
  */
-void sdcc_set_irq_mask(int slot, undefined1 mask)
+void sdcc_set_irq_mask(int slot, uint8_t mask)
 {
   *(uint8_t *)(DAT_0804e2d8[slot] + 0x2e) = mask;
   return;
