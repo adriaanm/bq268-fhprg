@@ -722,7 +722,11 @@ static void cmd_emmc_init(void)
         return;
     }
 
-    /* Call mmc_open_device which does full card init + identification */
+    /* Pre-populate slot context so mmc_init_card skips full re-init.
+     * PBL already initialized eMMC — we just need the data structures. */
+    sdcc_pre_init_slot(0);
+
+    /* Call mmc_open_device which does ext_csd read + partition setup */
     p = put_str(resp, p, "eMMC init: opening device...\r\n");
     usb_write(resp, p); p = 0;
 
@@ -1146,10 +1150,14 @@ void main(void)
     /* Enable SDCC1 clocks (must be before any SDCC register access) */
     sdcc_clock_init();
 
+    /* Pre-populate slot context so mmc_init_card skips full re-init.
+     * PBL already initialized eMMC — we just need the data structures. */
+    sdcc_pre_init_slot(0);
+
     /* Inherit PBL's USB session — online immediately */
     usb_init();
 
-    /* Initialize eMMC: card identification + transfer mode */
+    /* Initialize eMMC: ext_csd read + partition setup */
     mmc_open_device(0, 0);
 
     /* Green LED = eMMC init complete */

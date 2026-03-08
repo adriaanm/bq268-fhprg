@@ -144,6 +144,57 @@ void sdcc_clock_init(void)
   sdcc_enable_slot(0, 1);
 }
 
+/* sdcc_pre_init_slot — pre-populate slot context so mmc_init_card skips
+ * the full SDCC controller reinit.
+ *
+ * PBL has already initialized the eMMC and left it in transfer state.
+ * mmc_init_card checks byte 0x15 of the slot context: if '\x01' (card
+ * identified), it skips directly to return 1. But the slot context also
+ * needs to have the device struct fields set up for subsequent functions
+ * (mmc_read_ext_csd, mmc_setup_partitions, etc.).
+ *
+ * This function sets up:
+ *   - SDCC register base addresses (sdcc_init_bases)
+ *   - Slot context: init_state=1, slot number, self-pointer
+ *   - Device struct: slot=0, card_type=6 (eMMC), sector_size=512
+ *   - Device handle table entry (DAT_0804e2b8)
+ *
+ * Must be called after sdcc_clock_init() and before mmc_open_device().
+ *
+ * Slot context layout (0xBC bytes):
+ *   +0x00 (word 0):  slot number
+ *   +0x04 (word 1):  init phase (byte at +0x04)
+ *   +0x0C (word 3):  device struct start (0x94 bytes)
+ *     dev+0x00: slot number
+ *     dev+0x04: cached partition (current)
+ *     dev+0x08: card type (byte: 6=eMMC)
+ *     dev+0x24: sector size
+ *   +0x15 (byte):    init_state (0=none, 1=identified, 2=ready)
+ *   +0x9C (word 0x27): self-pointer (back-reference to context)
+ */
+void sdcc_pre_init_slot(int slot)
+{
+  int *ctx = (int *)mmc_get_slot_context(slot);
+  int *dev = ctx + 3;  /* device struct at context + 0x0C */
+
+  /* Set up SDCC register bases first */
+  sdcc_init_bases();
+
+  /* Slot context header */
+  ctx[0] = slot;
+  *(char *)((char *)ctx + SLOT_CTX_INIT_STATE) = '\x01';  /* already identified */
+  ctx[SLOT_CTX_SELF_PTR] = (int)ctx;
+
+  /* Device struct — minimal fields for ext_csd and partition setup */
+  dev[DEV_SLOT] = slot;
+  dev[DEV_CUR_PARTITION] = 0;  /* user partition */
+  *(char *)&dev[DEV_CARD_TYPE] = '\x06';  /* eMMC */
+  dev[DEV_SECTOR_SIZE] = 0x200;  /* 512 bytes */
+
+  /* Register device in slot handle table */
+  *(int *)(&DAT_0804e2b8 + slot * 4) = (int)dev;
+}
+
 /* orig: 0x08032b64 — init qtimer and enable global timer */
 static void sdcc_qtimer_init(void)
 {

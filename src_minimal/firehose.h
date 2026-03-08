@@ -289,6 +289,7 @@ undefined4 sdcc_pio_transfer(int *dev, byte *buf, int byte_count);
 uint sdcc_get_card_status(int *dev);
 
 /* ---- card_init.c ---- */
+void sdcc_pre_init_slot(int slot);
 void sdcc_clock_setup(int slot, uint *freq, int mode);
 void mmc_set_bus_width(undefined4 *dev, undefined4 speed_mode, undefined4 unused1, uint freq_hint);
 int  mmc_set_speed(int *dev);
@@ -343,24 +344,46 @@ int  handler_poll_usb();        /* 0x08022440 */
 undefined4 handler_digest_cmd();/* 0x080233ec: stub, v2 */
 
 /*========================================================================
- * eMMC driver types
- *
- * mmc_dev_t:    Device struct (~0x98 words). Word-indexed, key fields:
- *                 [0]=slot, [1]=cur_partition (cached), [2]=card_type (byte),
- *                 [4]=last_error, [9]=sector_size, [0x16]=custom_sector_flag,
- *                 [0x24]=ext_csd_ptr, [0x78]=hw_partition_config (byte),
- *                 [0x7C]=partition_bitmask, [0x90]=slot_context_ptr
- *
- * mmc_handle_t: Partition handle. 3-word struct allocated during init:
- *                 [0]=dev_ptr (mmc_dev_t*), [1]=partition_idx (0-7, -1=user)
- *
- * mmc_cmd_t:    Command struct. 10-word array passed to sdcc_send_cmd:
- *                 [0]=cmd_num, [1]=cmd_arg, [2]=resp_type (byte),
- *                 [3-6]=response data, [7]=reserved, [8]=status, [9]=flags
+ * eMMC driver types and struct field indices
  *========================================================================*/
 typedef uint  mmc_dev_t;     /* word-indexed device struct (use as mmc_dev_t*) */
 typedef uint  mmc_handle_t;  /* word-indexed partition handle (use as mmc_handle_t*) */
 typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10]) */
+
+/* mmc_dev_t field indices (word offsets unless noted).
+ * Device struct is 0x94 bytes, embedded in slot context at +0x0C. */
+#define DEV_SLOT               0     /* SDCC slot number (0 or 1) */
+#define DEV_CUR_PARTITION      1     /* cached current partition index */
+#define DEV_CARD_TYPE          2     /* card type (byte: 0=none 1=SD 2=MMC 5=SDHC 6=eMMC) */
+#define DEV_LAST_ERROR         4     /* last error code from sdcc_write_data */
+#define DEV_SECTOR_SIZE        9     /* sector size in bytes (typically 0x200) */
+#define DEV_RELIABLE_WR_CNT  0x0D    /* reliable write sector count */
+#define DEV_CUSTOM_SECTOR    0x16    /* non-zero if device uses custom sector size */
+#define DEV_EXT_CSD_PTR      0x24    /* pointer to 512-byte EXT_CSD buffer */
+
+/* mmc_dev_t field indices (byte offsets — accessed via *(char*)(dev + N)) */
+#define DEV_BYTE_PARTITION_CONFIG  0x78  /* PARTITION_CONFIG (EXT_CSD[179]) */
+#define DEV_BYTE_PARTITION_MASK    0x7C  /* bitmask of available partitions (word) */
+
+/* mmc_handle_t field indices (word offsets).
+ * Handle is a 3-word struct allocated from partition table. */
+#define HANDLE_DEV_PTR         0     /* pointer to mmc_dev_t (device struct) */
+#define HANDLE_PARTITION_IDX   1     /* partition index (0-7, -1=user) */
+
+/* mmc_cmd_t field indices (word offsets).
+ * Command struct is 10 words (40 bytes). */
+#define CMD_NUM                0     /* command number (CMD0=0, CMD17=0x11, CMD24=0x18...) */
+#define CMD_ARG                1     /* command argument */
+#define CMD_RESP_TYPE          2     /* response type byte (0=none, 1=R1, 4=R2) */
+#define CMD_RESP_DATA          3     /* response data (4 words: [3]-[6]) */
+#define CMD_BUSY_WAIT          7     /* 1=wait for busy signal to clear */
+#define CMD_STATUS             8     /* status code (filled on return) */
+#define CMD_FLAGS              9     /* flags: bit0=write, bit1=data xfer, bit2=ADMA */
+
+/* Slot context layout (0xBC bytes per slot).
+ * Contains header fields + embedded device struct at +0x0C. */
+#define SLOT_CTX_INIT_STATE    0x15  /* byte offset: init state (1=identified) */
+#define SLOT_CTX_SELF_PTR      0x27  /* word index: self-reference pointer */
 
 /* ---- emmc.c ---- */
 uint sdcc_get_device(uint slot);
