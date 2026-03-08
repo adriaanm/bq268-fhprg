@@ -72,6 +72,68 @@ extern uint sdcc_hc_base[2];       /* SDCC SDHCI host-controller base [slot] */
 extern uint sdcc_hc_base_alt[2];   /* SDCC SDHCI host-controller base (alt) [slot] */
 
 /*========================================================================
+ * MMIO register access macros
+ *
+ * Lvalue macros for SDCC register access. Each casts base+offset to a
+ * volatile typed pointer, usable on both sides of assignment.
+ *========================================================================*/
+#define MCI_REG(slot, off)   (*(volatile uint32_t *)(sdcc_mci_base[slot] + (off)))
+#define HC_REG32(slot, off)  (*(volatile uint32_t *)(sdcc_hc_base[slot] + (off)))
+#define HC_REG16(slot, off)  (*(volatile uint16_t *)(sdcc_hc_base[slot] + (off)))
+#define HC_REG8(slot, off)   (*(volatile uint8_t  *)(sdcc_hc_base[slot] + (off)))
+#define DMA_REG(slot, off)   (*(volatile uint32_t *)(sdcc_dma_base[slot] + (off)))
+
+/* MCI core register offsets (from sdcc_mci_base[slot]) */
+#define MCI_POWER       0x00
+#define MCI_CLK         0x04
+#define MCI_ARGUMENT    0x08
+#define MCI_CMD         0x0C
+#define MCI_RESP_CMD    0x10
+#define MCI_RESP_0      0x14   /* response word 0 (+ 0x18, 0x1C, 0x20 for words 1-3) */
+#define MCI_DATA_TIMER  0x24
+#define MCI_DATA_LENGTH 0x28
+#define MCI_DATA_CTL    0x2C
+#define MCI_STATUS      0x34
+#define MCI_CLEAR       0x38
+#define MCI_INT_MASK0   0x3C
+#define MCI_FIFO_COUNT  0x44
+#define MCI_VERSION     0x50
+#define MCI_STATUS2     0x6C
+#define MCI_HC_MODE     0x78
+#define MCI_FIFO        0x80
+#define MCI_PLL_STATUS  0xDC
+#define MCI_PLL_DIVIDER 0xE4
+#define MCI_PLL_MODE    0xE8
+
+/* SDHCI HC register offsets (from sdcc_hc_base[slot]) */
+#define HC_BLKSZ        0x04
+#define HC_BLK_CNT      0x06
+#define HC_ARGUMENT      0x08
+#define HC_TRANS_MODE    0x0C
+#define HC_CMD           0x0E
+#define HC_RESP0         0x10   /* response words at +0x10, +0x14, +0x18, +0x1C */
+#define HC_BUF_DATA      0x20
+#define HC_PRESENT_STATE 0x24
+#define HC_HOST_CTRL1    0x28
+#define HC_PWR_CTRL      0x29
+#define HC_CLK_CTRL      0x2C
+#define HC_TIMEOUT       0x2E
+#define HC_RESET         0x2F
+#define HC_NRML_INT_STS  0x30
+#define HC_NRML_INT_STS_EN 0x34
+#define HC_NRML_INT_SIG_EN 0x38
+#define HC_HOST_CTRL2    0x3E
+#define HC_CAPS1         0x40
+#define HC_CAPS2         0x44
+#define HC_ADMA_ADDR_LO  0x58
+#define HC_ADMA_ADDR_HI  0x5C
+#define HC_DLL_CONFIG    0x100
+#define HC_DLL_STATUS    0x108
+#define HC_VENDOR_FUNC   0x10C
+#define HC_VENDOR_CAPS0  0x11C
+#define HC_VENDOR_CAPS1  0x120
+
+/*========================================================================
  * eMMC driver types
  *========================================================================*/
 typedef uint  mmc_dev_t;     /* word-indexed device struct (use as mmc_dev_t*) */
