@@ -102,7 +102,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
       uVar8 = uVar4;
     }
     if (uVar4 < 800) {
-      *(uint *)(sdcc_mci_base[iVar7] + 0x38) = 0x80;
+      MCI_REG(iVar7, MCI_CLEAR) = 0x80;
       while (uVar4 < 800) {
         uVar8 = sdcc_read_status(iVar7);
         if ((uVar8 & 0x80) == 0) {
@@ -130,7 +130,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
           uVar8 = 1; /* R1/R1B: 1 word */
         }
         for (uVar4 = 0; uVar4 < uVar8; uVar4 = uVar4 + 1) {
-          cmd->resp[uVar4] = *(int *)(sdcc_mci_base[*dev] + uVar4 * 4 + 0x14);
+          cmd->resp[uVar4] = MCI_REG(*dev, MCI_RESP_0 + uVar4 * 4);
         }
         /* Check R1 error bits for CMD52 (0x34) and CMD53 (0x35) */
         if ((cmd->cmd_num == 0x34 || cmd->cmd_num == 0x35) && (cmd->resp[0] & 0xcf00U) != 0) {
@@ -869,8 +869,8 @@ int mmc_open_device(int slot, uint flags)
           iVar3 = mmc_config_bus(iVar4);
           if (iVar3 == 0) {
             if (*(char *)(iVar2 + 0x98) == '\0') {
-              *(uint *)(sdcc_mci_base[slot] + 4) =
-                   *(uint *)(sdcc_mci_base[slot] + 4) | 0x1000;
+              MCI_REG(slot, MCI_CLK) =
+                   MCI_REG(slot, MCI_CLK) | 0x1000;
               sdcc_enable_clock(slot);
             }
             iVar3 = mmc_identify_card(iVar4);

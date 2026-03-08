@@ -581,8 +581,8 @@ int mmc_set_speed(mmc_dev_t *dev)
   iVar2 = sdcc_send_cmd(dev, &cmd);
   if (iVar2 == 0) {
     dev[DEV_SECTOR_SIZE] = 0x200;
-    *(uint *)(sdcc_mci_base[*dev] + 0x2c) =
-         (*(uint *)(sdcc_mci_base[*dev] + 0x2c) & 0xfffe000f) | 0x2000;
+    MCI_REG(*dev, MCI_DATA_CTL) =
+         (MCI_REG(*dev, MCI_DATA_CTL) & 0xfffe000f) | 0x2000;
     sdcc_enable_clock(*dev);
   }
   cVar1 = (char)dev[2];
@@ -619,7 +619,7 @@ void mmc_finalize_init(int dev)
   iVar2 = *piVar1;
   if (*(char *)(dev + DEV_BYTE_INIT_PHASE) != '\0') {
     if ((char)piVar1[1] != '\0') {
-      *(uint *)sdcc_mci_base[iVar2] = *(uint *)sdcc_mci_base[iVar2] & 0xfffffffe;
+      MCI_REG(iVar2, MCI_POWER) = MCI_REG(iVar2, MCI_POWER) & 0xfffffffe;
       sdcc_enable_clock(iVar2);
       sdcc_enable_slot(iVar2,0);
       *(uint8_t *)(piVar1 + 1) = 0;
@@ -673,17 +673,17 @@ char mmc_classify_error(mmc_handle_t *handle)
   if (2 < uVar2) {
     return 0;
   }
-  *(uint *)sdcc_mci_base[uVar2] = *(uint *)sdcc_mci_base[uVar2] | 1;
+  MCI_REG(uVar2, MCI_POWER) = MCI_REG(uVar2, MCI_POWER) | 1;
   sdcc_enable_clock(uVar2);
   if (*(char *)(*handle + 0x8c) == '\0') {
-    *(uint *)(sdcc_mci_base[uVar2] + 4) = *(uint *)(sdcc_mci_base[uVar2] + 4) | 0x100;
+    MCI_REG(uVar2, MCI_CLK) = MCI_REG(uVar2, MCI_CLK) | 0x100;
     sdcc_enable_clock(uVar2);
     sdcc_set_flow_control(uVar2,0);
     delay_us(1000);
     sdcc_set_flow_control(uVar2,1);
     delay_us(1000);
-    *(uint *)(sdcc_mci_base[uVar2] + 4) =
-         (*(uint *)(sdcc_mci_base[uVar2] + 4) & 0xffff3fff) | 0x8000;
+    MCI_REG(uVar2, MCI_CLK) =
+         (MCI_REG(uVar2, MCI_CLK) & 0xffff3fff) | 0x8000;
     sdcc_enable_clock(uVar2);
   }
   else {
@@ -857,22 +857,22 @@ uint mmc_init_card(int slot)
     mmc_set_bus_width((mmc_dev_t *)piVar4,5,0,0);
     delay_us(1000);
     sdcc_init_bases();
-    *(uint *)(sdcc_mci_base[slot] + 0xc) = 0;
+    MCI_REG(slot, MCI_CMD) = 0;
     sdcc_enable_clock(slot);
-    *(uint *)(sdcc_mci_base[slot] + 0x2c) = 0;
+    MCI_REG(slot, MCI_DATA_CTL) = 0;
     sdcc_enable_clock(slot);
-    *(uint *)(sdcc_mci_base[slot] + 0x38) = 0x18007ff;
-    *(uint *)(sdcc_mci_base[slot] + 4) = *(uint *)(sdcc_mci_base[slot] + 4) | 0x200000;
-    *(uint *)(sdcc_mci_base[slot] + 4) = *(uint *)(sdcc_mci_base[slot] + 4) & 0xfffff3ff;
+    MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
+    MCI_REG(slot, MCI_CLK) = MCI_REG(slot, MCI_CLK) | 0x200000;
+    MCI_REG(slot, MCI_CLK) = MCI_REG(slot, MCI_CLK) & 0xfffff3ff;
     sdcc_enable_clock(slot);
-    *(uint *)(sdcc_mci_base[slot] + 0x38) = 0x400000;
-    *(uint *)(sdcc_mci_base[slot] + 0x3c) = 0;
+    MCI_REG(slot, MCI_CLEAR) = 0x400000;
+    MCI_REG(slot, MCI_INT_MASK0) = 0;
     *piVar4 = slot;
     *(uint8_t *)((int)piVar1 + SLOT_CTX_INIT_STATE) = 1;
     iVar2 = sdcc_get_adma_mode();
     piVar1[0x19] = 1;
     piVar1[0x25] = iVar2;
-    *(uint *)sdcc_mci_base[slot] = *(uint *)sdcc_mci_base[slot] | 1;
+    MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 1;
     sdcc_enable_clock(slot);
     sdcc_set_bus_width_bit(slot,1);
     sdcc_reset_data_line(slot,1);
