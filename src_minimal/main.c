@@ -756,7 +756,7 @@ static void cmd_emmc_status(void)
     }
 
     {
-        unsigned int status = sdcc_get_card_status((int)emmc_handle);
+        unsigned int status = sdcc_get_card_status(*(int **)emmc_handle);
         /* Card state nibble: 0=idle, 1=ready, 2=ident, 3=stby, 4=tran, 5=data, 6=rcv, 7=prg */
         static const char *state_names[] = {
             "idle", "ready", "ident", "stby",
@@ -807,10 +807,21 @@ static void cmd_sector_read(const char *args)
     /* Zero buffer before read */
     for (i = 0; i < 512; i++) sector_buf[i] = 0;
 
-    /* mmc_write_blocks is also the read function (CMD17/CMD18).
-     * param1=handle_ptr, param2=start_sector,
-     * param3=buffer_addr, param4=num_sectors */
-    ret = mmc_write_blocks((void *)&emmc_handle, sector, (unsigned int)sector_buf, 1);
+    /* Debug: dump handle chain */
+    p = put_str(resp, p, "handle=");
+    p = put_hex32(resp, p, emmc_handle);
+    p = put_str(resp, p, " &handle=");
+    p = put_hex32(resp, p, (unsigned int)&emmc_handle);
+    p = put_str(resp, p, " *handle=");
+    p = put_hex32(resp, p, *(unsigned int *)emmc_handle);
+    p = put_str(resp, p, " buf=");
+    p = put_hex32(resp, p, (unsigned int)sector_buf);
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* mmc_write_blocks: param1=handle_ptr (ptr to device struct ptr),
+     * param2=start_sector, param3=buffer_addr, param4=num_sectors */
+    ret = mmc_write_blocks((void *)emmc_handle, sector, (unsigned int)sector_buf, 1);
 
     p = put_str(resp, p, "Read sector ");
     p = put_hex32(resp, p, sector);
@@ -869,7 +880,7 @@ static void cmd_sector_write(const char *args)
 
     /* mmc_write_sectors: param1=handle_ptr, param2=start_sector,
      * param3=buffer_addr, param4=num_sectors */
-    ret = mmc_write_sectors((void *)&emmc_handle, sector, (unsigned int)sector_buf, 1);
+    ret = mmc_write_sectors((void *)emmc_handle, sector, (unsigned int)sector_buf, 1);
 
     p = put_str(resp, p, "Write sector ");
     p = put_hex32(resp, p, sector);

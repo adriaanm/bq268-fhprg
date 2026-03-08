@@ -28,7 +28,7 @@ int param_1;
     uint local_44;
 
     iVar1 = *(int *)(param_1 + (uint)*(byte *)(param_1 + 0x26) * 4 + 4);
-    if ((iVar1 == 0) || (iVar1 = mmc_get_partition_info(iVar1, (char *)auStack_48), iVar1 != 0)) {
+    if ((iVar1 == 0) || (iVar1 = mmc_get_partition_info((uint *)iVar1, (char *)auStack_48), iVar1 != 0)) {
         local_44 = 0;
     }
     return local_44;
@@ -43,7 +43,7 @@ int param_1; uint param_2; uint param_3; uint param_4; uint16_t param_5;
 {
     int iVar1;
     iVar1 = *(int *)(param_1 + (uint)*(byte *)(param_1 + 0x26) * 4 + 4);
-    if ((iVar1 != 0) && (iVar1 = mmc_write_blocks(iVar1, param_3, param_2, param_5), iVar1 == 0)) {
+    if ((iVar1 != 0) && (iVar1 = mmc_write_blocks((undefined4 *)iVar1, param_3, param_2, param_5), iVar1 == 0)) {
         return 1;
     }
     return 0;
@@ -91,7 +91,7 @@ int param_1; uint param_2;
     int local_34;
 
     if ((((param_2 < 8) && (param_2 != 3)) &&
-         (iVar1 = mmc_get_partition_info(*(uint *)(param_1 + 4), auStack_50), iVar1 == 0)) &&
+         (iVar1 = mmc_get_partition_info(*(uint **)(param_1 + 4), auStack_50), iVar1 == 0)) &&
         (param_2 <= (uint)(local_34 - 1))) {
         uVar2 = 1;
         *(char *)(param_1 + 0x26) = (char)param_2;

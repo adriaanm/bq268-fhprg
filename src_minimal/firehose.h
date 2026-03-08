@@ -272,7 +272,7 @@ void sdcc_set_bus_speed(int slot, int speed);
 /* ---- sdcc_helpers.c ---- */
 void adma_bounce_read(int slot, int buf, int *remaining);
 undefined8 adma_bounce_write(int slot, int buf, int *remaining);
-void sdcc_event_notify(int flags);
+void sdcc_event_notify(int flags, int addr, uint size);
 undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop);
 int  sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count);
 undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count);
@@ -343,25 +343,25 @@ int  handler_poll_usb();        /* 0x08022440 */
 undefined4 handler_digest_cmd();/* 0x080233ec: stub, v2 */
 
 /* ---- emmc.c ---- */
-uint sdcc_get_device();         /* 0x08032ae4: get device from slot table */
-uint sdcc_get_slot_status();    /* 0x08032af8: get slot status flags */
-int  sdcc_send_cmd();           /* 0x08032b94: send eMMC command */
-void sdcc_write_complete_notify(); /* 0x08033654: write done thunk */
-int  sdcc_write_data();         /* 0x08033656: block data transfer */
-uint mmc_get_card_type();       /* 0x08033cbc */
-uint mmc_close_handle();        /* 0x08033d28: close device */
-int  mmc_erase_range();         /* 0x08033d44: erase sectors */
-uint mmc_get_partition_info();  /* 0x08033ee8: fill partition info */
-int  mmc_open_device();         /* 0x08033fe0: init & open device */
-int  mmc_write_blocks();        /* 0x08034170: write via CMD24/CMD25 */
-int  mmc_switch_partition();    /* 0x08034202: CMD6 partition switch */
-int  mmc_write_sectors();       /* 0x08034228: write with WP check */
-uint mmc_get_capacity();        /* 0x080348e0: get partition capacity */
-uint mmc_is_partition_active(); /* 0x08034966: check if partition selected */
-int  mmc_ensure_partition();    /* 0x08034fb0: select correct partition */
-uint handle_response();         /* 0x0803707c: send XML response */
-uint send_xml_response();       /* 0x08037084: build & send response */
-uint flush_xml_to_usb();        /* 0x080371b8: flush xml to USB */
+uint sdcc_get_device(uint slot);
+uint sdcc_get_slot_status(uint slot);
+int  sdcc_send_cmd(int *dev, int *cmd);
+void sdcc_write_complete_notify(void);
+int  sdcc_write_data(undefined4 *dev, int *cmd, undefined4 buf, uint num_blocks);
+uint mmc_get_card_type(undefined4 slot, undefined1 *type_out, undefined1 *subtype_out);
+uint mmc_close_handle(int *handle);
+int  mmc_erase_range(undefined4 *handle, int sector, int count);
+uint mmc_get_partition_info(uint *handle, char *info);
+int  mmc_open_device(int slot, undefined4 flags);
+int  mmc_write_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blocks);
+int  mmc_switch_partition(int *handle);
+int  mmc_write_sectors(uint *handle, int sector, uint buf, int num_blocks);
+uint mmc_get_capacity(int *handle, uint *sectors, undefined4 *part_type);
+uint mmc_is_partition_active(int *handle);
+int  mmc_ensure_partition(int *handle);
+uint handle_response(uint ack);
+uint send_xml_response(int ack, int num_attrs, uint attr1, uint attr2);
+uint flush_xml_to_usb(uint unused, uint timeout);
 
 /* ---- storage.c ---- */
 uint storage_write_sectors();   /* 0x080381d8: write entry from handlers */

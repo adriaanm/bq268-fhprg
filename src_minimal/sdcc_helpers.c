@@ -8,6 +8,9 @@
  */
 #include "firehose.h"
 
+/* Forward declarations for functions defined later in this file */
+static undefined4 sdcc_wait_card_ready(int *dev);
+
 /* ---- DMA bounce helpers (from fhprg_8007b18.c) ---- */
 
 /* orig: 0x08006e1a — write uint32 as little-endian bytes */
@@ -84,9 +87,11 @@ undefined8 adma_bounce_write(int slot, int buf, int *remaining)
 
 /* ---- eMMC higher-level helpers (from fhprg_80327f8.c) ---- */
 
-/* orig: 0x080329f8 sdcc_event_notify — issue data memory barrier if bit set */
-void sdcc_event_notify(int flags)
+/* orig: 0x080329f8 sdcc_event_notify — issue data memory barrier if bit set.
+ * addr/size are for cache maintenance but unused in this simplified version. */
+void sdcc_event_notify(int flags, int addr, uint size)
 {
+  (void)addr; (void)size;
   if (flags << 0x1d < 0) {
     DataMemoryBarrier(0x1f);
   }
@@ -187,9 +192,9 @@ undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
   byte *pbVar2;
   uint uVar3;
 
-  sdcc_event_notify(4,0);
+  sdcc_event_notify(4,0,0);
   sdcc_event_notify(2,buf,byte_count);
-  sdcc_event_notify(4,0);
+  sdcc_event_notify(4,0,0);
   pbVar2 = (byte *)0x80201000;
   uVar1 = byte_count >> 0x10;
   if ((byte_count & 0xffff) != 0) {
@@ -219,9 +224,9 @@ undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
     *pbVar2 = *pbVar2 | 2;
     pbVar2[1] = 0;
   }
-  sdcc_event_notify(4,0);
+  sdcc_event_notify(4,0,0);
   sdcc_event_notify(2,(int)(byte *)0x80201000,uVar1 << 3);
-  sdcc_event_notify(4,0);
+  sdcc_event_notify(4,0,0);
   sdcc_set_adma_addr_hi(slot,0);
   sdcc_set_adma_addr_lo(slot,(undefined4)(byte *)0x80201000);
   return 0;
