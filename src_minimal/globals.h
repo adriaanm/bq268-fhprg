@@ -123,12 +123,12 @@ void     sdcc_set_flow_control(int slot, int enable);
 void     sdcc_set_bus_speed(int slot, int speed);
 
 /* ---- sdcc_helpers.c ---- */
-void adma_bounce_read(int slot, int buf, int *remaining);
-void adma_bounce_write(int slot, int buf, int *remaining);
-void sdcc_event_notify(int flags, int addr, uint size);
+void adma_bounce_read(int slot, uint *buf, int *remaining);
+void adma_bounce_write(int slot, uint *buf, int *remaining);
+void sdcc_event_notify(int flags, uint addr, uint size);
 uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop);
-int  sdcc_fifo_write(mmc_dev_t *dev, int cmd_config, uint *buf, uint byte_count);
-uint sdcc_dma_setup(int slot, int buf, uint byte_count);
+int  sdcc_fifo_write(mmc_dev_t *dev, uint *cmd_config, uint *buf, uint byte_count);
+uint sdcc_dma_setup(int slot, uint buf_phys, uint byte_count);
 uint sdcc_wait_complete(int slot, uint mask, uint *out_status);
 int  mmc_switch_cmd6(mmc_dev_t *dev, uint cmd6_arg);
 uint sdcc_setup_data_xfer(mmc_dev_t *dev, mmc_cmd_t *cmd);

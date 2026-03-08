@@ -84,28 +84,25 @@ static void write_le32(uint val, uint8_t *buf)
  * The FIFO is 16 words (64 bytes) deep. When RX_FIFO_HFULL is set, at
  * least 8 words are available, so reading 8 words per burst is safe.
  */
-static int dma_read_helper(int dst, int fifo, volatile uint *status_reg, uint mask)
+static uint *dma_read_helper(uint *dst, volatile uint *fifo, volatile uint *status_reg, uint mask)
 {
-  uint *src = (uint *)fifo;
-  uint *out = (uint *)dst;
-
   while ((*status_reg & mask) != 0) {
     /* Read 8 words (32 bytes) from MCI_FIFO (+0x80) in one burst */
-    out[0] = src[0]; out[1] = src[1]; out[2] = src[2]; out[3] = src[3];
-    out[4] = src[4]; out[5] = src[5]; out[6] = src[6]; out[7] = src[7];
-    out += 8;
+    dst[0] = fifo[0]; dst[1] = fifo[1]; dst[2] = fifo[2]; dst[3] = fifo[3];
+    dst[4] = fifo[4]; dst[5] = fifo[5]; dst[6] = fifo[6]; dst[7] = fifo[7];
+    dst += 8;
   }
-  return (int)out;
+  return dst;
 }
 
 /* DMA write descriptor passed to dma_write_helper.
  * The four fields must remain contiguous — dma_write_helper reads them
  * by struct member, and the layout is fixed by the original ABI. */
 typedef struct {
-  uint status_reg_addr; /* address of MCI_STATUS (+0x34): MMIO status register */
-  uint ready_mask;      /* 0x4000 = TX_FIFO_HFULL: FIFO has room for 8+ words */
-  int  remaining;       /* byte count remaining (decremented by 32 per burst) */
-  uint error_mask;      /* 0x1a = DATA_CRC_FAIL|DATA_TIMEOUT|TX_UNDERRUN: abort on any */
+  volatile uint *status_reg; /* MCI_STATUS (+0x34): MMIO status register */
+  uint ready_mask;           /* 0x4000 = TX_FIFO_HFULL: FIFO has room for 8+ words */
+  int  remaining;            /* byte count remaining (decremented by 32 per burst) */
+  uint error_mask;           /* 0x1a = DATA_CRC_FAIL|DATA_TIMEOUT|TX_UNDERRUN: abort on any */
 } dma_write_desc_t;
 
 /* orig: 0x08008bc4 — dma_write_helper: burst-write 8 words (32 bytes) from
@@ -125,20 +122,18 @@ typedef struct {
  * TX_FIFO_HFULL means the FIFO is at least half empty (has space for 8
  * words); we wait for that before writing another 8-word burst.
  */
-static int dma_write_helper(int fifo, int src, dma_write_desc_t *desc)
+static uint *dma_write_helper(volatile uint *fifo, uint *src, dma_write_desc_t *desc)
 {
-  uint *dst = (uint *)fifo;
-  uint *in = (uint *)src;
   int rem = desc->remaining;
-  volatile uint *status_reg = (volatile uint *)desc->status_reg_addr; /* MCI_STATUS (+0x34) */
+  volatile uint *status_reg = desc->status_reg; /* MCI_STATUS (+0x34) */
   uint ready_mask = desc->ready_mask;   /* TX_FIFO_HFULL = 0x4000 */
   uint error_mask = desc->error_mask;   /* write errors  = 0x1a   */
 
   while (1) {
     /* Burst-write 8 words (32 bytes) to MCI_FIFO (+0x80) */
-    *dst = in[0]; *dst = in[1]; *dst = in[2]; *dst = in[3];
-    *dst = in[4]; *dst = in[5]; *dst = in[6]; *dst = in[7];
-    in += 8;
+    *fifo = src[0]; *fifo = src[1]; *fifo = src[2]; *fifo = src[3];
+    *fifo = src[4]; *fifo = src[5]; *fifo = src[6]; *fifo = src[7];
+    src += 8;
     rem -= 0x20;
     if (rem < 0x20) break;
     /* Poll MCI_STATUS (+0x34): wait for FIFO space, abort on error */
@@ -148,7 +143,7 @@ static int dma_write_helper(int fifo, int src, dma_write_desc_t *desc)
   }
 done:
   desc->remaining = rem;
-  return (int)in;
+  return src;
 }
 
 /* orig: 0x0800bbec — adma_bounce_read: read a burst of data from the MCI
@@ -164,16 +159,16 @@ done:
  * Note: called only when buf is word-aligned AND RX_FIFO_HFULL (0x8000)
  * is set; the caller (sdcc_adma_transfer) checks both before dispatching here.
  */
-void adma_bounce_read(int slot, int buf, int *remaining)
+void adma_bounce_read(int slot, uint *buf, int *remaining)
 {
-  int iVar1;
+  uint *end;
 
   /* MCI_FIFO    = sdcc_dma_base[slot] + 0x80
    * MCI_STATUS  = sdcc_mci_base[slot] + 0x34
    * poll mask   = 0x8000 (RX_FIFO_HFULL: >= 8 words available) */
-  iVar1 = dma_read_helper(buf, sdcc_dma_base[slot] + 0x80,
-                          (volatile uint *)(sdcc_mci_base[slot] + 0x34), 0x8000);
-  *remaining = *remaining - (iVar1 - buf);
+  end = dma_read_helper(buf, (volatile uint *)(sdcc_dma_base[slot] + 0x80),
+                        (volatile uint *)(sdcc_mci_base[slot] + 0x34), 0x8000);
+  *remaining = *remaining - (int)((char *)end - (char *)buf);
   return;
 }
 
@@ -190,17 +185,17 @@ void adma_bounce_read(int slot, int buf, int *remaining)
  *   remaining       = *remaining
  *   error_mask      = 0x1a (DATA_CRC_FAIL | DATA_TIMEOUT | TX_UNDERRUN)
  */
-void adma_bounce_write(int slot, int buf, int *remaining)
+void adma_bounce_write(int slot, uint *buf, int *remaining)
 {
-  int iVar1;
+  uint *end;
   dma_write_desc_t desc;
 
-  desc.status_reg_addr = sdcc_mci_base[slot] + 0x34; /* MCI_STATUS */
-  desc.ready_mask      = 0x4000;                     /* TX_FIFO_HFULL */
-  desc.remaining       = *remaining;
-  desc.error_mask      = 0x1a;                       /* DATA_CRC_FAIL | DATA_TIMEOUT | TX_UNDERRUN */
-  iVar1 = dma_write_helper(sdcc_dma_base[slot] + 0x80, buf, &desc); /* MCI_FIFO (+0x80) */
-  *remaining = *remaining - (iVar1 - buf);
+  desc.status_reg = (volatile uint *)(sdcc_mci_base[slot] + 0x34); /* MCI_STATUS */
+  desc.ready_mask = 0x4000;                     /* TX_FIFO_HFULL */
+  desc.remaining  = *remaining;
+  desc.error_mask = 0x1a;                       /* DATA_CRC_FAIL | DATA_TIMEOUT | TX_UNDERRUN */
+  end = dma_write_helper((volatile uint *)(sdcc_dma_base[slot] + 0x80), buf, &desc); /* MCI_FIFO (+0x80) */
+  *remaining = *remaining - (int)((char *)end - (char *)buf);
 }
 
 /* ---- eMMC higher-level helpers (from fhprg_80327f8.c) ---- */
@@ -219,7 +214,7 @@ void adma_bounce_write(int slot, int buf, int *remaining)
  * issued to ensure all preceding MMIO writes are visible before any DMA
  * descriptor programming that follows.
  */
-void sdcc_event_notify(int flags, int addr, uint size)
+void sdcc_event_notify(int flags, uint addr, uint size)
 {
   (void)addr; (void)size;
   if (flags << 0x1d < 0) {   /* bit 2 set = barrier required */
@@ -289,7 +284,7 @@ uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop)
  *
  * Returns 1 immediately if neither read nor write bit is set in flags.
  */
-int sdcc_fifo_write(mmc_dev_t *dev, int cmd_config, uint *buf, uint byte_count)
+int sdcc_fifo_write(mmc_dev_t *dev, uint *cmd_config, uint *buf, uint byte_count)
 {
   int iVar1;
   uint uVar2;
@@ -312,12 +307,12 @@ int sdcc_fifo_write(mmc_dev_t *dev, int cmd_config, uint *buf, uint byte_count)
   }
   uVar6 = (uVar6 + 3) >> 2;              /* round up to word count */
 
-  /* Decode transfer direction from cmd_config flags (+0x24) */
-  if ((int)(*(uint *)(cmd_config + 0x24) << 0x1e) < 0) {
+  /* Decode transfer direction from cmd_config flags (word 9, byte offset +0x24) */
+  if ((int)(cmd_config[9] << 0x1e) < 0) {
     uVar7 = 0x20;                        /* READ: wait for SDHCI BUFF_READ_READY */
   }
   else {
-    if ((*(uint *)(cmd_config + 0x24) & 1) == 0) {
+    if ((cmd_config[9] & 1) == 0) {
       return 1;                          /* neither read nor write: invalid config */
     }
     uVar7 = 0x10;                        /* WRITE: wait for SDHCI BUFF_WRITE_READY */
@@ -325,19 +320,19 @@ int sdcc_fifo_write(mmc_dev_t *dev, int cmd_config, uint *buf, uint byte_count)
   do {
     iVar1 = sdcc_wait_complete(iVar4, uVar7, &local_28);
     if (iVar1 != 0) {
-      *(uint *)(cmd_config + 0x20) = local_28; /* save error status for caller */
+      cmd_config[8] = local_28;          /* save error status for caller */
       return iVar1;
     }
     sdcc_clear_status(iVar4, uVar7);
     uVar2 = 0;
-    if ((int)(*(uint *)(cmd_config + 0x24) << 0x1e) < 0) {
+    if ((int)(cmd_config[9] << 0x1e) < 0) {
       /* READ: pull words from SDHCI_BUF_DATA (sdcc_hc_base[slot] + 0x20) */
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
         *buf = *(uint *)(sdcc_hc_base[iVar4] + 0x20); /* SDHCI_BUF_DATA (+0x20) */
         buf = buf + 1;
       }
     }
-    else if ((*(uint *)(cmd_config + 0x24) & 1) != 0) {
+    else if ((cmd_config[9] & 1) != 0) {
       /* WRITE: push words to SDHCI_BUF_DATA (sdcc_hc_base[slot] + 0x20) */
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
         uVar3 = *buf;
@@ -388,14 +383,14 @@ static byte adma_desc_table[128 * 8]
  *
  * Original code used hardcoded 0x80201000; we use a .ddr_bss buffer.
  */
-uint sdcc_dma_setup(int slot, int buf, uint byte_count)
+uint sdcc_dma_setup(int slot, uint buf_phys, uint byte_count)
 {
   uint uVar1;
   byte *pbVar2;
   uint uVar3;
 
   sdcc_event_notify(4, 0, 0);                    /* DMB before descriptor table build */
-  sdcc_event_notify(2, buf, byte_count);          /* cache flush: data buffer */
+  sdcc_event_notify(2, buf_phys, byte_count);    /* cache flush: data buffer */
   sdcc_event_notify(4, 0, 0);                    /* DMB after cache flush */
   pbVar2 = adma_desc_table;
   uVar1 = byte_count >> 0x10;                    /* number of full 64 KB chunks */
@@ -409,7 +404,7 @@ uint sdcc_dma_setup(int slot, int buf, uint byte_count)
       if (byte_count < 0x10000) {
         uVar3 = byte_count;                      /* final (partial) chunk */
       }
-      write_le32(buf, pbVar2 + 4);               /* descriptor address field (LE32, bytes 4-7) */
+      write_le32(buf_phys, pbVar2 + 4);          /* descriptor address field (LE32, bytes 4-7) */
       pbVar2[2] = (byte)uVar3;                   /* length low byte */
       pbVar2[3] = (byte)(uVar3 >> 8);            /* length high byte (0 = 64 KB) */
       byte_count = byte_count - uVar3;
@@ -419,7 +414,7 @@ uint sdcc_dma_setup(int slot, int buf, uint byte_count)
         *pbVar2 = 0x21;                          /* attr: valid (bit0) + tran (bit5) */
         pbVar2[1] = 0;
       }
-      buf = buf + uVar3;
+      buf_phys = buf_phys + uVar3;
       if (byte_count == 0) break;
       pbVar2 = pbVar2 + 8;                       /* advance to next 8-byte descriptor */
     }
@@ -427,7 +422,7 @@ uint sdcc_dma_setup(int slot, int buf, uint byte_count)
     pbVar2[1] = 0;
   }
   sdcc_event_notify(4, 0, 0);                    /* DMB before programming ADMA address */
-  sdcc_event_notify(2, (int)adma_desc_table, uVar1 << 3); /* cache flush: descriptor table */
+  sdcc_event_notify(2, (uint)adma_desc_table, uVar1 << 3); /* cache flush: descriptor table */
   sdcc_event_notify(4, 0, 0);                    /* DMB after cache flush */
   sdcc_set_adma_addr_hi(slot, 0);                /* SDHCI_ADMA_ADDRESS_HI (+0x5C) = 0 */
   sdcc_set_adma_addr_lo(slot, (uint)adma_desc_table); /* SDHCI_ADMA_ADDRESS_LO (+0x58) */
@@ -698,8 +693,8 @@ uint sdcc_adma_transfer(mmc_dev_t *dev, uint *buf, int byte_count)
           /* RX_FIFO_HFULL (0x8000) set AND buf is word-aligned:
            * burst read 8 words (32 bytes) via adma_bounce_read */
           local_20 = byte_count;
-          adma_bounce_read(iVar4, (int)buf, &local_20);
-          buf = (uint *)((int)buf + (byte_count - local_20));
+          adma_bounce_read(iVar4, buf, &local_20);
+          buf = (uint *)((char *)buf + (byte_count - local_20));
           byte_count = local_20;
         }
       }
@@ -763,7 +758,7 @@ uint sdcc_adma_write(mmc_dev_t *dev, mmc_cmd_t *cmd)
   app_cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
   *(uint8_t *)&app_cmd[CMD_RESP_TYPE] = 1;                /* resp_type: R1 */
   sdcc_send_cmd(dev, app_cmd);
-  sdcc_send_cmd(dev, (int *)cmd);                /* fire the actual ACMD */
+  sdcc_send_cmd(dev, cmd);                       /* fire the actual ACMD */
   return 0;
 }
 
@@ -1151,7 +1146,7 @@ LAB_08035218:
         if (0x1f < byte_count) {
           /* Word-aligned buf, >= 32 bytes: use burst write via adma_bounce_write */
           local_28 = byte_count;
-          adma_bounce_write(iVar7, (int)buf, &local_28);
+          adma_bounce_write(iVar7, (uint *)buf, &local_28);
           iVar1 = local_28;
           buf = buf + (byte_count - local_28);
           uVar6 = sdcc_read_status(iVar7); /* MCI_STATUS (+0x34): re-read after burst */
