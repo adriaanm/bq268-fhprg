@@ -555,11 +555,11 @@ int mmc_read_blocks(undefined4 *handle, int sector, undefined4 buf, int num_bloc
   char cVar1;
   int iVar2;
   uint *puVar3;
-  undefined4 cmd_num;
-  int cmd_arg;
-  undefined1 resp_type;
-  undefined4 reserved;
-  undefined4 cmd_flags;
+  /* Command struct: 10 words.
+   *   [0] = cmd_num    [1] = cmd_arg     [2] = resp_type (byte)
+   *   [3]-[6] = response data (filled by sdcc_send_cmd)
+   *   [7] = reserved   [8] = status      [9] = flags */
+  int cmd[10];
 
   if (((handle == (undefined4 *)0x0) || (puVar3 = (uint *)*handle, puVar3 == (uint *)0x0)) ||
      (2 < *puVar3)) {
@@ -575,22 +575,23 @@ int mmc_read_blocks(undefined4 *handle, int sector, undefined4 buf, int num_bloc
       /* Card is SD/SDHC/MMC/eMMC — proceed with read */
       iVar2 = mmc_ensure_partition(handle);
       if (iVar2 == 0) {
-        /* Build command struct (10 words starting at &cmd_num) */
+        memset_zero(cmd, sizeof(cmd));
+        /* Build command struct */
         if (num_blocks == 1) {
-          cmd_num = 0x11; /* CMD17: READ_SINGLE_BLOCK */
+          cmd[0] = 0x11; /* CMD17: READ_SINGLE_BLOCK */
         }
         else {
-          cmd_num = 0x12; /* CMD18: READ_MULTIPLE_BLOCK */
+          cmd[0] = 0x12; /* CMD18: READ_MULTIPLE_BLOCK */
         }
-        resp_type = 1;      /* R1 */
-        reserved = 0;
-        cmd_arg = sector;
+        *(undefined1 *)&cmd[2] = 1; /* resp_type: R1 */
+        cmd[7] = 0;                  /* reserved */
+        cmd[1] = sector;             /* cmd_arg */
         /* Convert sector number to byte address for non-HC cards */
         if (((char)puVar3[2] != '\x05') && ((char)puVar3[2] != '\x06')) {
-          cmd_arg = sector * puVar3[9]; /* sector * sector_size */
+          cmd[1] = sector * puVar3[9]; /* sector * sector_size */
         }
-        cmd_flags = 2;      /* bit 1 = data transfer */
-        iVar2 = sdcc_write_data(puVar3,&cmd_num,buf,num_blocks);
+        cmd[9] = 2;                  /* flags: bit 1 = data transfer */
+        iVar2 = sdcc_write_data(puVar3, cmd, buf, num_blocks);
       }
     }
     else {
@@ -690,11 +691,8 @@ int mmc_write_sectors(uint *handle, int sector, uint buf, int num_blocks)
     uint *puVar3;
     char cVar1;
     int iVar2;
-    uint cmd_num;
-    int cmd_arg;
-    undefined1 resp_type;
-    uint reserved;
-    uint cmd_flags;
+    /* Command struct: 10 words (see mmc_read_blocks for layout) */
+    int cmd[10];
 
     if (((handle == (uint *)0x0) || (puVar3 = (uint *)*handle, puVar3 == (uint *)0x0)) ||
         (2 < *puVar3)) {
@@ -708,21 +706,22 @@ int mmc_write_sectors(uint *handle, int sector, uint buf, int num_blocks)
     if (((cVar1 == '\x01') || (cVar1 == '\x05')) || ((cVar1 == '\x02' || (cVar1 == '\x06')))) {
         iVar2 = mmc_ensure_partition(handle);
         if (iVar2 == 0) {
-            /* Build command struct (10 words starting at &cmd_num) */
+            memset_zero(cmd, sizeof(cmd));
+            /* Build command struct */
             if (num_blocks == 1) {
-                cmd_num = 0x18;     /* CMD24: WRITE_SINGLE_BLOCK */
+                cmd[0] = 0x18;     /* CMD24: WRITE_SINGLE_BLOCK */
             } else {
-                cmd_num = 0x19;     /* CMD25: WRITE_MULTIPLE_BLOCK */
+                cmd[0] = 0x19;     /* CMD25: WRITE_MULTIPLE_BLOCK */
             }
-            resp_type = 1;          /* R1 */
-            reserved = 0;
-            cmd_arg = sector;
+            *(undefined1 *)&cmd[2] = 1; /* resp_type: R1 */
+            cmd[7] = 0;                  /* reserved */
+            cmd[1] = sector;
             /* Convert to byte address for non-HC cards */
             if (((char)puVar3[2] != '\x05') && ((char)puVar3[2] != '\x06')) {
-                cmd_arg = sector * puVar3[9];  /* sector * sector_size */
+                cmd[1] = sector * puVar3[9];  /* sector * sector_size */
             }
-            cmd_flags = 1;          /* bit 0 = write direction */
-            iVar2 = sdcc_write_data(puVar3, (int *)&cmd_num, buf, num_blocks);
+            cmd[9] = 1;                  /* flags: bit 0 = write direction */
+            iVar2 = sdcc_write_data(puVar3, cmd, buf, num_blocks);
         }
     } else {
         iVar2 = 0x10;
