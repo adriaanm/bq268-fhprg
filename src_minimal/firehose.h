@@ -230,45 +230,44 @@ extern char LAB_08028888;       /* callback for xml send-and-wait */
  *========================================================================*/
 
 /* ---- sdcc_regs.c ---- */
-void sdcc_set_transfer_mode();            /* 0x0800bbb4: sdcc_set_transfer_mode */
-void sdcc_cleanup();            /* 0x0800bd20: sdcc_cleanup/configure */
-void sdcc_set_all_irq();            /* 0x0800bd78: sdcc_set_all_irq */
-uint sdcc_read_status();            /* 0x0800bd8c: sdcc_read_status */
-void sdcc_enable_clock();            /* 0x0800bda0: sdcc_enable_clock */
-uint sdcc_read_present();            /* 0x0800be44: sdcc_read_present */
-uint sdcc_read_present_state();            /* 0x0800be68: sdcc_read_present_state */
-void sdcc_read_response();            /* 0x0800be78: sdcc_read_response */
-void sdcc_clear_status();            /* 0x0800bfac: sdcc_clear_status */
-void sdcc_set_block_count();            /* 0x0800c008: sdcc_set_block_count */
-void sdcc_set_block_size();            /* 0x0800c018: sdcc_set_block_size */
-void sdcc_set_cmd_arg();            /* 0x0800c0c4: sdcc_set_cmd_arg */
-void sdcc_fire_cmd();            /* 0x0800c0d4: sdcc_fire_cmd */
-void sdcc_set_irq_mask();            /* 0x0800c11c: sdcc_set_irq_mask */
-void sdcc_set_transfer_ctrl();            /* 0x0800c12c: sdcc_set_transfer_ctrl */
-void sdcc_reset_data_line();            /* 0x0800c154: sdcc_reset_data_line */
-/* Extra reg functions used by card_init */
-void sdcc_set_clock_divider();            /* 0x0800c0a8: sdcc_set_clock_divider */
-void sdcc_set_adma_addr_lo();            /* 0x0800bfe8: sdcc_set_adma_addr_lo */
-void sdcc_set_adma_addr_hi();            /* 0x0800bff8: sdcc_set_adma_addr_hi */
-void sdcc_set_8bit_mode();            /* 0x0800bdbc: sdcc_set_8bit_mode */
-void sdcc_trigger_vendor_reset();            /* 0x0800bdd8: sdcc_trigger_vendor_reset */
-void sdcc_set_clock_mode();            /* 0x0800bdf8: sdcc_set_clock_mode */
-void sdcc_set_hs_mode();            /* 0x0800be10: sdcc_set_hs_mode */
-void sdcc_read_caps();            /* 0x0800be2c: sdcc_read_caps */
-byte sdcc_read_power_mode();            /* 0x0800be54: sdcc_read_power_mode */
-void sdcc_wait_pll_lock();            /* 0x0800beb8: sdcc_wait_pll_lock */
-void sdcc_set_int_enable();            /* 0x0800bf18: sdcc_set_int_enable */
-void sdcc_set_int_signal();            /* 0x0800bf34: sdcc_set_int_signal */
-uint sdcc_read_clock_stable();            /* 0x0800bf74: sdcc_read_clock_stable */
-void sdcc_set_led();            /* 0x0800bf88: sdcc_set_led */
-void sdcc_set_dma_mode();            /* 0x0800c028: sdcc_set_dma_mode */
-void sdcc_setup_caps();            /* 0x0800c058: sdcc_setup_caps */
-void sdcc_set_bus_power();            /* 0x0800c104: sdcc_set_bus_power */
-void sdcc_set_voltage();            /* 0x0800c180: sdcc_set_voltage */
-void sdcc_set_bus_width_bit();            /* 0x0800bc64: sdcc_set_bus_width_bit */
-void sdcc_init_bases();            /* 0x0800bc84: sdcc_init_bases */
-void sdcc_set_flow_control();            /* 0x0800bccc: sdcc_set_flow_control */
-void sdcc_set_bus_speed();            /* 0x0800bcec: sdcc_set_bus_speed */
+void sdcc_set_transfer_mode(int slot, ushort *mode);
+void sdcc_cleanup(int slot, short *cmd_config);
+void sdcc_set_all_irq(int slot);
+uint sdcc_read_status(int slot);
+void sdcc_enable_clock(int slot);
+uint sdcc_read_present(int slot);
+uint sdcc_read_present_state(int slot);
+void sdcc_read_response(int slot, uint *resp, int is_r2);
+void sdcc_clear_status(int slot, uint mask);
+void sdcc_set_block_count(int slot, undefined2 count);
+void sdcc_set_block_size(int slot, undefined2 size);
+void sdcc_set_cmd_arg(int slot, undefined4 arg);
+void sdcc_fire_cmd(int slot, byte *cmd_desc);
+void sdcc_set_irq_mask(int slot, undefined1 mask);
+void sdcc_set_transfer_ctrl(int slot, byte *ctrl);
+void sdcc_reset_data_line(int slot, byte bits);
+void sdcc_set_clock_divider(int slot, uint divider);
+void sdcc_set_adma_addr_lo(int slot, undefined4 addr);
+void sdcc_set_adma_addr_hi(int slot, undefined4 addr);
+void sdcc_set_8bit_mode(int slot, int enable);
+void sdcc_trigger_vendor_reset(int slot);
+void sdcc_set_clock_mode(int slot);
+void sdcc_set_hs_mode(int slot, char enable);
+void sdcc_read_caps(int slot, undefined4 *caps);
+byte sdcc_read_power_mode(int slot);
+void sdcc_wait_pll_lock(int slot);
+void sdcc_set_int_enable(int slot, uint mask, int enable);
+void sdcc_set_int_signal(int slot, uint mask, int enable);
+uint sdcc_read_clock_stable(int slot);
+void sdcc_set_led(int slot, int enable);
+void sdcc_set_dma_mode(int slot, int mode);
+void sdcc_setup_caps(int slot);
+void sdcc_set_bus_power(int slot, byte enable);
+void sdcc_set_voltage(int slot, byte voltage);
+void sdcc_set_bus_width_bit(int slot, int enable);
+void sdcc_init_bases(void);
+void sdcc_set_flow_control(int slot, int enable);
+void sdcc_set_bus_speed(int slot, int speed);
 
 /* ---- sdcc_helpers.c ---- */
 void adma_bounce_read();            /* 0x0800bbec: ADMA bounce read */
