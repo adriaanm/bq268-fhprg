@@ -76,7 +76,32 @@ extern uint sdcc_hc_base_alt[2];   /* SDCC SDHCI host-controller base (alt) [slo
  *========================================================================*/
 typedef uint  mmc_dev_t;     /* word-indexed device struct (use as mmc_dev_t*) */
 typedef uint  mmc_handle_t;  /* word-indexed partition handle (use as mmc_handle_t*) */
-typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10]) */
+
+/* eMMC command struct (40 bytes, 10 words).
+ * Passed to sdcc_send_cmd and related functions. */
+typedef struct {
+    int cmd_num;        /* [0] MMC command number (CMD0=0, CMD17=0x11, CMD24=0x18...) */
+    int cmd_arg;        /* [1] command argument (sector addr, RCA<<16, CMD6 arg...) */
+    int resp_type;      /* [2] response type byte (0=none, 1=R1/R1B, 4=R2) */
+    int resp[4];        /* [3..6] response data (R1: resp[0]=status, R2: all 4 words) */
+    int busy_wait;      /* [7] 1=wait for DAT0 busy signal to clear */
+    int status;         /* [8] MCI_STATUS on return (filled by sdcc_setup_data_xfer) */
+    int flags;          /* [9] bit0=write/stop, bit1=data xfer, bit2=ADMA */
+} mmc_cmd_t;
+
+/* SDCC command config struct (20 bytes, 10 shorts).
+ * Built by sdcc_pre_cmd_hook, consumed by sdcc_cleanup to form MCI_CMD register. */
+typedef struct {
+    short dpe;          /* [0] data-path enable → MCI_CMD bit 12 (CMD17/18/24/25/53) */
+    short ccs_enable;   /* [1] CCS/busy signal → MCI_CMD bit 11 */
+    short data_present; /* [2] data present → MCI_CMD bit 10 */
+    short _reserved3;   /* [3] unused */
+    short idx_check;    /* [4] index check → MCI_CMD bit 7 */
+    short crc_check;    /* [5] CRC check → MCI_CMD bit 6 */
+    short cmd_index;    /* [6] command index → MCI_CMD bits [5:0] */
+    short _reserved7;   /* [7] unused */
+    int   cmd_arg;      /* [8..9] command argument (32-bit, overlaid at byte offset 16) */
+} sdcc_cmd_config_t;
 
 /*========================================================================
  * Forward declarations — organized by file / subsystem
@@ -84,7 +109,7 @@ typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10
 
 /* ---- sdcc_regs.c ---- */
 void     sdcc_set_transfer_mode(int slot, ushort *mode);
-void     sdcc_cleanup(int slot, short *cmd_config);
+void     sdcc_cleanup(int slot, sdcc_cmd_config_t *cmd_config);
 void     sdcc_set_all_irq(int slot);
 uint     sdcc_read_status(int slot);        /* MCI_STATUS (MCI+0x34) */
 void     sdcc_enable_clock(int slot);       /* poll MCI_STATUS2 bit 0 */
@@ -127,7 +152,7 @@ void adma_bounce_read(int slot, uint *buf, int *remaining);
 void adma_bounce_write(int slot, uint *buf, int *remaining);
 void sdcc_event_notify(int flags, uint addr, uint size);
 uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop);
-int  sdcc_fifo_write(mmc_dev_t *dev, uint *cmd_config, uint *buf, uint byte_count);
+int  sdcc_fifo_write(mmc_dev_t *dev, mmc_cmd_t *cmd, uint *buf, uint byte_count);
 uint sdcc_dma_setup(int slot, uint buf_phys, uint byte_count);
 uint sdcc_wait_complete(int slot, uint mask, uint *out_status);
 int  mmc_switch_cmd6(mmc_dev_t *dev, uint cmd6_arg);
@@ -221,22 +246,8 @@ uint mmc_setup_partitions(int dev);
 #define HANDLE_PARTITION_IDX   1     /* partition index (0-7, -1=user) */
 #define HANDLE_FLAGS           2     /* open flags */
 
-/* mmc_cmd_t field indices (word offsets).
- * Command struct is 10 words (40 bytes):
- *   [0] cmd_num     MMC command number (CMD0=0, CMD17=0x11, CMD24=0x18...)
- *   [1] cmd_arg     command argument (sector addr, RCA<<16, CMD6 arg...)
- *   [2] resp_type   response type byte (0=none, 1=R1/R1B, 4=R2)
- *   [3..6] resp     response data (R1: [3]=status, R2: [3..6]=128-bit)
- *   [7] busy_wait   1=wait for DAT0 busy signal to clear
- *   [8] status      MCI_STATUS on return (filled by sdcc_setup_data_xfer)
- *   [9] flags       bit0=write/stop, bit1=data xfer, bit2=ADMA */
-#define CMD_NUM                0
-#define CMD_ARG                1
-#define CMD_RESP_TYPE          2
-#define CMD_RESP_DATA          3     /* 4 words: [3]-[6] */
-#define CMD_BUSY_WAIT          7
-#define CMD_STATUS             8
-#define CMD_FLAGS              9
+/* mmc_cmd_t field layout is documented in the struct definition above.
+ * Old #define CMD_NUM/CMD_ARG/etc. indices replaced by struct fields. */
 
 /* Slot context layout (0xBC bytes per slot).
  * Contains header fields + embedded device struct at +0x0C.

@@ -326,20 +326,20 @@ static uint sdcc_set_bus_speed_mode(int slot, uint speed)
 static uint csd_get_rca(int dev)
 {
   uint uVar1;
-  int cmd[10];
+  mmc_cmd_t cmd;
 
-  memset_zero(cmd, sizeof(cmd));
-  cmd[0] = 3;                                      /* CMD3: SEND_RELATIVE_ADDR */
-  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                      /* resp_type: R1 */
+  memset_zero(&cmd, sizeof(cmd));
+  cmd.cmd_num = 3;                                 /* CMD3: SEND_RELATIVE_ADDR */
+  *(uint8_t *)&cmd.resp_type = 1;                  /* resp_type: R1 */
   if ((*(char *)(dev + DEV_BYTE_CARD_TYPE) == '\x02') || (*(char *)(dev + DEV_BYTE_CARD_TYPE) == '\x06')) {
     uVar1 = 2;
-    cmd[1] = 0x20000;                              /* MMC: assigned RCA */
-    sdcc_send_cmd((mmc_dev_t *)dev, cmd);
+    cmd.cmd_arg = 0x20000;                         /* MMC: assigned RCA */
+    sdcc_send_cmd((mmc_dev_t *)dev, &cmd);
   }
   else {
-    cmd[1] = 0;
-    sdcc_send_cmd((mmc_dev_t *)dev, cmd);
-    uVar1 = (uint)cmd[3] >> 0x10;                  /* SD: RCA from response */
+    cmd.cmd_arg = 0;
+    sdcc_send_cmd((mmc_dev_t *)dev, &cmd);
+    uVar1 = (uint)cmd.resp[0] >> 0x10;             /* SD: RCA from response */
   }
   return uVar1;
 }
@@ -381,13 +381,13 @@ static uint csd_parse_mmc(int *resp, int dev)
 static uint cmd7_select_card(int dev, int select)
 {
   uint uVar1;
-  int cmd[10];
+  mmc_cmd_t cmd;
 
-  memset_zero(cmd, sizeof(cmd));
-  cmd[0] = 7;                                      /* CMD7: SELECT/DESELECT */
-  cmd[1] = (select != 0) ? ((uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10) : 0;
-  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                      /* resp_type: R1 */
-  uVar1 = sdcc_send_cmd((mmc_dev_t *)dev, cmd);
+  memset_zero(&cmd, sizeof(cmd));
+  cmd.cmd_num = 7;                                 /* CMD7: SELECT/DESELECT */
+  cmd.cmd_arg = (select != 0) ? ((uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10) : 0;
+  *(uint8_t *)&cmd.resp_type = 1;                  /* resp_type: R1 */
+  uVar1 = sdcc_send_cmd((mmc_dev_t *)dev, &cmd);
   if (select == 0) {
     uVar1 = 0;
   }
@@ -435,14 +435,14 @@ int mmc_config_bus(int dev)
   uint16_t uVar1;
   int iVar2;
   int iVar3;
-  int cmd[10];
+  mmc_cmd_t cmd;
 
-  memset_zero(cmd, sizeof(cmd));
-  cmd[0] = 2;                                      /* CMD2: ALL_SEND_CID */
-  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 4;                      /* resp_type: R2 */
-  iVar2 = sdcc_send_cmd((mmc_dev_t *)dev, cmd);
+  memset_zero(&cmd, sizeof(cmd));
+  cmd.cmd_num = 2;                                 /* CMD2: ALL_SEND_CID */
+  *(uint8_t *)&cmd.resp_type = 4;                  /* resp_type: R2 */
+  iVar2 = sdcc_send_cmd((mmc_dev_t *)dev, &cmd);
   if (iVar2 == 0) {
-    iVar3 = csd_parse_mmc(cmd + 3, dev);
+    iVar3 = csd_parse_mmc(cmd.resp, dev);
     if (iVar3 == 0) {
       iVar2 = 0x14;
     }
@@ -463,19 +463,19 @@ int mmc_identify_card(int dev)
   /* CSD parsed output struct — 0x28 bytes, contiguous for memset_zero.
    * Layout: [0x04]=speed_class, [0x08]=c_size_mult, [0x10]=c_size, [0x18]=read_bl_len */
   char csd_parsed[0x28];
-  int cmd[10];  /* command struct for CMD9 */
+  mmc_cmd_t cmd;  /* command struct for CMD9 */
 
   iVar2 = sdcc_get_card_status((mmc_dev_t *)dev);
   iVar3 = 9;
   if (iVar2 == 3) {
-    memset_zero(cmd, sizeof(cmd));
-    cmd[0] = 9;                                    /* CMD9: SEND_CSD */
-    cmd[1] = (uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10;  /* RCA */
-    *(uint8_t *)&cmd[CMD_RESP_TYPE] = 4;                    /* resp_type: R2 */
-    iVar3 = sdcc_send_cmd((mmc_dev_t *)dev, cmd);
+    memset_zero(&cmd, sizeof(cmd));
+    cmd.cmd_num = 9;                               /* CMD9: SEND_CSD */
+    cmd.cmd_arg = (uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10;  /* RCA */
+    *(uint8_t *)&cmd.resp_type = 4;                /* resp_type: R2 */
+    iVar3 = sdcc_send_cmd((mmc_dev_t *)dev, &cmd);
     if (iVar3 == 0) {
       memset_zero(csd_parsed, 0x28);
-      mmc_parse_csd_fields(dev, (uint8_t *)(cmd + 3), csd_parsed);
+      mmc_parse_csd_fields(dev, (uint8_t *)cmd.resp, csd_parsed);
       /* eMMC only: card type is always '\x02' (MMC) or '\x06' (eMMC) */
       uVar4 = 3;
       if (*(char *)(dev + DEV_BYTE_CARD_TYPE) != '\x06') {
@@ -565,7 +565,7 @@ int mmc_set_speed(mmc_dev_t *dev)
   char cVar1;
   int iVar2;
   int iVar3;
-  int cmd[10];
+  mmc_cmd_t cmd;
 
   iVar3 = *dev;
   iVar2 = cmd7_select_card((int)dev,1);
@@ -574,11 +574,11 @@ int mmc_set_speed(mmc_dev_t *dev)
   }
   *(uint8_t *)((int)dev + DEV_BYTE_INIT_PHASE) = 2;
   dev[DEV_CUSTOM_SECTOR] = 1;
-  memset_zero(cmd, sizeof(cmd));
-  cmd[0] = 0x10;       /* CMD16 SET_BLOCKLEN */
-  cmd[1] = 0x200;      /* arg: 512 bytes */
-  cmd[2] = 1;          /* resp_type: R1 */
-  iVar2 = sdcc_send_cmd(dev, cmd);
+  memset_zero(&cmd, sizeof(cmd));
+  cmd.cmd_num = 0x10;       /* CMD16 SET_BLOCKLEN */
+  cmd.cmd_arg = 0x200;      /* arg: 512 bytes */
+  cmd.resp_type = 1;        /* resp_type: R1 */
+  iVar2 = sdcc_send_cmd(dev, &cmd);
   if (iVar2 == 0) {
     dev[DEV_SECTOR_SIZE] = 0x200;
     *(uint *)(sdcc_mci_base[*dev] + 0x2c) =
@@ -667,7 +667,7 @@ char mmc_classify_error(mmc_handle_t *handle)
   uint uVar2;
   uint uVar3;
   int iVar4;
-  int cmd[10];
+  mmc_cmd_t cmd;
 
   uVar2 = *(uint *)*handle;
   if (2 < uVar2) {
@@ -696,27 +696,27 @@ char mmc_classify_error(mmc_handle_t *handle)
   if ((uVar2 & 1) != 0) {
     /* MMC detection path: CMD0 (GO_IDLE) then CMD1 (SEND_OP_COND) loop */
     iVar4 = *handle;
-    memset_zero(cmd, sizeof(cmd));
+    memset_zero(&cmd, sizeof(cmd));
     /* CMD0: no response */
-    sdcc_send_cmd((mmc_dev_t *)iVar4, cmd);
+    sdcc_send_cmd((mmc_dev_t *)iVar4, &cmd);
     uVar2 = 0;
     while( true ) {
-      memset_zero(cmd, sizeof(cmd));
-      cmd[0] = 1;            /* CMD1 SEND_OP_COND */
-      cmd[1] = 0x40ff8000;   /* arg: sector mode + voltage window */
-      cmd[2] = 1;            /* resp_type: R3 (uses R1 code) */
-      iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, cmd);
+      memset_zero(&cmd, sizeof(cmd));
+      cmd.cmd_num = 1;            /* CMD1 SEND_OP_COND */
+      cmd.cmd_arg = 0x40ff8000;   /* arg: sector mode + voltage window */
+      cmd.resp_type = 1;          /* resp_type: R3 (uses R1 code) */
+      iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, &cmd);
       if (iVar1 != 0) {
         return 0;
       }
-      if ((int)cmd[3] < 0) break;  /* busy bit set = ready */
+      if ((int)cmd.resp[0] < 0) break;  /* busy bit set = ready */
       delay_us(50000);
       uVar2 = uVar2 + 1;
       if (0x13 < uVar2) {
         return 0;
       }
     }
-    if ((((uint)cmd[3] >> 0x1e & 1) != 0) && (((uint)cmd[3] >> 0x1d & 1) == 0)) {
+    if ((((uint)cmd.resp[0] >> 0x1e & 1) != 0) && (((uint)cmd.resp[0] >> 0x1d & 1) == 0)) {
       return 6;   /* sector-mode MMC */
     }
     return 2;      /* byte-mode MMC */
@@ -724,18 +724,18 @@ char mmc_classify_error(mmc_handle_t *handle)
   /* SD detection path: CMD0, CMD8, then CMD55+ACMD41 loop */
   iVar4 = *handle;
   uVar3 = 0xff8000;
-  memset_zero(cmd, sizeof(cmd));
+  memset_zero(&cmd, sizeof(cmd));
   /* CMD0: no response */
-  sdcc_send_cmd((mmc_dev_t *)iVar4, cmd);
+  sdcc_send_cmd((mmc_dev_t *)iVar4, &cmd);
   uVar2 = 0;
   do {
-    memset_zero(cmd, sizeof(cmd));
-    cmd[0] = 8;       /* CMD8 SEND_IF_COND */
-    cmd[1] = 0x1aa;   /* arg: voltage + check pattern */
-    cmd[2] = 1;       /* resp_type: R7 (uses R1 code) */
-    iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, cmd);
+    memset_zero(&cmd, sizeof(cmd));
+    cmd.cmd_num = 8;       /* CMD8 SEND_IF_COND */
+    cmd.cmd_arg = 0x1aa;   /* arg: voltage + check pattern */
+    cmd.resp_type = 1;     /* resp_type: R7 (uses R1 code) */
+    iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, &cmd);
     if (iVar1 == 0) {
-      if (cmd[3] != 0x1aa) {   /* check pattern mismatch */
+      if (cmd.resp[0] != 0x1aa) {   /* check pattern mismatch */
         return 0;
       }
       uVar3 = 0x40ff8000;   /* SD 2.0: request HCS */
@@ -747,24 +747,24 @@ char mmc_classify_error(mmc_handle_t *handle)
   uVar2 = 0;
   do {
     /* CMD55 APP_CMD (prefix for ACMD) */
-    memset_zero(cmd, sizeof(cmd));
-    cmd[0] = 0x37;    /* CMD55 */
-    cmd[2] = 1;       /* resp_type: R1 */
-    iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, cmd);
+    memset_zero(&cmd, sizeof(cmd));
+    cmd.cmd_num = 0x37;    /* CMD55 */
+    cmd.resp_type = 1;     /* resp_type: R1 */
+    iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, &cmd);
     if (iVar1 != 0) {
       return 0;
     }
     /* ACMD41 SD_SEND_OP_COND */
-    memset_zero(cmd, sizeof(cmd));
-    cmd[0] = 0x29;    /* ACMD41 */
-    cmd[1] = uVar3;   /* arg: HCS + voltage window */
-    cmd[2] = 1;       /* resp_type: R3 (uses R1 code) */
-    iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, cmd);
+    memset_zero(&cmd, sizeof(cmd));
+    cmd.cmd_num = 0x29;    /* ACMD41 */
+    cmd.cmd_arg = uVar3;   /* arg: HCS + voltage window */
+    cmd.resp_type = 1;     /* resp_type: R3 (uses R1 code) */
+    iVar1 = sdcc_send_cmd((mmc_dev_t *)iVar4, &cmd);
     if (iVar1 != 0) {
       return 0;
     }
-    if (cmd[3] < 0) {   /* busy bit set = ready */
-      if (cmd[3] << 1 < 0) {
+    if (cmd.resp[0] < 0) {   /* busy bit set = ready */
+      if (cmd.resp[0] << 1 < 0) {
         return 5;   /* SDHC */
       }
       return 1;     /* SD */

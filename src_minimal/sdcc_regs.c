@@ -133,46 +133,37 @@ void sdcc_set_transfer_mode(int slot, ushort *mode)
 
 /* orig: 0x0800bd20 sdcc_cleanup — build and write MCI_CMD (MCI core+0x0C) from descriptor.
  *
- * Assembles the MCI_CMD 32-bit register from a packed command-config struct,
+ * Assembles the MCI_CMD 32-bit register from sdcc_cmd_config_t fields,
  * also copies the argument to MCI_ARGUMENT (MCI core+0x08), then calls
  * sdcc_enable_clock() to let the controller latch the values.
- *
- * cmd_config[] layout (array of short, byte-level access for some fields):
- *   cmd_config[0]   dpe         → MCI_CMD bit 12 (PROG_ENA / data-path-enable)
- *   cmd_config[1]   ccs_enable  → MCI_CMD bit 11 (interrupt-mode / CCS)
- *   cmd_config[2]   data_present→ MCI_CMD bit 10 (data-present/expected)
- *   cmd_config[4]   idx_check   → MCI_CMD bit  7 (enable command index check)
- *   cmd_config[5]   crc_check   → MCI_CMD bit  6 (enable CRC check)
- *   cmd_config[6]   resp_type   → MCI_CMD bits 0-1 (00=no rsp, 01=R1, 10=R2, 11=R3)
- *   cmd_config[8]   cmd_timeout  (passed as 32-bit word to MCI_ARGUMENT via +8 byte offset)
  *
  * Registers written:
  *   MCI_ARGUMENT  = MCI core base + 0x08
  *   MCI_CMD       = MCI core base + 0x0C
  */
-void sdcc_cleanup(int slot, short *cmd_config)
+void sdcc_cleanup(int slot, sdcc_cmd_config_t *cfg)
 {
   uint uVar1;
 
-  if (cmd_config != (short *)0x0) {
-    uVar1 = (uint)(ushort)cmd_config[6];        /* resp_type → bits 0-1 */
-    if (cmd_config[2] == 1) {
+  if (cfg != (sdcc_cmd_config_t *)0x0) {
+    uVar1 = (uint)(ushort)cfg->cmd_index;       /* command index → bits [5:0] */
+    if (cfg->data_present == 1) {
       uVar1 = uVar1 | 0x400;  /* bit 10: data present */
     }
-    if (cmd_config[5] == 1) {
+    if (cfg->crc_check == 1) {
       uVar1 = uVar1 | 0x40;   /* bit 6: CRC_CHECK_EN */
     }
-    if (cmd_config[4] == 1) {
+    if (cfg->idx_check == 1) {
       uVar1 = uVar1 | 0x80;   /* bit 7: CMD_IDX_CHECK_EN */
     }
-    if (cmd_config[1] == 1) {
+    if (cfg->ccs_enable == 1) {
       uVar1 = uVar1 | 0x800;  /* bit 11: CCS_ENABLE (interrupt mode) */
     }
-    if (*cmd_config == 1) {
+    if (cfg->dpe == 1) {
       uVar1 = uVar1 | 0x1000; /* bit 12: PROG_ENA (data-path enable) */
     }
-    /* MCI_ARGUMENT (MCI core+0x08) ← cmd_config[8] (32-bit word at byte offset 16) */
-    *(uint *)(sdcc_mci_base[slot] + 8) = *(uint *)(cmd_config + 8);
+    /* MCI_ARGUMENT (MCI core+0x08) */
+    *(uint *)(sdcc_mci_base[slot] + 8) = (uint)cfg->cmd_arg;
     /* MCI_CMD (MCI core+0x0C) */
     *(uint *)(sdcc_mci_base[slot] + 0xc) = uVar1;
     sdcc_enable_clock(slot);

@@ -240,7 +240,7 @@ void sdcc_event_notify(int flags, uint addr, uint size)
 uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop)
 {
   uint uVar1;
-  int cmd[10]; /* command struct: [0]=cmd_num [1]=arg [2]=resp_type [7]=busy_wait */
+  mmc_cmd_t cmd;
 
   uVar1 = 0;
   if (need_stop == 0) {
@@ -249,11 +249,11 @@ uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop)
     }
   }
   else {
-    memset_zero(cmd, sizeof(cmd));
-    cmd[0] = 0xc;                                 /* CMD12: STOP_TRANSMISSION */
-    *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                   /* resp_type: R1 */
-    cmd[7] = (need_busy == 1) ? 1 : 0;            /* busy_wait: 1 = wait for DAT0 deassert */
-    uVar1 = sdcc_send_cmd(dev, cmd);
+    memset_zero(&cmd, sizeof(cmd));
+    cmd.cmd_num = 0xc;                             /* CMD12: STOP_TRANSMISSION */
+    *(uint8_t *)&cmd.resp_type = 1;                /* resp_type: R1 */
+    cmd.busy_wait = (need_busy == 1) ? 1 : 0;     /* busy_wait: 1 = wait for DAT0 deassert */
+    uVar1 = sdcc_send_cmd(dev, &cmd);
   }
   return uVar1;
 }
@@ -262,11 +262,7 @@ uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop)
  * the SDHCI data buffer port (PIO via SDHCI, not via MCI FIFO).
  *
  * dev        — pointer to mmc_dev_t device struct; dev[0] = slot index
- * cmd_config — pointer to a transfer descriptor struct (allocated by caller):
- *                +0x20 = out: raw status word on error
- *                +0x24 = flags word:
- *                          bit 1 (flags << 0x1e < 0): READ direction
- *                          bit 0 (flags & 1):          WRITE direction
+ * cmd        — pointer to mmc_cmd_t; uses flags (direction) and status (error out)
  * buf        — data buffer (source for write, destination for read)
  * byte_count — total bytes to transfer
  *
@@ -284,7 +280,7 @@ uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop)
  *
  * Returns 1 immediately if neither read nor write bit is set in flags.
  */
-int sdcc_fifo_write(mmc_dev_t *dev, uint *cmd_config, uint *buf, uint byte_count)
+int sdcc_fifo_write(mmc_dev_t *dev, mmc_cmd_t *cmd, uint *buf, uint byte_count)
 {
   int iVar1;
   uint uVar2;
@@ -307,12 +303,12 @@ int sdcc_fifo_write(mmc_dev_t *dev, uint *cmd_config, uint *buf, uint byte_count
   }
   uVar6 = (uVar6 + 3) >> 2;              /* round up to word count */
 
-  /* Decode transfer direction from cmd_config flags (word 9, byte offset +0x24) */
-  if ((int)(cmd_config[9] << 0x1e) < 0) {
+  /* Decode transfer direction from cmd flags */
+  if ((int)(cmd->flags << 0x1e) < 0) {
     uVar7 = 0x20;                        /* READ: wait for SDHCI BUFF_READ_READY */
   }
   else {
-    if ((cmd_config[9] & 1) == 0) {
+    if ((cmd->flags & 1) == 0) {
       return 1;                          /* neither read nor write: invalid config */
     }
     uVar7 = 0x10;                        /* WRITE: wait for SDHCI BUFF_WRITE_READY */
@@ -320,19 +316,19 @@ int sdcc_fifo_write(mmc_dev_t *dev, uint *cmd_config, uint *buf, uint byte_count
   do {
     iVar1 = sdcc_wait_complete(iVar4, uVar7, &local_28);
     if (iVar1 != 0) {
-      cmd_config[8] = local_28;          /* save error status for caller */
+      cmd->status = local_28;            /* save error status for caller */
       return iVar1;
     }
     sdcc_clear_status(iVar4, uVar7);
     uVar2 = 0;
-    if ((int)(cmd_config[9] << 0x1e) < 0) {
+    if ((int)(cmd->flags << 0x1e) < 0) {
       /* READ: pull words from SDHCI_BUF_DATA (sdcc_hc_base[slot] + 0x20) */
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
         *buf = *(uint *)(sdcc_hc_base[iVar4] + 0x20); /* SDHCI_BUF_DATA (+0x20) */
         buf = buf + 1;
       }
     }
-    else if ((cmd_config[9] & 1) != 0) {
+    else if ((cmd->flags & 1) != 0) {
       /* WRITE: push words to SDHCI_BUF_DATA (sdcc_hc_base[slot] + 0x20) */
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
         uVar3 = *buf;
@@ -505,26 +501,26 @@ uint sdcc_wait_complete(int slot, uint mask, uint *out_status)
 int mmc_switch_cmd6(mmc_dev_t *dev, uint cmd6_arg)
 {
   int ret;
-  int cmd[10]; /* command struct (reused for CMD6 then CMD13) */
+  mmc_cmd_t cmd; /* reused for CMD6 then CMD13 */
 
   /* CMD6: SWITCH — modify one EXT_CSD byte */
-  memset_zero(cmd, sizeof(cmd));
-  cmd[0] = 6;                                     /* CMD6: SWITCH */
-  cmd[1] = (int)cmd6_arg;                         /* switch argument */
-  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                     /* resp_type: R1b */
-  cmd[7] = 1;                                     /* busy_wait: wait for DAT0 deassert */
-  ret = sdcc_send_cmd(dev, cmd);
+  memset_zero(&cmd, sizeof(cmd));
+  cmd.cmd_num = 6;                                 /* CMD6: SWITCH */
+  cmd.cmd_arg = (int)cmd6_arg;                     /* switch argument */
+  *(uint8_t *)&cmd.resp_type = 1;                  /* resp_type: R1b */
+  cmd.busy_wait = 1;                               /* busy_wait: wait for DAT0 deassert */
+  ret = sdcc_send_cmd(dev, &cmd);
   if (ret == 0) {
     /* CMD13: SEND_STATUS — verify card returned to transfer state */
-    memset_zero(cmd, sizeof(cmd));
-    cmd[0] = 0xd;                                 /* CMD13: SEND_STATUS */
-    cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
-    *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                   /* resp_type: R1 */
-    ret = sdcc_send_cmd(dev, cmd);
+    memset_zero(&cmd, sizeof(cmd));
+    cmd.cmd_num = 0xd;                             /* CMD13: SEND_STATUS */
+    cmd.cmd_arg = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
+    *(uint8_t *)&cmd.resp_type = 1;                /* resp_type: R1 */
+    ret = sdcc_send_cmd(dev, &cmd);
     if (ret == 0) {
-      if ((uint)(cmd[3] << 0x13) >> 0x1c == 4) {  /* R1[12:9] CURRENT_STATE == 4 (transfer)? */
+      if ((uint)(cmd.resp[0] << 0x13) >> 0x1c == 4) {  /* R1[12:9] CURRENT_STATE == 4 (transfer)? */
         ret = 0;
-        if (cmd[3] << 0x18 < 0) {                 /* R1[7] SWITCH_ERROR set? */
+        if (cmd.resp[0] << 0x18 < 0) {             /* R1[7] SWITCH_ERROR set? */
           ret = 0x13;
         }
       }
@@ -579,7 +575,7 @@ uint sdcc_setup_data_xfer(mmc_dev_t *dev, mmc_cmd_t *cmd)
       uVar5 = 0;
       if ((uVar1 & 0x800000) != 0) {     /* PROG_DONE (0x800000): card already done */
         *(uint *)(sdcc_mci_base[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
-        cmd[7] = 0;                      /* clear busy_wait: no need to poll card busy */
+        cmd->busy_wait = 0;              /* clear busy_wait: no need to poll card busy */
       }
       goto LAB_08034c08;
     }
@@ -590,7 +586,7 @@ uint sdcc_setup_data_xfer(mmc_dev_t *dev, mmc_cmd_t *cmd)
     }
     uVar3 = uVar3 + 1;
   } while ((uVar1 & 1) == 0);            /* CMD_CRC_FAIL (0x1): poll until seen or loop exits */
-  iVar2 = *cmd;
+  iVar2 = cmd->cmd_num;
   if (((iVar2 == 0x29) || (iVar2 == 1)) || (iVar2 == 5)) {
     /* CMD41/CMD1/CMD5 use R3/R4 (no CRC): CRC_FAIL is expected, treat as success */
     uVar5 = 0;
@@ -600,7 +596,7 @@ uint sdcc_setup_data_xfer(mmc_dev_t *dev, mmc_cmd_t *cmd)
   }
   *(uint *)(sdcc_mci_base[iVar4] + 0x38) = 1; /* MCI_CLEAR (+0x38): ack CMD_CRC_FAIL */
 LAB_08034c08:
-  cmd[8] = uVar1;                        /* CMD_STATUS: save MCI_STATUS snapshot */
+  cmd->status = uVar1;                    /* save MCI_STATUS snapshot */
   return uVar5;
 }
 
@@ -751,14 +747,14 @@ LAB_08034c9e:
  */
 uint sdcc_adma_write(mmc_dev_t *dev, mmc_cmd_t *cmd)
 {
-  int app_cmd[10];
+  mmc_cmd_t app_cmd;
 
-  memset_zero(app_cmd, sizeof(app_cmd));
-  app_cmd[0] = 0x37;                             /* CMD55: APP_CMD (precedes all ACMDs) */
-  app_cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
-  *(uint8_t *)&app_cmd[CMD_RESP_TYPE] = 1;                /* resp_type: R1 */
-  sdcc_send_cmd(dev, app_cmd);
-  sdcc_send_cmd(dev, cmd);                       /* fire the actual ACMD */
+  memset_zero(&app_cmd, sizeof(app_cmd));
+  app_cmd.cmd_num = 0x37;                         /* CMD55: APP_CMD (precedes all ACMDs) */
+  app_cmd.cmd_arg = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
+  *(uint8_t *)&app_cmd.resp_type = 1;             /* resp_type: R1 */
+  sdcc_send_cmd(dev, &app_cmd);
+  sdcc_send_cmd(dev, cmd);                        /* fire the actual ACMD */
   return 0;
 }
 
@@ -802,12 +798,11 @@ void sdcc_pre_cmd_hook(mmc_dev_t *dev, mmc_cmd_t *cmd)
   int cmd_num;
   uint uVar3;
   int slot;
-  /* cmd_config: 10 shorts = 20 bytes, must be contiguous for sdcc_cleanup array indexing */
-  short cmd_config[10];
+  sdcc_cmd_config_t cfg;
 
   slot = *dev;
   uVar3 = 0;
-  memset_zero(cmd_config, 0x14);
+  memset_zero(&cfg, sizeof(cfg));
   do {
     /* MCI_CLEAR (+0x38) = 0x18007ff: write-1-to-clear all status bits */
     *(uint *)(sdcc_mci_base[slot] + 0x38) = 0x18007ff;
@@ -819,24 +814,24 @@ void sdcc_pre_cmd_hook(mmc_dev_t *dev, mmc_cmd_t *cmd)
   *(uint *)(sdcc_mci_base[slot] + 0x2c) = *(uint *)(sdcc_mci_base[slot] + 0x2c) & 0xfffffffe;
   sdcc_enable_clock(slot);
 status_clear:
-  cmd_config[6] = (short)*cmd;          /* command_index */
-  cmd_config[2] = 1;                    /* has_response: set for all commands initially */
-  if ((char)cmd[2] != '\0') {           /* resp_type != 0: a response is expected */
-    cmd_config[5] = 1;                  /* crc_check: enable for R1/R1b */
-    if ((char)cmd[2] == '\x04') {       /* resp_type == 4: R2 (136-bit CID/CSD) */
-      cmd_config[4] = 1;                /* index_check: R2 carries no command index */
+  cfg.cmd_index = (short)cmd->cmd_num;  /* command index */
+  cfg.data_present = 1;                 /* has_response: set for all commands initially */
+  if ((char)cmd->resp_type != '\0') {   /* resp_type != 0: a response is expected */
+    cfg.crc_check = 1;                  /* crc_check: enable for R1/R1b */
+    if ((char)cmd->resp_type == '\x04') { /* resp_type == 4: R2 (136-bit CID/CSD) */
+      cfg.idx_check = 1;                /* index_check: R2 carries no command index */
     }
   }
-  if (cmd[7] != 0) {
-    cmd_config[1] = 1;                  /* busy_signal_enable: wait for DAT0 deassert */
+  if (cmd->busy_wait != 0) {
+    cfg.ccs_enable = 1;                 /* busy_signal_enable: wait for DAT0 deassert */
   }
-  cmd_num = *cmd;
+  cmd_num = cmd->cmd_num;
   if (cmd_num == 0x35 || cmd_num == 0x11 || cmd_num == 0x12 ||
       cmd_num == 0x18 || cmd_num == 0x19) {
-    cmd_config[0] = 1;                  /* data_present_enable: CMD53/17/18/24/25 */
+    cfg.dpe = 1;                        /* data_present_enable: CMD53/17/18/24/25 */
   }
-  *(int *)(cmd_config + 8) = cmd[1];   /* command argument at byte offset 16 */
-  sdcc_cleanup(slot, cmd_config);
+  cfg.cmd_arg = cmd->cmd_arg;           /* command argument */
+  sdcc_cleanup(slot, &cfg);
 }
 
 /* orig: 0x08034f80 sdcc_get_card_status — send CMD13 (SEND_STATUS) and
@@ -857,16 +852,16 @@ uint sdcc_get_card_status(mmc_dev_t *dev)
 {
   int ret;
   uint state;
-  int cmd[10]; /* command struct: [0]=num [1]=arg [2]=resp_type [3]=resp_data[0] */
+  mmc_cmd_t cmd;
 
   state = 9;   /* default: error / unknown */
-  memset_zero(cmd, sizeof(cmd));
-  cmd[0] = 0xd;                                   /* CMD13: SEND_STATUS */
-  cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
-  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                     /* resp_type: R1 */
-  ret = sdcc_send_cmd(dev, cmd);
+  memset_zero(&cmd, sizeof(cmd));
+  cmd.cmd_num = 0xd;                               /* CMD13: SEND_STATUS */
+  cmd.cmd_arg = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
+  *(uint8_t *)&cmd.resp_type = 1;                  /* resp_type: R1 */
+  ret = sdcc_send_cmd(dev, &cmd);
   if (ret == 0) {
-    state = (uint)(cmd[3] << 0x13) >> 0x1c;       /* R1[12:9] = CURRENT_STATE */
+    state = (uint)(cmd.resp[0] << 0x13) >> 0x1c;  /* R1[12:9] = CURRENT_STATE */
   }
   return state;
 }

@@ -64,14 +64,14 @@ uint sdcc_get_slot_status(uint slot)
  *   [0]    = SDCC slot number (0 or 1)
  *   [0x24] = pointer to EXT_CSD data (512 bytes)
  *
- * cmd = command struct (10 words, 40 bytes):
- *   [0] = command number (CMD0=0, CMD6=6, CMD24=0x18, CMD25=0x19, etc.)
- *   [1] = command argument
- *   [2] = response type (0=none, 1=R1/R1B, 4=R2)
- *   [3-6] = response data (filled on return)
- *   [7] = busy wait flag (1=wait for busy signal to clear)
- *   [8] = status (filled on return)
- *   [9] = flags (bit 0-1: ADMA/DMA mode)
+ * cmd = mmc_cmd_t struct (40 bytes):
+ *   cmd_num   = command number (CMD0=0, CMD6=6, CMD24=0x18, CMD25=0x19, etc.)
+ *   cmd_arg   = command argument
+ *   resp_type = response type (0=none, 1=R1/R1B, 4=R2)
+ *   resp[4]   = response data (filled on return)
+ *   busy_wait = busy wait flag (1=wait for busy signal to clear)
+ *   status    = status (filled on return)
+ *   flags     = flags (bit 0-1: ADMA/DMA mode)
  *
  * Returns: 0=success, 0x14=invalid params, 3=timeout, 6=CMD0 timeout,
  *          7=busy timeout, 0xb=R1 error bits set
@@ -80,14 +80,10 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
 {
   int iVar3;
   uint uVar4;
-  int *piVar5;
   int iVar7;
   uint uVar8;
-  /* 20-byte opaque buffer for sdcc_cleanup's internal cleanup state.
-   * Ghidra decompiled the original as 'int local_28' at fp-0x28, but the
-   * memset clears 0x14=20 bytes from that address, spanning 5 stack words.
-   * short[10] correctly captures the 20-byte span. */
-  short local_28[10];
+  /* 20-byte cleanup state for sdcc_cleanup. */
+  sdcc_cmd_config_t local_28;
 
   if ((dev == (mmc_dev_t *)0x0) || (cmd == (mmc_cmd_t *)0x0)) {
     return 0x14;
@@ -95,7 +91,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
   /* eMMC path (card[0x23] != 1, not SPI mode) */
   iVar7 = 0;
   sdcc_pre_cmd_hook(dev, cmd);
-  if (*cmd == 0) {
+  if (cmd->cmd_num == 0) {
     /* CMD0 (GO_IDLE_STATE): poll until card responds */
     iVar7 = *dev; /* slot number */
     uVar8 = 0;
@@ -120,36 +116,34 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
   }
   else {
     /* Non-CMD0: set up data transfer if needed */
-    if ((char)cmd[2] != '\0') {
+    if ((char)cmd->resp_type != '\0') {
       iVar3 = sdcc_setup_data_xfer(dev,cmd);
       if (iVar3 != 0) {
         return iVar3;
       }
       /* Read response from controller */
-      if ((char)cmd[2] != '\0') {
-        if ((char)cmd[2] == '\x04') {
+      if ((char)cmd->resp_type != '\0') {
+        if ((char)cmd->resp_type == '\x04') {
           uVar8 = 4; /* R2: 4 words */
         }
         else {
           uVar8 = 1; /* R1/R1B: 1 word */
         }
-        piVar5 = cmd + 3; /* response dest */
         for (uVar4 = 0; uVar4 < uVar8; uVar4 = uVar4 + 1) {
-          *piVar5 = *(int *)(sdcc_mci_base[*dev] + uVar4 * 4 + 0x14);
-          piVar5 = piVar5 + 1;
+          cmd->resp[uVar4] = *(int *)(sdcc_mci_base[*dev] + uVar4 * 4 + 0x14);
         }
         /* Check R1 error bits for CMD52 (0x34) and CMD53 (0x35) */
-        if ((*cmd == 0x34 || *cmd == 0x35) && (cmd[3] & 0xcf00U) != 0) {
+        if ((cmd->cmd_num == 0x34 || cmd->cmd_num == 0x35) && (cmd->resp[0] & 0xcf00U) != 0) {
           iVar7 = 0xb; /* R1 error */
         }
       }
     }
     /* Wait for busy if requested */
-    if ((cmd[7] != 0) && (iVar7 == 0)) {
+    if ((cmd->busy_wait != 0) && (iVar7 == 0)) {
       iVar7 = sdcc_busy_wait(dev);
     }
     memset_zero(&local_28, sizeof(local_28));
-    sdcc_cleanup(*dev, local_28);
+    sdcc_cleanup(*dev, &local_28);
   }
   return iVar7;
 }
@@ -196,7 +190,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
 
   /* eMMC path (card[0x23] != 1, not SPI mode) */
   {
-    uVar4 = cmd[9];          /* flags */
+    uVar4 = cmd->flags;
     iVar5 = dev[DEV_HOTPLUG_DESC]; /* hotplug/ADMA context */
     iVar8 = 0;
     local_38 = (int)(uVar4 << 0x1e) >> 0x1f; /* bit 1 of flags: reliable write */
@@ -234,7 +228,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
       iVar2 = sdcc_send_cmd(dev, cmd);
     }
     /* Check R1 address out of range bit */
-    if (((uint)cmd[3] >> 0x1a & 1) != 0) {
+    if (((uint)cmd->resp[0] >> 0x1a & 1) != 0) {
       dev[DEV_LAST_ERROR] = 0x1d; /* address out of range */
       return 0x1d;
     }
@@ -287,7 +281,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
     }
 LAB_0803376e:
     /* Post-write: send stop command if needed (CMD12 for multi-block) */
-    if (((int)(uVar4 << 0x1d) < 0) || ((*cmd != 0x12 && (*cmd != 0x19)))) {
+    if (((int)(uVar4 << 0x1d) < 0) || ((cmd->cmd_num != 0x12 && (cmd->cmd_num != 0x19)))) {
       uVar3 = 0;
     }
     else {
@@ -352,7 +346,7 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
 {
   int iVar1;
   uint *puVar2;
-  int cmd[10]; /* command struct (reused for CMD35/36/38) */
+  mmc_cmd_t cmd; /* command struct (reused for CMD35/36/38) */
 
   if (((handle == (uint *)0x0) || (puVar2 = (uint *)*handle, puVar2 == (uint *)0x0)) ||
      (2 < *puVar2)) {
@@ -363,36 +357,36 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
     iVar1 = mmc_ensure_partition(handle);
     if (iVar1 == 0) {
       /* CMD35: ERASE_GROUP_START */
-      memset_zero(cmd, sizeof(cmd));
-      cmd[0] = 0x23;                              /* CMD35 */
-      cmd[1] = sector;                             /* start address */
+      memset_zero(&cmd, sizeof(cmd));
+      cmd.cmd_num = 0x23;                          /* CMD35 */
+      cmd.cmd_arg = sector;                        /* start address */
       /* NOTE: for non-HC (type 2) cards, CMD35 arg should be byte address
        * (sector * 0x200), but this path is never taken on msm8909 where the
        * device is always type 6 (eMMC/HC). Faithfully reproduced from original
        * FUN_08033d44 which also passes sector unconverted for CMD35. */
-      *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                 /* resp_type: R1 */
-      iVar1 = sdcc_send_cmd(puVar2, cmd);
+      *(uint8_t *)&cmd.resp_type = 1;              /* resp_type: R1 */
+      iVar1 = sdcc_send_cmd(puVar2, &cmd);
       if (iVar1 == 0) {
         /* CMD36: ERASE_GROUP_END */
         if ((char)puVar2[DEV_CARD_TYPE] == '\x06') {
-          cmd[1] = sector + count + -1;            /* HC: sector-addressed */
+          cmd.cmd_arg = sector + count + -1;       /* HC: sector-addressed */
         }
         else {
           /* non-HC: byte-addressed end = sector + (count-1)*512.
            * Inconsistent with CMD35 which should also use byte address. */
-          cmd[1] = sector + count * 0x200 + -0x200;
+          cmd.cmd_arg = sector + count * 0x200 + -0x200;
         }
-        cmd[0] = 0x24;                            /* CMD36 */
-        iVar1 = sdcc_send_cmd(puVar2, cmd);
+        cmd.cmd_num = 0x24;                        /* CMD36 */
+        iVar1 = sdcc_send_cmd(puVar2, &cmd);
         if (iVar1 == 0) {
           /* CMD38: ERASE */
-          memset_zero(cmd, sizeof(cmd));
-          cmd[0] = 0x26;                           /* CMD38 */
-          *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;              /* resp_type: R1 */
-          cmd[7] = 1;                              /* busy_wait */
-          iVar1 = sdcc_send_cmd(puVar2, cmd);
+          memset_zero(&cmd, sizeof(cmd));
+          cmd.cmd_num = 0x26;                      /* CMD38 */
+          *(uint8_t *)&cmd.resp_type = 1;          /* resp_type: R1 */
+          cmd.busy_wait = 1;                       /* busy_wait */
+          iVar1 = sdcc_send_cmd(puVar2, &cmd);
           if (iVar1 == 0) {
-            if ((cmd[3] & 0xfdff8000) == 0) {      /* check R1 error bits */
+            if ((cmd.resp[0] & 0xfdff8000) == 0) { /* check R1 error bits */
               return 0; /* success */
             }
           }
@@ -401,7 +395,7 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
               return iVar1;
             }
             /* Busy timeout — keep waiting */
-            if ((cmd[3] & 0xfdff8000) == 0) {
+            if ((cmd.resp[0] & 0xfdff8000) == 0) {
               do {
                 iVar1 = sdcc_busy_wait(puVar2);
               } while (iVar1 == 7);
@@ -499,11 +493,7 @@ int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
   char cVar1;
   int iVar2;
   uint *puVar3;
-  /* Command struct: 10 words.
-   *   [0] = cmd_num    [1] = cmd_arg     [2] = resp_type (byte)
-   *   [3]-[6] = response data (filled by sdcc_send_cmd)
-   *   [7] = reserved   [8] = status      [9] = flags */
-  int cmd[10];
+  mmc_cmd_t cmd;
 
   if (((handle == (uint *)0x0) || (puVar3 = (uint *)*handle, puVar3 == (uint *)0x0)) ||
      (2 < *puVar3)) {
@@ -519,23 +509,23 @@ int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
       /* Card is SD/SDHC/MMC/eMMC — proceed with read */
       iVar2 = mmc_ensure_partition(handle);
       if (iVar2 == 0) {
-        memset_zero(cmd, sizeof(cmd));
+        memset_zero(&cmd, sizeof(cmd));
         /* Build command struct */
         if (num_blocks == 1) {
-          cmd[0] = 0x11; /* CMD17: READ_SINGLE_BLOCK */
+          cmd.cmd_num = 0x11; /* CMD17: READ_SINGLE_BLOCK */
         }
         else {
-          cmd[0] = 0x12; /* CMD18: READ_MULTIPLE_BLOCK */
+          cmd.cmd_num = 0x12; /* CMD18: READ_MULTIPLE_BLOCK */
         }
-        *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1; /* resp_type: R1 */
-        cmd[7] = 0;                  /* reserved */
-        cmd[1] = sector;             /* cmd_arg */
+        *(uint8_t *)&cmd.resp_type = 1; /* resp_type: R1 */
+        cmd.busy_wait = 0;              /* reserved */
+        cmd.cmd_arg = sector;           /* cmd_arg */
         /* Convert sector number to byte address for non-HC cards */
         if (((char)puVar3[DEV_CARD_TYPE] != '\x05') && ((char)puVar3[DEV_CARD_TYPE] != '\x06')) {
-          cmd[1] = sector * puVar3[DEV_SECTOR_SIZE]; /* sector * sector_size */
+          cmd.cmd_arg = sector * puVar3[DEV_SECTOR_SIZE]; /* sector * sector_size */
         }
-        cmd[9] = 2;                  /* flags: bit 1 = data transfer */
-        iVar2 = sdcc_write_data(puVar3, cmd, buf, num_blocks);
+        cmd.flags = 2;                  /* flags: bit 1 = data transfer */
+        iVar2 = sdcc_write_data(puVar3, &cmd, buf, num_blocks);
       }
     }
     else {
@@ -635,8 +625,7 @@ int mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_blocks
     uint *puVar3;
     char cVar1;
     int iVar2;
-    /* Command struct: 10 words (see mmc_read_blocks for layout) */
-    int cmd[10];
+    mmc_cmd_t cmd;
 
     if (((handle == (uint *)0x0) || (puVar3 = (uint *)*handle, puVar3 == (uint *)0x0)) ||
         (2 < *puVar3)) {
@@ -650,22 +639,22 @@ int mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_blocks
     if (((cVar1 == '\x01') || (cVar1 == '\x05')) || ((cVar1 == '\x02' || (cVar1 == '\x06')))) {
         iVar2 = mmc_ensure_partition(handle);
         if (iVar2 == 0) {
-            memset_zero(cmd, sizeof(cmd));
+            memset_zero(&cmd, sizeof(cmd));
             /* Build command struct */
             if (num_blocks == 1) {
-                cmd[0] = 0x18;     /* CMD24: WRITE_SINGLE_BLOCK */
+                cmd.cmd_num = 0x18;     /* CMD24: WRITE_SINGLE_BLOCK */
             } else {
-                cmd[0] = 0x19;     /* CMD25: WRITE_MULTIPLE_BLOCK */
+                cmd.cmd_num = 0x19;     /* CMD25: WRITE_MULTIPLE_BLOCK */
             }
-            *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1; /* resp_type: R1 */
-            cmd[7] = 0;                  /* reserved */
-            cmd[1] = sector;
+            *(uint8_t *)&cmd.resp_type = 1; /* resp_type: R1 */
+            cmd.busy_wait = 0;               /* reserved */
+            cmd.cmd_arg = sector;
             /* Convert to byte address for non-HC cards */
             if (((char)puVar3[DEV_CARD_TYPE] != '\x05') && ((char)puVar3[DEV_CARD_TYPE] != '\x06')) {
-                cmd[1] = sector * puVar3[DEV_SECTOR_SIZE];  /* sector * sector_size */
+                cmd.cmd_arg = sector * puVar3[DEV_SECTOR_SIZE];  /* sector * sector_size */
             }
-            cmd[9] = 1;                  /* flags: bit 0 = write direction */
-            iVar2 = sdcc_write_data(puVar3, cmd, buf, num_blocks);
+            cmd.flags = 1;                   /* flags: bit 0 = write direction */
+            iVar2 = sdcc_write_data(puVar3, &cmd, buf, num_blocks);
         }
     } else {
         iVar2 = 0x10;
