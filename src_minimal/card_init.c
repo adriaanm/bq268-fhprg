@@ -641,25 +641,11 @@ int mmc_set_speed(int *dev)
  * call may not set it up), dereferencing it causes a data abort (DFSR=8). */
 void mmc_finalize_init(int dev)
 {
-  int *slot_ctx;
-  int slot;
-
-  slot_ctx = *(int **)(dev + 0x90);
-  if (slot_ctx == (int *)0x0) {
-    return; /* slot context not populated — skip cleanup */
-  }
-  slot = *slot_ctx;
-  if (*(char *)(dev + 9) != '\0') {
-    if ((char)slot_ctx[1] != '\0') {
-      *(uint *)(&DAT_0804e2c8)[slot] = *(uint *)(&DAT_0804e2c8)[slot] & 0xfffffffe;
-      sdcc_enable_clock(slot);
-      sdcc_enable_slot(slot,0);
-      *(undefined1 *)(slot_ctx + 1) = 0;
-    }
-    *(undefined1 *)(dev + 8) = 0;
-    *(undefined1 *)(dev + 9) = 0;
-    *(undefined4 *)(dev + 0x84) = 0;
-  }
+  /* Original disables clock and clears device state via dev+0x90 pointer.
+   * That pointer isn't populated by our init path (external abort, DFSR=8).
+   * This function is just cleanup — not needed for read/write operation.
+   * Stubbed out to avoid the crash. */
+  (void)dev;
   return;
 }
 
