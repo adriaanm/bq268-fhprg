@@ -74,6 +74,7 @@ make analyze-reuse       # reuse existing Ghidra project (faster)
 - `tmp/fhprg_provides.ld` — PROVIDE() directives for ~1262 external symbols (DAT_, PTR_, etc.).
 - `tmp/fhprg_sections.ld` — Per-function section placements (1878/1880 functions placed at original addresses).
 - `tmp/decompiled/` — Individual per-function `.c` files from Ghidra.
+- `src_minimal/address_map.txt` — Maps every function in the minimal programmer to its original binary address (e.g., `0x08032b94 sdcc_send_cmd`). Organized by source file. Use this to cross-reference decompiled code in `src/fhprg/` or raw disassembly.
 
 ### Compiler Settings
 
