@@ -12,14 +12,6 @@
  */
 #include "firehose.h"
 #include "msm8909.h"
-#include "usb.h"
-
-/* Temporary trace: write short string to USB for debugging */
-static void _trace(const char *s) {
-  int n = 0;
-  while (s[n]) n++;
-  usb_write(s, n);
-}
 
 #define REG32(addr)  (*(volatile unsigned int *)(addr))
 
@@ -34,7 +26,7 @@ static uint clock_set_sdr_mode(void);
 
 /* Write SDCC1 GCC registers for a given frequency.
  * Frequency table from lk_src/platform/msm8909/msm8909-clock.c.
- * GPLL0 runs at ~787.2 MHz (L_VAL=41 * 19.2 MHz CXO). */
+ * GPLL0 runs at 800 MHz (lk_src/platform/msm8909/msm8909-clock.c: rate=800000000). */
 static void sdcc_set_clock_rate(uint freq_khz)
 {
   uint cfg, m, n, d;
@@ -52,7 +44,10 @@ static void sdcc_set_clock_rate(uint freq_khz)
     m = 0; n = 0; d = 0;
     cfg = 0x010F;
   } else {
-    /* 200 MHz: GPLL0(1) / 4, no MND */
+    /* 200 MHz: GPLL0(1) / 4, no MND.
+     * NOTE: LK uses cfg=0x0108 (GPLL0/4.5=177.77 MHz) for slot 0 max clock,
+     * but original binary appears to use 0x0107 (GPLL0/4=200 MHz).
+     * Matches original binary behavior. */
     m = 0; n = 0; d = 0;
     cfg = 0x0107;
   }
@@ -117,7 +112,7 @@ static uint sdcc_get_max_clock(int slot)
   if (slot != 0) {
     return 200000;
   }
-  return 0x2b368;  /* 177000 kHz */
+  return 177770;  /* 177770 kHz = 177.77 MHz = GPLL0(800)/4.5 (lk: F(177770000,gpll0,4.5,0,0)) */
 }
 
 /* orig: 0x08032b0c — enable SDCC clock for slot.
@@ -873,20 +868,18 @@ int *mmc_alloc_handle(short slot, int flags)
   int *piVar2;
 
   if (DAT_0804e2a8 < 1) {
-    _trace("EC:full\r\n");  /* no free partition slots */
-    return (int *)0x0;
+    return (int *)0x0;  /* no free partition slots */
   }
   for (piVar2 = (int *)&DAT_08059efc; piVar2 < partition_table_end; piVar2 = piVar2 + 3) {
     if (*piVar2 == 0) goto LAB_08034cd8;
   }
-  _trace("EC:noslot\r\n");  /* all entries occupied */
+  /* all entries occupied */
   piVar2 = (int *)0x0;
 LAB_08034cd8:
   if (piVar2 != (int *)0x0) {
     iVar1 = mmc_get_slot_context((int)slot);
     if (iVar1 == 0) {
-      _trace("EC:noctx\r\n");  /* slot context not found */
-      return (int *)0x0;
+      return (int *)0x0;  /* slot context not found */
     }
     *piVar2 = iVar1 + 0xc;
     piVar2[1] = flags;
@@ -925,7 +918,7 @@ uint mmc_init_card(int slot)
       piVar1[0x27] = (int)piVar1;
       *piVar1 = slot;
       *(uint8_t *)(piVar1 + 1) = 1;
-      *(uint8_t *)(piVar1 + 0x26) = 1;
+      *(uint8_t *)(piVar1 + 0x26) = 0;  /* init_flag = 0 (original: FUN_0803460c line 2638 writes 0, not 1) */
     }
     sdcc_enable_slot(slot,1);
     sdcc_qtimer_init();
