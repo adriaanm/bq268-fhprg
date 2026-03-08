@@ -4,9 +4,9 @@
  * Every function preserves a comment: orig: 0xADDRESS
  * for traceability back to the full decompilation in src/fhprg/.
  *
- * NOTE: All forward declarations use K&R-style empty parentheses ()
- * to be compatible with the decompiled K&R function definitions.
- * In -std=gnu89, () means "unspecified arguments".
+ * Functions in the eMMC driver layer (sdcc_regs, sdcc_helpers, card_init,
+ * emmc) use ANSI prototypes with meaningful parameter names. Functions
+ * outside that layer still use K&R-style empty parentheses ().
  */
 #pragma once
 

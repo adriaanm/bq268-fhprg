@@ -27,7 +27,7 @@ undefined4 firehose_dispatch()
 
   iVar1 = DAT_0804cd58;
   local_18 = DAT_0804cd58;
-  iVar2 = xml_advance();
+  iVar2 = xml_advance(&DAT_08055ea0);
   memset_zero(auStack_218,0x200);
   if (iVar2 == 0) {
 LAB_done:
@@ -92,10 +92,9 @@ LAB_ret:
 
 /* orig: 0x0802f838 dispatch_set_state — set dispatch execution state.
  * 0 = idle (state 1), nonzero = processing (state 2) */
-void dispatch_set_state(param_1)
-int param_1;
+void dispatch_set_state(int state)
 {
-  if (param_1 == 0) {
+  if (state == 0) {
     DAT_0804d3a4 = 1;
   }
   else {
