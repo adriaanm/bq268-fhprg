@@ -91,7 +91,7 @@ void adma_bounce_read(int slot, int buf, int *remaining)
 {
   int iVar1;
 
-  iVar1 = dma_read_helper(buf,(&DAT_0804e2d0)[slot] + 0x80,
+  iVar1 = dma_read_helper(buf,DAT_0804e2d0[slot] + 0x80,
                        (volatile uint *)(DAT_0804e2c8[slot] + 0x34), 0x8000);
   *remaining = *remaining - (iVar1 - buf);
   return;
@@ -107,7 +107,7 @@ void adma_bounce_write(int slot, int buf, int *remaining)
   desc.ready_mask = 0x4000;
   desc.remaining = *remaining;
   desc.error_mask = 0x1a;
-  iVar1 = dma_write_helper((&DAT_0804e2d0)[slot] + 0x80, buf, &desc);
+  iVar1 = dma_write_helper(DAT_0804e2d0[slot] + 0x80, buf, &desc);
   *remaining = *remaining - (iVar1 - buf);
 }
 
@@ -194,7 +194,7 @@ int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
     uVar2 = 0;
     if ((int)(*(uint *)(cmd_config + 0x24) << 0x1e) < 0) {
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
-        *buf = *(undefined4 *)((&DAT_0804e2d8)[iVar4] + 0x20);
+        *buf = *(undefined4 *)(DAT_0804e2d8[iVar4] + 0x20);
         buf = buf + 1;
       }
     }
@@ -202,7 +202,7 @@ int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
         uVar3 = *buf;
         buf = buf + 1;
-        *(undefined4 *)((&DAT_0804e2d8)[iVar4] + 0x20) = uVar3;
+        *(undefined4 *)(DAT_0804e2d8[iVar4] + 0x20) = uVar3;
       }
     }
     uVar5 = uVar5 - 1;

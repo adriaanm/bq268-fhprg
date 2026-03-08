@@ -107,7 +107,7 @@ static inline void InstructionSynchronizationBarrier(unsigned int opt) {
 extern int DAT_0804cd58;
 
 /* --- Firehose state --- */
-extern uint DAT_08054e90;       /* firehose main context */
+extern uint DAT_08054e90[2];    /* firehose main context (double-buffered: [0] and [1]) */
 extern uint DAT_08055ea0;       /* xml_parser state */
 extern uint DAT_08055f18;       /* xml_writer state */
 extern uint DAT_08055f28;       /* xml_writer param a */
@@ -191,9 +191,9 @@ extern int  DAT_0804e2ac[2];    /* SDCC slot status table */
 extern uint DAT_0804e2b8[2];    /* SDCC device handle table */
 extern char DAT_0804e2c4;       /* SDCC bases initialized flag */
 extern uint DAT_0804e2c8[2];    /* SDCC register base table */
-extern uint DAT_0804e2d0;       /* SDCC register base table (alt) */
-extern uint DAT_0804e2d8;       /* SDCC FIFO base table */
-extern uint DAT_0804e2e0;       /* SDCC FIFO base table (alt) */
+extern uint DAT_0804e2d0[2];    /* SDCC DMA/FIFO base table [slot] */
+extern uint DAT_0804e2d8[2];    /* SDCC SDHCI host-controller base [slot] */
+extern uint DAT_0804e2e0[2];    /* SDCC SDHCI host-controller base (alt) [slot] */
 
 /* --- PMIC/DAL globals --- */
 extern char DAT_0804d288;       /* PMIC initialized flag */

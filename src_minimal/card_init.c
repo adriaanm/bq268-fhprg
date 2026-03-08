@@ -97,7 +97,7 @@ static void gcc_clock_divider_set(undefined4 freq, undefined4 source)
  * Ghidra decompiled the loop bound as the hardcoded address 0x0805a071 —
  * we replace that with partition_table_end (= &DAT_08059efc + 96). */
 extern uint DAT_08059efc[96];   /* partition table: 32 entries × 3 words */
-#define partition_table_end  ((int *)(&DAT_08059efc + 96))
+#define partition_table_end  ((int *)(DAT_08059efc + 96))
 extern int DAT_0804e2a8;        /* free partition slot counter (init: 0x20) */
 
 /* MMIO timer for qtimer_init */
@@ -220,7 +220,7 @@ void sdcc_pre_init_slot(int slot)
   dev[DEV_EXT_CSD_PTR] = (int)hotplug_desc_stub;
 
   /* Register device in slot handle table */
-  *(int *)(&DAT_0804e2b8 + slot * 4) = (int)dev;
+  DAT_0804e2b8[slot] = (uint)(int)dev;
 }
 
 /* orig: 0x08032b64 — init qtimer and enable global timer */

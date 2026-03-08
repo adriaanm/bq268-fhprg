@@ -38,7 +38,7 @@ uint sdcc_get_device(uint slot)
 
   uVar1 = 0;
   if (slot < 2) {
-    uVar1 = *(undefined4 *)(&DAT_0804e2b8 + slot * 4);
+    uVar1 = DAT_0804e2b8[slot];
   }
   return uVar1;
 }
@@ -50,7 +50,7 @@ uint sdcc_get_slot_status(uint slot)
 {
     uint uVar1 = 0;
     if (slot < 2) {
-        uVar1 = *(uint *)(&DAT_0804e2ac + slot * 4);
+        uVar1 = (uint)DAT_0804e2ac[slot];
     }
     return uVar1;
 }

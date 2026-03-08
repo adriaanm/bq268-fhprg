@@ -640,7 +640,7 @@ LAB_08024be4:
                 lVar2 = lVar10;
               }
               lVar3 = CONCAT44(uStack_294,&DAT_08054e90);
-              local_290 = (&DAT_08054e90)[1 - *(int *)(local_270 + 0x144)];
+              local_290 = DAT_08054e90[1 - *(int *)(local_270 + 0x144)];
               if (iVar5 == 1) {
                 iVar6 = storage_read_sectors(local_28c,local_290,local_298,uStack_294,lVar2);
                 lVar3 = CONCAT44(uStack_294,local_298);

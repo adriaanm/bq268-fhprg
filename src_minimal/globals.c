@@ -82,10 +82,11 @@ char DAT_0804e2c4 = 0;
 /* SDCC register base table [2]: filled at runtime by sdcc_init_bases() */
 uint DAT_0804e2c8[2] = { 0, 0 };
 
-/* SDCC FIFO/HC base tables: filled at runtime by sdcc_init_bases() */
-uint DAT_0804e2d0 = 0;
-uint DAT_0804e2d8 = 0;
-uint DAT_0804e2e0 = 0;
+/* SDCC FIFO/HC base tables: filled at runtime by sdcc_init_bases().
+ * Declared as uint[2] so (&arr)[slot] and arr[slot] index by 4 bytes (not 8). */
+uint DAT_0804e2d0[2] = { 0, 0 };
+uint DAT_0804e2d8[2] = { 0, 0 };
+uint DAT_0804e2e0[2] = { 0, 0 };
 
 /* Global context struct — referenced by get_global_context() */
 uint DAT_0805a8ac = 0;
@@ -101,8 +102,9 @@ uint DAT_0805a8ac = 0;
 int DAT_0804cd58 = 0;
 
 /* Firehose main context — double-buffered data pointers [2].
- * Buffer 0 at DAT_08054e90, buffer 1 at DAT_08054e94. */
-uint DAT_08054e90 = 0;
+ * Buffer 0 at DAT_08054e90, buffer 1 at DAT_08054e94.
+ * Declared as uint[2] so (&arr)[1] indexes correctly. */
+uint DAT_08054e90[2] = { 0, 0 };
 
 /* Firehose XML receive buffer (4 KB) */
 uint DAT_08054e98 = 0;

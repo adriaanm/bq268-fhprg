@@ -101,13 +101,13 @@ void sdcc_enable_clock(int slot)
 /* orig: 0x0800be44 sdcc_read_present — read SDHCI normal interrupt status */
 undefined4 sdcc_read_present(int slot)
 {
-  return *(undefined4 *)((&DAT_0804e2d8)[slot] + 0x30);
+  return *(undefined4 *)(DAT_0804e2d8[slot] + 0x30);
 }
 
 /* orig: 0x0800be68 sdcc_read_present_state — read SDHCI present state register */
 undefined4 sdcc_read_present_state(int slot)
 {
-  return *(undefined4 *)((&DAT_0804e2d8)[slot] + 0x24);
+  return *(undefined4 *)(DAT_0804e2d8[slot] + 0x24);
 }
 
 /* orig: 0x0800be78 sdcc_read_response — read 1 or 4 response words (R1 vs R2).
@@ -119,7 +119,7 @@ void sdcc_read_response(int slot, uint *resp, int is_r2)
   uint uVar3;
   uint uVar4;
 
-  iVar1 = (&DAT_0804e2d8)[slot];
+  iVar1 = DAT_0804e2d8[slot];
   uVar3 = *(uint *)(iVar1 + 0x10);
   *resp = uVar3;
   if (is_r2 != 0) {
@@ -144,7 +144,7 @@ void sdcc_clear_status(int slot, uint mask)
 
   iVar2 = 100000;
   do {
-    *(uint *)((&DAT_0804e2d8)[slot] + 0x30) = mask & 0x7ff003f;
+    *(uint *)(DAT_0804e2d8[slot] + 0x30) = mask & 0x7ff003f;
     uVar1 = sdcc_read_present(slot);
     if ((mask & 0x7ff003f & uVar1) == 0) {
       return;
@@ -159,21 +159,21 @@ void sdcc_clear_status(int slot, uint mask)
 /* orig: 0x0800c008 sdcc_set_block_count — write SDHCI block count register */
 void sdcc_set_block_count(int slot, undefined2 count)
 {
-  *(undefined2 *)((&DAT_0804e2d8)[slot] + 6) = count;
+  *(undefined2 *)(DAT_0804e2d8[slot] + 6) = count;
   return;
 }
 
 /* orig: 0x0800c018 sdcc_set_block_size — write SDHCI block size register */
 void sdcc_set_block_size(int slot, undefined2 size)
 {
-  *(undefined2 *)((&DAT_0804e2d8)[slot] + 4) = size;
+  *(undefined2 *)(DAT_0804e2d8[slot] + 4) = size;
   return;
 }
 
 /* orig: 0x0800c0c4 sdcc_set_cmd_arg — write SDHCI argument register */
 void sdcc_set_cmd_arg(int slot, undefined4 arg)
 {
-  *(undefined4 *)((&DAT_0804e2d8)[slot] + 8) = arg;
+  *(undefined4 *)(DAT_0804e2d8[slot] + 8) = arg;
   return;
 }
 
@@ -181,7 +181,7 @@ void sdcc_set_cmd_arg(int slot, undefined4 arg)
  * cmd_desc = byte[6]: [0]=cmd_index, [1]=cmd_type, [2]=data_present, [3]=idx_check, [4]=crc_check, [5]=resp_type */
 void sdcc_fire_cmd(int slot, byte *cmd_desc)
 {
-  *(ushort *)((&DAT_0804e2d8)[slot] + 0xe) =
+  *(ushort *)(DAT_0804e2d8[slot] + 0xe) =
        (ushort)*cmd_desc << 8 | (ushort)cmd_desc[1] << 6 | (ushort)cmd_desc[2] << 5 |
        (ushort)cmd_desc[3] << 4 | (ushort)cmd_desc[4] << 3 | (ushort)cmd_desc[5];
   return;
@@ -190,7 +190,7 @@ void sdcc_fire_cmd(int slot, byte *cmd_desc)
 /* orig: 0x0800c11c sdcc_set_irq_mask — write SDHCI interrupt signal enable register */
 void sdcc_set_irq_mask(int slot, undefined1 mask)
 {
-  *(undefined1 *)((&DAT_0804e2d8)[slot] + 0x2e) = mask;
+  *(undefined1 *)(DAT_0804e2d8[slot] + 0x2e) = mask;
   return;
 }
 
@@ -198,7 +198,7 @@ void sdcc_set_irq_mask(int slot, undefined1 mask)
  * ctrl = byte[5]: [0]=dma_en, [1]=blk_cnt_en, [2]=auto_cmd, [3]=direction, [4]=multi_blk */
 void sdcc_set_transfer_ctrl(int slot, byte *ctrl)
 {
-  *(ushort *)((&DAT_0804e2d8)[slot] + 0xc) =
+  *(ushort *)(DAT_0804e2d8[slot] + 0xc) =
        (ushort)*ctrl << 5 | (ushort)ctrl[1] << 4 | (ushort)ctrl[2] << 2 |
        (ushort)ctrl[3] << 1 | (ushort)ctrl[4];
   return;
@@ -212,7 +212,7 @@ void sdcc_reset_data_line(int slot, byte bits)
   bool bVar3;
 
   iVar1 = 100000;
-  iVar2 = (&DAT_0804e2d8)[slot];
+  iVar2 = DAT_0804e2d8[slot];
   *(byte *)(iVar2 + 0x2f) = bits;
   while ((bVar3 = iVar1 != 0, iVar1 = iVar1 + -1, bVar3 &&
          ((*(byte *)(iVar2 + 0x2f) & bits) != 0))) {
@@ -224,7 +224,7 @@ void sdcc_reset_data_line(int slot, byte bits)
 /* orig: 0x0800c0a8 sdcc_set_clock_divider — write clock control register */
 void sdcc_set_clock_divider(int slot, uint divider)
 {
-  *(ushort *)((&DAT_0804e2d8)[slot] + 0x2c) =
+  *(ushort *)(DAT_0804e2d8[slot] + 0x2c) =
        (ushort)(divider << 8) | (ushort)((divider & 0x300) >> 2) | 1;
   return;
 }
@@ -232,14 +232,14 @@ void sdcc_set_clock_divider(int slot, uint divider)
 /* orig: 0x0800bfe8 sdcc_set_adma_addr_lo */
 void sdcc_set_adma_addr_lo(int slot, undefined4 addr)
 {
-  *(undefined4 *)((&DAT_0804e2d8)[slot] + 0x58) = addr;
+  *(undefined4 *)(DAT_0804e2d8[slot] + 0x58) = addr;
   return;
 }
 
 /* orig: 0x0800bff8 sdcc_set_adma_addr_hi */
 void sdcc_set_adma_addr_hi(int slot, undefined4 addr)
 {
-  *(undefined4 *)((&DAT_0804e2d8)[slot] + 0x5c) = addr;
+  *(undefined4 *)(DAT_0804e2d8[slot] + 0x5c) = addr;
   return;
 }
 
@@ -252,8 +252,8 @@ void sdcc_set_8bit_mode(int slot, int enable)
   if (enable != 0) {
     bVar1 = 0x10;
   }
-  *(byte *)((&DAT_0804e2d8)[slot] + 0x28) =
-       *(byte *)((&DAT_0804e2d8)[slot] + 0x28) & 0xe7 | bVar1;
+  *(byte *)(DAT_0804e2d8[slot] + 0x28) =
+       *(byte *)(DAT_0804e2d8[slot] + 0x28) & 0xe7 | bVar1;
   return;
 }
 
@@ -263,7 +263,7 @@ void sdcc_trigger_vendor_reset(int slot)
   uint *puVar1;
   uint uVar2;
 
-  puVar1 = (uint *)((&DAT_0804e2d8)[slot] + 0x100);
+  puVar1 = (uint *)(DAT_0804e2d8[slot] + 0x100);
   uVar2 = *puVar1;
   *puVar1 = uVar2 | 0x20000000;
   *puVar1 = uVar2 | 0x60000000;
@@ -273,31 +273,31 @@ void sdcc_trigger_vendor_reset(int slot)
 /* orig: 0x0800bdf8 sdcc_set_clock_mode — modify clock control +0x3e bits */
 void sdcc_set_clock_mode(int slot)
 {
-  *(ushort *)((&DAT_0804e2d8)[slot] + 0x3e) =
-       (*(ushort *)((&DAT_0804e2d8)[slot] + 0x3e) & 0xfff8) + 4;
+  *(ushort *)(DAT_0804e2d8[slot] + 0x3e) =
+       (*(ushort *)(DAT_0804e2d8[slot] + 0x3e) & 0xfff8) + 4;
   return;
 }
 
 /* orig: 0x0800be10 sdcc_set_hs_mode — set/clear bit 2 of +0x2c */
 void sdcc_set_hs_mode(int slot, char enable)
 {
-  *(byte *)((&DAT_0804e2d8)[slot] + 0x2c) =
-       *(byte *)((&DAT_0804e2d8)[slot] + 0x2c) & 0xfb | enable << 2;
+  *(byte *)(DAT_0804e2d8[slot] + 0x2c) =
+       *(byte *)(DAT_0804e2d8[slot] + 0x2c) & 0xfb | enable << 2;
   return;
 }
 
 /* orig: 0x0800be2c sdcc_read_caps — read capability registers (+0x40, +0x44) */
 void sdcc_read_caps(int slot, undefined4 *caps)
 {
-  *caps = *(undefined4 *)((&DAT_0804e2d8)[slot] + 0x40);
-  caps[1] = *(undefined4 *)((&DAT_0804e2d8)[slot] + 0x44);
+  *caps = *(undefined4 *)(DAT_0804e2d8[slot] + 0x40);
+  caps[1] = *(undefined4 *)(DAT_0804e2d8[slot] + 0x44);
   return;
 }
 
 /* orig: 0x0800be54 sdcc_read_power_mode — read low nibble of +0x29 */
 byte sdcc_read_power_mode(int slot)
 {
-  return *(byte *)((&DAT_0804e2d8)[slot] + 0x29) & 0xf;
+  return *(byte *)(DAT_0804e2d8[slot] + 0x29) & 0xf;
 }
 
 /* orig: 0x0800beb8 sdcc_wait_pll_lock — wait for clock stable via +0xdc polling */
@@ -341,11 +341,11 @@ void sdcc_set_int_enable(int slot, uint mask, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)((&DAT_0804e2d8)[slot] + 0x38) & ~mask;
+  uVar1 = *(uint *)(DAT_0804e2d8[slot] + 0x38) & ~mask;
   if (enable == 1) {
     uVar1 = uVar1 | mask;
   }
-  *(uint *)((&DAT_0804e2d8)[slot] + 0x38) = uVar1;
+  *(uint *)(DAT_0804e2d8[slot] + 0x38) = uVar1;
   return;
 }
 
@@ -358,7 +358,7 @@ void sdcc_set_int_signal(int slot, uint mask, int enable)
   bool bVar4;
 
   iVar3 = 100000;
-  puVar1 = (uint *)((&DAT_0804e2d8)[slot] + 0x34);
+  puVar1 = (uint *)(DAT_0804e2d8[slot] + 0x34);
   uVar2 = *puVar1;
   if (enable == 0) {
     *puVar1 = uVar2 & ~mask;
@@ -381,7 +381,7 @@ void sdcc_set_int_signal(int slot, uint mask, int enable)
 /* orig: 0x0800bf74 sdcc_read_clock_stable — check if internal clock is stable */
 uint sdcc_read_clock_stable(int slot)
 {
-  return ((uint)*(byte *)((&DAT_0804e2d8)[slot] + 0x2c) << 0x1e) >> 0x1f;
+  return ((uint)*(byte *)(DAT_0804e2d8[slot] + 0x2c) << 0x1e) >> 0x1f;
 }
 
 /* orig: 0x0800bf88 sdcc_set_led — set/clear bit 1 of +0x10c */
@@ -389,14 +389,14 @@ void sdcc_set_led(int slot, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)((&DAT_0804e2d8)[slot] + 0x10c);
+  uVar1 = *(uint *)(DAT_0804e2d8[slot] + 0x10c);
   if (enable == 1) {
     uVar1 = uVar1 | 2;
   }
   else {
     uVar1 = uVar1 & 0xfffffffd;
   }
-  *(uint *)((&DAT_0804e2d8)[slot] + 0x10c) = uVar1;
+  *(uint *)(DAT_0804e2d8[slot] + 0x10c) = uVar1;
   return;
 }
 
@@ -405,7 +405,7 @@ void sdcc_set_dma_mode(int slot, int mode)
 {
   byte bVar1;
 
-  bVar1 = *(byte *)((&DAT_0804e2d8)[slot] + 0x28);
+  bVar1 = *(byte *)(DAT_0804e2d8[slot] + 0x28);
   if (mode == 0) {
     bVar1 = bVar1 & 0xdd;
   }
@@ -418,7 +418,7 @@ void sdcc_set_dma_mode(int slot, int mode)
     }
     bVar1 = bVar1 | 0x20;
   }
-  *(byte *)((&DAT_0804e2d8)[slot] + 0x28) = bVar1;
+  *(byte *)(DAT_0804e2d8[slot] + 0x28) = bVar1;
   return;
 }
 
@@ -431,7 +431,7 @@ void sdcc_setup_caps(int slot)
   int iVar4;
 
   uVar1 = sdcc_get_slot_status(0);
-  iVar4 = (&DAT_0804e2d8)[slot];
+  iVar4 = DAT_0804e2d8[slot];
   uVar2 = *(uint *)(iVar4 + 0x40);
   uVar3 = *(uint *)(iVar4 + 0x44);
   if ((uVar1 & 3) != 0) {
@@ -447,23 +447,23 @@ void sdcc_setup_caps(int slot)
     uVar2 = uVar2 & 0x38ffffff | 0x44040000;
   }
   *(uint *)(iVar4 + 0x11c) = uVar2;
-  *(uint *)((&DAT_0804e2d8)[slot] + 0x120) = uVar3;
+  *(uint *)(DAT_0804e2d8[slot] + 0x120) = uVar3;
   return;
 }
 
 /* orig: 0x0800c104 sdcc_set_bus_power — set/clear bit 0 of +0x29 */
 void sdcc_set_bus_power(int slot, byte enable)
 {
-  *(byte *)((&DAT_0804e2d8)[slot] + 0x29) =
-       *(byte *)((&DAT_0804e2d8)[slot] + 0x29) & 0xfe | enable;
+  *(byte *)(DAT_0804e2d8[slot] + 0x29) =
+       *(byte *)(DAT_0804e2d8[slot] + 0x29) & 0xfe | enable;
   return;
 }
 
 /* orig: 0x0800c180 sdcc_set_voltage — write voltage bits of +0x29 */
 void sdcc_set_voltage(int slot, byte voltage)
 {
-  *(byte *)((&DAT_0804e2d8)[slot] + 0x29) =
-       *(byte *)((&DAT_0804e2d8)[slot] + 0x29) & 0xf1 | voltage;
+  *(byte *)(DAT_0804e2d8[slot] + 0x29) =
+       *(byte *)(DAT_0804e2d8[slot] + 0x29) & 0xf1 | voltage;
   return;
 }
 
@@ -488,13 +488,13 @@ void sdcc_init_bases(void)
 {
   if (DAT_0804e2c4 != '\x01') {
     DAT_0804e2c8[0] = 0x7824000;
-    (&DAT_0804e2d0)[0] = 0x7824000;
+    DAT_0804e2d0[0] = 0x7824000;
     DAT_0804e2c8[1] = 0x7864000;
-    (&DAT_0804e2d0)[1] = 0x7864000;
-    (&DAT_0804e2d8)[0] = 0x7824900;
-    (&DAT_0804e2e0)[0] = 0x7824900;
-    (&DAT_0804e2d8)[1] = 0x7864900;
-    (&DAT_0804e2e0)[1] = 0x7864900;
+    DAT_0804e2d0[1] = 0x7864000;
+    DAT_0804e2d8[0] = 0x7824900;
+    DAT_0804e2e0[0] = 0x7824900;
+    DAT_0804e2d8[1] = 0x7864900;
+    DAT_0804e2e0[1] = 0x7864900;
     DAT_0804e2c4 = '\x01';
   }
   return;
