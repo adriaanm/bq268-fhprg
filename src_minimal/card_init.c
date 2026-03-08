@@ -84,11 +84,13 @@ static void gcc_clock_divider_set(undefined4 freq, undefined4 source)
   sdcc_set_clock_rate((uint)freq);
 }
 
-/* Slot context base: 0x8059cc8, 0xbc bytes per slot, 2 slots.
- * Partition table: DAT_08059efc (array of 3-word entries).
- * These are in the SDCC driver's BSS. */
+/* Partition table: 32 entries × 3 words each.
+ * In the original binary at 0x08059efc; in our build, allocated in globals.c.
+ * Ghidra decompiled the loop bound as the hardcoded address 0x0805a071 —
+ * we replace that with partition_table_end (= &DAT_08059efc + 96). */
 extern uint DAT_08059efc[96];   /* partition table: 32 entries × 3 words */
-extern int DAT_0804e2a8;        /* free partition slot counter */
+#define partition_table_end  ((int *)(&DAT_08059efc + 96))
+extern int DAT_0804e2a8;        /* free partition slot counter (init: 0x20) */
 
 /* MMIO timer for qtimer_init */
 extern uint _DAT_004a1000;
@@ -675,7 +677,7 @@ void mmc_release_slot(undefined4 *handle)
   if (piVar1 != (int *)0x0) {
     if ((char)((int *)*piVar1)[2] == '\0') {
       iVar2 = *(int *)*piVar1;
-      for (piVar1 = (int *)&DAT_08059efc; piVar1 < (int *)0x805a071; piVar1 = piVar1 + 3) {
+      for (piVar1 = (int *)&DAT_08059efc; piVar1 < partition_table_end; piVar1 = piVar1 + 3) {
         if (((int *)*piVar1 != (int *)0x0) && (*(int *)*piVar1 == iVar2)) {
           sdcc_release_partition(piVar1);
         }
@@ -830,7 +832,7 @@ undefined4 mmc_setup_partitions(int dev)
 
   piVar1 = (int *)&DAT_08059efc;
   if (DAT_0804e2a8 != 0x20) {
-    for (; piVar1 < (int *)0x805a071; piVar1 = piVar1 + 3) {
+    for (; piVar1 < partition_table_end; piVar1 = piVar1 + 3) {
       if ((*piVar1 != 0) && (*piVar1 == dev)) {
         return 1;
       }
@@ -848,7 +850,7 @@ int *mmc_read_ext_csd(short slot, int flags)
   if (DAT_0804e2a8 < 1) {
     return (int *)0x0;
   }
-  for (piVar2 = (int *)&DAT_08059efc; piVar2 < (int *)0x805a071; piVar2 = piVar2 + 3) {
+  for (piVar2 = (int *)&DAT_08059efc; piVar2 < partition_table_end; piVar2 = piVar2 + 3) {
     if (*piVar2 == 0) goto LAB_08034cd8;
   }
   piVar2 = (int *)0x0;

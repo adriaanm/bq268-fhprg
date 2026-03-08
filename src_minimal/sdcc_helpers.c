@@ -184,8 +184,14 @@ int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
   return 0;
 }
 
+/* ADMA2 descriptor table — must be in DDR for DMA access.
+ * Each descriptor is 8 bytes. Max descriptors = ceil(transfer_size / 64KB).
+ * 128 entries handles up to 8MB transfers (more than enough). */
+static byte adma_desc_table[128 * 8]
+    __attribute__((section(".ddr_bss"), aligned(32)));
+
 /* orig: 0x080343c0 sdcc_dma_setup — build ADMA2 descriptor table and set ADMA address.
- * Uses DAT_80201000 as the fixed ADMA descriptor table address. */
+ * Original used hardcoded 0x80201000; we use a properly allocated DDR buffer. */
 undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
 {
   uint uVar1;
@@ -195,12 +201,12 @@ undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
   sdcc_event_notify(4,0,0);
   sdcc_event_notify(2,buf,byte_count);
   sdcc_event_notify(4,0,0);
-  pbVar2 = (byte *)0x80201000;
+  pbVar2 = adma_desc_table;
   uVar1 = byte_count >> 0x10;
   if ((byte_count & 0xffff) != 0) {
     uVar1 = uVar1 + 1;
   }
-  memset_zero((void *)0x80201000,uVar1 << 3);
+  memset_zero((void *)adma_desc_table,uVar1 << 3);
   if (byte_count != 0) {
     while( true ) {
       uVar3 = 0x10000;
@@ -225,10 +231,10 @@ undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count)
     pbVar2[1] = 0;
   }
   sdcc_event_notify(4,0,0);
-  sdcc_event_notify(2,(int)(byte *)0x80201000,uVar1 << 3);
+  sdcc_event_notify(2,(int)adma_desc_table,uVar1 << 3);
   sdcc_event_notify(4,0,0);
   sdcc_set_adma_addr_hi(slot,0);
-  sdcc_set_adma_addr_lo(slot,(undefined4)(byte *)0x80201000);
+  sdcc_set_adma_addr_lo(slot,(undefined4)adma_desc_table);
   return 0;
 }
 
