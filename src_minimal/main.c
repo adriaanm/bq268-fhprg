@@ -710,6 +710,14 @@ static void cmd_emmc_init(void)
     int p = 0;
     int ret;
 
+    if (emmc_inited) {
+        p = put_str(resp, p, "eMMC already initialized, handle=");
+        p = put_hex32(resp, p, (unsigned int)emmc_handle);
+        p = put_str(resp, p, "\r\n> ");
+        usb_write(resp, p);
+        return;
+    }
+
     p = put_str(resp, p, "eMMC init: enabling SDCC1 clocks...\r\n");
     usb_write(resp, p); p = 0;
 
@@ -1158,7 +1166,10 @@ void main(void)
     usb_init();
 
     /* Initialize eMMC: ext_csd read + partition setup */
-    mmc_open_device(0, 0);
+    {
+        mmc_handle_t *h = (mmc_handle_t *)(uintptr_t)mmc_open_device(0, 0);
+        if (h) { emmc_handle = h; emmc_inited = 1; }
+    }
 
     /* Green LED = eMMC init complete */
     led_on(LED_GREEN_GPIO);
