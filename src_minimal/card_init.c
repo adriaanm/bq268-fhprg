@@ -158,6 +158,7 @@ void sdcc_clock_init(void)
  *   - Slot context: init_state=1, slot number, self-pointer
  *   - Device struct: slot=0, card_type=6 (eMMC), sector_size=512
  *   - Device handle table entry (DAT_0804e2b8)
+ *   - Hotplug descriptor stub (dev[0x24]) for sdcc_write_data
  *
  * Must be called after sdcc_clock_init() and before mmc_open_device().
  *
@@ -169,9 +170,23 @@ void sdcc_clock_init(void)
  *     dev+0x04: cached partition (current)
  *     dev+0x08: card type (byte: 6=eMMC)
  *     dev+0x24: sector size
+ *     dev+0x90: hotplug descriptor ptr (used by sdcc_write_data)
  *   +0x15 (byte):    init_state (0=none, 1=identified, 2=ready)
  *   +0x9C (word 0x27): self-pointer (back-reference to context)
+ *
+ * Hotplug descriptor (pointed to by dev[0x24], byte offset 0x90):
+ *   sdcc_write_data reads from this struct at several offsets:
+ *     [0]   = slot number (used by sdcc_pio_transfer, sdcc_adma_transfer)
+ *     +0xA4 = ADMA mode flag (0=disabled → use PIO path)
+ *     +0xAC = ADMA transfer function pointer (unused when +0xA4=0)
+ *     +0xB0 = ADMA completion callback (unused when +0xA4=0)
+ *   With +0xA4=0, sdcc_write_data uses PIO for data transfer.
  */
+
+/* Hotplug descriptor stub — zeroed except [0]=slot.
+ * Must be at least 0xB4 bytes (covers offset 0xB0). */
+static uint hotplug_desc_stub[0xB4 / 4];
+
 void sdcc_pre_init_slot(int slot)
 {
   int *ctx = (int *)mmc_get_slot_context(slot);
@@ -190,6 +205,11 @@ void sdcc_pre_init_slot(int slot)
   dev[DEV_CUR_PARTITION] = 0;  /* user partition */
   *(char *)&dev[DEV_CARD_TYPE] = '\x06';  /* eMMC */
   dev[DEV_SECTOR_SIZE] = 0x200;  /* 512 bytes */
+
+  /* Hotplug descriptor stub — slot number at [0], ADMA disabled (+0xA4=0).
+   * sdcc_write_data dereferences dev[0x24] for PIO/ADMA transfer config. */
+  hotplug_desc_stub[0] = slot;
+  dev[DEV_EXT_CSD_PTR] = (int)hotplug_desc_stub;
 
   /* Register device in slot handle table */
   *(int *)(&DAT_0804e2b8 + slot * 4) = (int)dev;

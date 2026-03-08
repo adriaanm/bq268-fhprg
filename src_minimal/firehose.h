@@ -359,7 +359,7 @@ typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10
 #define DEV_SECTOR_SIZE        9     /* sector size in bytes (typically 0x200) */
 #define DEV_RELIABLE_WR_CNT  0x0D    /* reliable write sector count */
 #define DEV_CUSTOM_SECTOR    0x16    /* non-zero if device uses custom sector size */
-#define DEV_EXT_CSD_PTR      0x24    /* pointer to 512-byte EXT_CSD buffer */
+#define DEV_EXT_CSD_PTR      0x24    /* pointer to hotplug descriptor ([0]=slot, +0xA4=ADMA flag) */
 
 /* mmc_dev_t field indices (byte offsets — accessed via *(char*)(dev + N)) */
 #define DEV_BYTE_PARTITION_CONFIG  0x78  /* PARTITION_CONFIG (EXT_CSD[179]) */
