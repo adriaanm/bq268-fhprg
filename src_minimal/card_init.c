@@ -177,8 +177,8 @@ void sdcc_clock_init(void)
  *     dev[0]  (+0x00): slot number
  *     dev[1]  (+0x04): cached partition (current)
  *     dev[2]  (+0x08): card type (byte: 6=eMMC)
- *     dev[9]  (+0x24): sector size (0x200)
- *     dev[0x16] (+0x58): custom sector mode flag (1=use dev[9] for byte counts)
+ *     dev[DEV_SECTOR_SIZE]    (+0x24): sector size (0x200)
+ *     dev[DEV_CUSTOM_SECTOR] (+0x58): custom sector mode flag (1=use sector size for byte counts)
  *     dev[0x24] (+0x90): hotplug descriptor ptr (used by sdcc_write_data)
  *   +0x15 (byte):    init_state (0=none, 1=identified, 2=ready)
  *   +0x9C (word 0x27): self-pointer (back-reference to context)
@@ -214,9 +214,10 @@ void sdcc_pre_init_slot(int slot)
   dev[DEV_CUR_PARTITION] = 0;  /* user partition */
   *(char *)&dev[DEV_CARD_TYPE] = '\x06';  /* eMMC */
   dev[DEV_SECTOR_SIZE] = 0x200;  /* 512 bytes */
-  dev[0x16] = 1;  /* custom sector mode — use dev[9] for byte count in transfers.
-                   * Normally set by mmc_set_speed after CMD16 SET_BLOCKLEN.
-                   * Without this, sdcc_pre_write_setup writes 1 (not 512)
+  dev[DEV_CUSTOM_SECTOR] = 1;  /* custom sector mode — use dev[DEV_SECTOR_SIZE] for
+                   * byte count in transfers. Normally set by mmc_set_speed
+                   * after CMD16 SET_BLOCKLEN. Without this, sdcc_pre_write_setup
+                   * writes 1 (not 512)
                    * to MCI_DATA_LENGTH register, causing all-zero reads. */
 
   /* Hotplug descriptor stub — slot number at [0], ADMA disabled (+0xA4=0).
@@ -338,7 +339,7 @@ static uint csd_get_rca(int dev)
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 3;                                      /* CMD3: SEND_RELATIVE_ADDR */
   *(undefined1 *)&cmd[2] = 1;                      /* resp_type: R1 */
-  if ((*(char *)(dev + 8) == '\x02') || (*(char *)(dev + 8) == '\x06')) {
+  if ((*(char *)(dev + DEV_BYTE_CARD_TYPE) == '\x02') || (*(char *)(dev + DEV_BYTE_CARD_TYPE) == '\x06')) {
     uVar1 = 2;
     cmd[1] = 0x20000;                              /* MMC: assigned RCA */
     sdcc_send_cmd((int *)dev, cmd);
@@ -442,7 +443,7 @@ static undefined4 cmd7_select_card(int dev, int select)
 
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 7;                                      /* CMD7: SELECT/DESELECT */
-  cmd[1] = (select != 0) ? ((uint)*(ushort *)(dev + 10) << 0x10) : 0;
+  cmd[1] = (select != 0) ? ((uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10) : 0;
   *(undefined1 *)&cmd[2] = 1;                      /* resp_type: R1 */
   uVar1 = sdcc_send_cmd((int *)dev, cmd);
   if (select == 0) {
@@ -460,7 +461,7 @@ static int mmc_send_cid(int dev)
 
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 10;                                     /* CMD10: SEND_CID */
-  cmd[1] = (uint)*(ushort *)(dev + 10) << 0x10;    /* RCA */
+  cmd[1] = (uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10;    /* RCA */
   *(undefined1 *)&cmd[2] = 4;                      /* resp_type: R2 */
   iVar1 = sdcc_send_cmd((int *)dev, cmd);
   /* eMMC only: always MMC type '\x02' or '\x06' */
@@ -525,7 +526,7 @@ int mmc_config_bus(int dev)
     }
     else {
       uVar1 = csd_get_rca(dev);
-      *(undefined2 *)(dev + 10) = uVar1;
+      *(undefined2 *)(dev + DEV_HALF_RCA) = uVar1;
     }
   }
   return iVar2;
@@ -547,7 +548,7 @@ int mmc_identify_card(int dev)
   if (iVar2 == 3) {
     memset_zero(cmd, sizeof(cmd));
     cmd[0] = 9;                                    /* CMD9: SEND_CSD */
-    cmd[1] = (uint)*(ushort *)(dev + 10) << 0x10;  /* RCA */
+    cmd[1] = (uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10;  /* RCA */
     *(undefined1 *)&cmd[2] = 4;                    /* resp_type: R2 */
     iVar3 = sdcc_send_cmd((int *)dev, cmd);
     if (iVar3 == 0) {
@@ -555,15 +556,15 @@ int mmc_identify_card(int dev)
       mmc_parse_csd_fields(dev, (undefined1 *)(cmd + 3), csd_parsed);
       /* eMMC only: card type is always '\x02' (MMC) or '\x06' (eMMC) */
       uVar4 = 3;
-      if (*(char *)(dev + 8) != '\x06') {
+      if (*(char *)(dev + DEV_BYTE_CARD_TYPE) != '\x06') {
         mmc_calc_capacity(dev, (sbyte)csd_parsed[0x08],
                           (undefined1)csd_parsed[0x18], *(int *)(csd_parsed + 0x10));
       }
       if (csd_parsed[0x04] != '2') {
-        *(undefined1 *)(dev + 0x5f) = 2;
+        *(undefined1 *)(dev + DEV_BYTE_SPEED_GRADE) = 2;
         return 0;
       }
-      *(undefined1 *)(dev + 0x5f) = uVar4;
+      *(undefined1 *)(dev + DEV_BYTE_SPEED_GRADE) = uVar4;
     }
   }
   return iVar3;
@@ -586,7 +587,7 @@ void mmc_set_bus_width(undefined4 *dev, undefined4 speed_mode, undefined4 unused
   switch(speed_mode) {
   case 0:
     uVar3 = 400;
-    *(undefined1 *)((int)dev + 0x5f) = 2;
+    *(undefined1 *)((int)dev + DEV_BYTE_SPEED_GRADE) = 2;
     break;
   case 1:
   case 2:
@@ -594,10 +595,10 @@ void mmc_set_bus_width(undefined4 *dev, undefined4 speed_mode, undefined4 unused
   case 5:
 switchD_caseD_1:
     if ((cVar1 == '\x02') || (cVar1 == '\x06')) {
-      if (*(char *)((int)dev + 0x5f) == '\x04') {
+      if (*(char *)((int)dev + DEV_BYTE_SPEED_GRADE) == '\x04') {
         uVar3 = 52000;
       }
-      else if (*(char *)((int)dev + 0x5f) == '\x03') {
+      else if (*(char *)((int)dev + DEV_BYTE_SPEED_GRADE) == '\x03') {
         uVar3 = 26000;
       }
       break;
@@ -605,14 +606,14 @@ switchD_caseD_1:
     goto LAB_08032e26;
   case 4:
     if ((cVar1 == '\x02') || (cVar1 == '\x06')) {
-      *(undefined1 *)((int)dev + 0x5f) = 4;
+      *(undefined1 *)((int)dev + DEV_BYTE_SPEED_GRADE) = 4;
       goto switchD_caseD_1;
     }
     if ((cVar1 != '\x01') && (cVar1 != '\x05')) break;
-    *(undefined1 *)((int)dev + 0x5f) = 1;
+    *(undefined1 *)((int)dev + DEV_BYTE_SPEED_GRADE) = 1;
 LAB_08032e26:
     if ((cVar1 == '\x01') || (cVar1 == '\x05')) {
-      if (*(char *)((int)dev + 0x5f) == '\x01') {
+      if (*(char *)((int)dev + DEV_BYTE_SPEED_GRADE) == '\x01') {
         uVar3 = 50000;
       }
       else {
@@ -621,7 +622,7 @@ LAB_08032e26:
     }
     break;
   case 6:
-    if (((cVar1 == '\x02') || (cVar1 == '\x06')) && (*(char *)((int)dev + 0x5f) == '\x04')) {
+    if (((cVar1 == '\x02') || (cVar1 == '\x06')) && (*(char *)((int)dev + DEV_BYTE_SPEED_GRADE) == '\x04')) {
       uVar3 = 100000;
     }
     break;
@@ -632,7 +633,7 @@ LAB_08032e26:
     local_18 = uVar2;
   }
   sdcc_clock_setup(uVar4,&local_18,4);
-  dev[0x21] = local_18;
+  dev[DEV_CLOCK_KHZ] = local_18;
   return;
 }
 
@@ -649,22 +650,22 @@ int mmc_set_speed(int *dev)
   if (iVar2 != 0) {
     return iVar2;
   }
-  *(undefined1 *)((int)dev + 9) = 2;
-  dev[0x16] = 1;
+  *(undefined1 *)((int)dev + DEV_BYTE_INIT_PHASE) = 2;
+  dev[DEV_CUSTOM_SECTOR] = 1;
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 0x10;       /* CMD16 SET_BLOCKLEN */
   cmd[1] = 0x200;      /* arg: 512 bytes */
   cmd[2] = 1;          /* resp_type: R1 */
   iVar2 = sdcc_send_cmd(dev,(undefined4 *)cmd);
   if (iVar2 == 0) {
-    dev[9] = 0x200;
+    dev[DEV_SECTOR_SIZE] = 0x200;
     *(uint *)(DAT_0804e2c8[*dev] + 0x2c) =
          *(uint *)(DAT_0804e2c8[*dev] + 0x2c) & 0xfffe000f | 0x2000;
     sdcc_enable_clock(*dev);
   }
   cVar1 = (char)dev[2];
   if ((cVar1 == '\x02') || (cVar1 == '\x06')) {
-    if (*(byte *)((int)dev + 0x5d) < 4) {
+    if (*(byte *)((int)dev + DEV_BYTE_BUS_WIDTH) < 4) {
       sdcc_set_bus_speed_mode(iVar3,0);
     }
     else {
@@ -694,15 +695,15 @@ void mmc_finalize_init(int dev)
 
   piVar1 = *(int **)(dev + 0x90);
   iVar2 = *piVar1;
-  if (*(char *)(dev + 9) != '\0') {
+  if (*(char *)(dev + DEV_BYTE_INIT_PHASE) != '\0') {
     if ((char)piVar1[1] != '\0') {
       *(uint *)DAT_0804e2c8[iVar2] = *(uint *)DAT_0804e2c8[iVar2] & 0xfffffffe;
       sdcc_enable_clock(iVar2);
       sdcc_enable_slot(iVar2,0);
       *(undefined1 *)(piVar1 + 1) = 0;
     }
-    *(undefined1 *)(dev + 8) = 0;
-    *(undefined1 *)(dev + 9) = 0;
+    *(undefined1 *)(dev + DEV_BYTE_CARD_TYPE) = 0;
+    *(undefined1 *)(dev + DEV_BYTE_INIT_PHASE) = 0;
     *(undefined4 *)(dev + 0x84) = 0;
   }
   return;

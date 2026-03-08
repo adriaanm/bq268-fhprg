@@ -855,11 +855,11 @@ static void cmd_sector_read(const char *args)
 
         /* Trace transfer path config */
         {
-            int hpd = dev[0x24]; /* hotplug descriptor ptr */
+            int hpd = dev[DEV_HOTPLUG_DESC]; /* hotplug descriptor ptr */
             p = put_str(resp, p, "xfer: custom=");
-            p = put_hex32(resp, p, dev[0x16]);
+            p = put_hex32(resp, p, dev[DEV_CUSTOM_SECTOR]);
             p = put_str(resp, p, " sectorsz=");
-            p = put_hex32(resp, p, dev[9]);
+            p = put_hex32(resp, p, dev[DEV_SECTOR_SIZE]);
             p = put_str(resp, p, " hpd=");
             p = put_hex32(resp, p, hpd);
             p = put_str(resp, p, " adma=");

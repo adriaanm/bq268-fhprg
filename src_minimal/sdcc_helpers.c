@@ -302,8 +302,8 @@ int sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count)
 
   local_28 = 0;
   iVar4 = *dev;                          /* slot index */
-  if (dev[0x16] == 1) {                  /* DEV_CUSTOM_SECTOR: multi-block mode */
-    uVar6 = dev[9];                      /* DEV_SECTOR_SIZE */
+  if (dev[DEV_CUSTOM_SECTOR] == 1) {                  /* DEV_CUSTOM_SECTOR: multi-block mode */
+    uVar6 = dev[DEV_SECTOR_SIZE];                      /* DEV_SECTOR_SIZE */
     uVar5 = byte_count / uVar6;          /* number of blocks */
   }
   else {
@@ -523,7 +523,7 @@ int mmc_switch_cmd6(int *dev, undefined4 cmd6_arg)
     /* CMD13: SEND_STATUS — verify card returned to transfer state */
     memset_zero(cmd, sizeof(cmd));
     cmd[0] = 0xd;                                 /* CMD13: SEND_STATUS */
-    cmd[1] = (uint)*(ushort *)((int)dev + 10) << 0x10; /* RCA in bits [31:16] */
+    cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
     *(undefined1 *)&cmd[2] = 1;                   /* resp_type: R1 */
     ret = sdcc_send_cmd(dev, cmd);
     if (ret == 0) {
@@ -760,7 +760,7 @@ undefined4 sdcc_adma_write(int *dev, undefined4 *cmd)
 
   memset_zero(app_cmd, sizeof(app_cmd));
   app_cmd[0] = 0x37;                             /* CMD55: APP_CMD (precedes all ACMDs) */
-  app_cmd[1] = (uint)*(ushort *)((int)dev + 10) << 0x10; /* RCA in bits [31:16] */
+  app_cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
   *(undefined1 *)&app_cmd[2] = 1;                /* resp_type: R1 */
   sdcc_send_cmd(dev, app_cmd);
   sdcc_send_cmd(dev, (int *)cmd);                /* fire the actual ACMD */
@@ -867,7 +867,7 @@ uint sdcc_get_card_status(int *dev)
   state = 9;   /* default: error / unknown */
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 0xd;                                   /* CMD13: SEND_STATUS */
-  cmd[1] = (uint)*(ushort *)((int)dev + 10) << 0x10; /* RCA in bits [31:16] */
+  cmd[1] = (uint)*(ushort *)((int)dev + DEV_HALF_RCA) << 0x10; /* RCA in bits [31:16] */
   *(undefined1 *)&cmd[2] = 1;                     /* resp_type: R1 */
   ret = sdcc_send_cmd(dev, cmd);
   if (ret == 0) {
@@ -923,13 +923,13 @@ undefined4 sdcc_wait_card_ready(int *dev)
  *     Card type 0x02 or 0x06 (SD/SDHC):  5000 ms normal, 2000 ms reliable
  *     Other (MMC/eMMC):                   5000 ms normal,  400 ms reliable
  *   Multiplier:
- *     dev[0x21] == 0: use 50000 (fallback when device clock is unknown)
- *     otherwise:      dev[0x21] (device-reported max clock ticks per ms)
+ *     dev[DEV_CLOCK_KHZ] == 0: use 50000 (fallback when device clock is unknown)
+ *     otherwise:      dev[DEV_CLOCK_KHZ] (device-reported max clock ticks per ms)
  *
  * Card type is read from *(char*)(dev + 2) (the low byte of dev[2]).
  *
  * Sector size:
- *   dev[DEV_CUSTOM_SECTOR] (dev[0x16]) == 1: use dev[DEV_SECTOR_SIZE] (dev[9])
+ *   dev[DEV_CUSTOM_SECTOR] (dev[DEV_CUSTOM_SECTOR]) == 1: use dev[DEV_SECTOR_SIZE] (dev[DEV_SECTOR_SIZE])
  *   otherwise: 1 (single-word transfer, non-block mode)
  *
  * Note: the slot index is cast to (short) for the register base array
@@ -944,7 +944,7 @@ int sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks)
   uVar1 = *dev;                          /* slot index */
   uVar3 = 1;
   iVar2 = 5000;                          /* default timeout base (ms per block) */
-  if ((*(char *)(dev + 2) == '\x02') || (*(char *)(dev + 2) == '\x06')) {
+  if ((*(char *)((int)dev + DEV_BYTE_CARD_TYPE) == '\x02') || (*(char *)((int)dev + DEV_BYTE_CARD_TYPE) == '\x06')) {
     /* SD or SDHC card type (0x02 = SD, 0x06 = eMMC subtype mapped to SD path?) */
     if (is_reliable != 0) {
       iVar2 = 2000;                      /* reliable write: tighter per-block timeout */
@@ -954,16 +954,16 @@ int sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks)
     /* MMC/eMMC card type, reliable write */
     iVar2 = 400;
   }
-  if (dev[0x21] == 0) {
+  if (dev[DEV_CLOCK_KHZ] == 0) {
     iVar2 = iVar2 * 50000;               /* unknown clock: use large fallback multiplier */
   }
   else {
-    iVar2 = dev[0x21] * iVar2;           /* scale by device max clock ticks per ms */
+    iVar2 = dev[DEV_CLOCK_KHZ] * iVar2;           /* scale by device max clock ticks per ms */
   }
   /* MCI_DATA_TIMER (+0x24): data transfer timeout in controller clock ticks */
   *(int *)(DAT_0804e2c8[(short)uVar1] + 0x24) = iVar2;
-  if (dev[0x16] == 1) {                  /* DEV_CUSTOM_SECTOR: multi-block device */
-    uVar3 = dev[9] & 0xffff;            /* DEV_SECTOR_SIZE: low 16 bits */
+  if (dev[DEV_CUSTOM_SECTOR] == 1) {                  /* DEV_CUSTOM_SECTOR: multi-block device */
+    uVar3 = dev[DEV_SECTOR_SIZE] & 0xffff;            /* DEV_SECTOR_SIZE: low 16 bits */
   }
   /* MCI_DATA_LENGTH (+0x28): total byte count for this transfer */
   *(uint *)(DAT_0804e2c8[(short)uVar1] + 0x28) = uVar3 * num_blocks;
