@@ -37,13 +37,13 @@ int param_1;
 /* orig: 0x08038014 storage_read_sectors — read sectors from current partition.
  *
  * Looks up the device handle for the current partition (ctx+0x26),
- * then calls mmc_write_blocks to do the actual read (CMD17/CMD18). */
+ * then calls mmc_read_blocks to do the actual read (CMD17/CMD18). */
 uint storage_read_sectors(param_1, param_2, param_3, param_4, param_5)
 int param_1; uint param_2; uint param_3; uint param_4; uint16_t param_5;
 {
     int iVar1;
     iVar1 = *(int *)(param_1 + (uint)*(byte *)(param_1 + 0x26) * 4 + 4);
-    if ((iVar1 != 0) && (iVar1 = mmc_write_blocks((undefined4 *)iVar1, param_3, param_2, param_5), iVar1 == 0)) {
+    if ((iVar1 != 0) && (iVar1 = mmc_read_blocks((undefined4 *)iVar1, param_3, param_2, param_5), iVar1 == 0)) {
         return 1;
     }
     return 0;

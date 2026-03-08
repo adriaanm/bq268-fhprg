@@ -2,7 +2,7 @@
  *
  * This is the critical layer for understanding writes. The write path is:
  *   handle_program -> storage_write_sectors -> mmc_write_sectors ->
- *   mmc_write_blocks -> sdcc_write_data -> sdcc_send_cmd
+ *   mmc_read_blocks -> sdcc_write_data -> sdcc_send_cmd
  *
  * SDCC = Secure Digital Card Controller (Qualcomm's SD/eMMC controller IP).
  * Commands follow the eMMC JEDEC spec (CMD0, CMD6, CMD24, CMD25, etc.).
@@ -469,21 +469,18 @@ uint mmc_get_partition_info(uint *handle, char *info)
     return uVar4;
 }
 
-/* orig: 0x08034170 mmc_write_blocks — write sectors via CMD24/CMD25.
+/* orig: 0x08034170 mmc_read_blocks — read sectors via CMD17/CMD18.
  *
- * THIS is the function that builds the MMC command struct and calls
- * sdcc_write_data(). It sits between mmc_write_sectors (WP check)
- * and the actual data transfer.
+ * Builds the MMC command struct and calls sdcc_write_data() to perform
+ * the transfer. Despite the "write" naming in the data path, this
+ * function uses CMD17 (READ_SINGLE) / CMD18 (READ_MULTIPLE).
  *
  * handle = device handle (ptr to ptr to device struct)
  * sector = start sector
- * buf = data buffer
- * num_blocks = block count (1=CMD24 single, >1=CMD25 multi)
- *
- * Write protection check: *(char*)(dev[0x24] + 0xA0) — EXT_CSD[160]
- * This check is DUPLICATED here and in mmc_write_sectors().
+ * buf = data buffer (must be DMA-accessible, i.e. DDR)
+ * num_blocks = block count (1=CMD17 single, >1=CMD18 multi)
  */
-int mmc_write_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blocks)
+int mmc_read_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blocks)
 {
   char cVar1;
   int iVar2;
@@ -505,14 +502,12 @@ int mmc_write_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blo
       iVar2 = 0x15; /* no card */
     }
     else if (((cVar1 == '\x01') || (cVar1 == '\x05')) || ((cVar1 == '\x02' || (cVar1 == '\x06')))) {
-      /* Card is SD/SDHC/MMC/eMMC — proceed with write */
+      /* Card is SD/SDHC/MMC/eMMC — proceed with read */
       iVar2 = mmc_ensure_partition(handle);
       if (iVar2 == 0) {
         /* Build command struct */
         if (num_blocks == 1) {
-          local_40 = 0x11; /* CMD17? — note: 0x11=17 but writes use CMD24/25.
-                            * In the read path, CMD17=READ_SINGLE, CMD18=READ_MULTI.
-                            * This function is also used for reads! */
+          local_40 = 0x11; /* CMD17: READ_SINGLE_BLOCK */
         }
         else {
           local_40 = 0x12; /* CMD18: READ_MULTIPLE_BLOCK */
@@ -524,7 +519,7 @@ int mmc_write_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blo
         if (((char)puVar3[2] != '\x05') && ((char)puVar3[2] != '\x06')) {
           local_3c = sector * puVar3[9]; /* sector * sector_size */
         }
-        local_1c = 2;       /* flags: direction = write */
+        local_1c = 2;       /* flags: bit 1 = data transfer */
         iVar2 = sdcc_write_data(puVar3,&local_40,buf,num_blocks);
       }
     }

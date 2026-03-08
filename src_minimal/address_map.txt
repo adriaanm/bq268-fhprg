@@ -153,7 +153,7 @@
 0x08033d44  emmc.c          mmc_erase_range                  — erase range of sectors (CMD35/36/38)
 0x08033ee8  emmc.c          mmc_get_partition_info           — fill partition info struct (0x40 bytes)
 0x08033fe0  emmc.c          mmc_open_device                  — initialize and open eMMC device
-0x08034170  emmc.c          mmc_write_blocks                 — write sectors via CMD24/CMD25
+0x08034170  emmc.c          mmc_read_blocks                 — write sectors via CMD24/CMD25
 0x08034202  emmc.c          mmc_switch_partition             — select eMMC HW partition via CMD6
 0x08034228  emmc.c          mmc_write_sectors                — write with WP check (EXT_CSD[160])
 0x080348e0  emmc.c          mmc_get_capacity                 — get partition capacity in sectors

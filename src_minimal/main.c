@@ -819,9 +819,9 @@ static void cmd_sector_read(const char *args)
     p = put_str(resp, p, "\r\n");
     usb_write(resp, p); p = 0;
 
-    /* mmc_write_blocks: param1=handle_ptr (ptr to device struct ptr),
+    /* mmc_read_blocks: param1=handle_ptr (ptr to device struct ptr),
      * param2=start_sector, param3=buffer_addr, param4=num_sectors */
-    ret = mmc_write_blocks((void *)emmc_handle, sector, (unsigned int)sector_buf, 1);
+    ret = mmc_read_blocks((void *)emmc_handle, sector, (unsigned int)sector_buf, 1);
 
     p = put_str(resp, p, "Read sector ");
     p = put_hex32(resp, p, sector);

@@ -353,7 +353,7 @@ uint mmc_close_handle(int *handle);
 int  mmc_erase_range(undefined4 *handle, int sector, int count);
 uint mmc_get_partition_info(uint *handle, char *info);
 int  mmc_open_device(int slot, undefined4 flags);
-int  mmc_write_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blocks);
+int  mmc_read_blocks(undefined4 *handle, int sector, undefined4 buf, int num_blocks);
 int  mmc_switch_partition(int *handle);
 int  mmc_write_sectors(uint *handle, int sector, uint buf, int num_blocks);
 uint mmc_get_capacity(int *handle, uint *sectors, undefined4 *part_type);
