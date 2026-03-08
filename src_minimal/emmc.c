@@ -83,7 +83,11 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
   int *piVar5;
   int iVar7;
   uint uVar8;
-  short local_28[10]; /* cmd_config for sdcc_cleanup (20 bytes) */
+  /* 20-byte opaque buffer for sdcc_cleanup's internal cleanup state.
+   * Ghidra decompiled the original as 'int local_28' at fp-0x28, but the
+   * memset clears 0x14=20 bytes from that address, spanning 5 stack words.
+   * short[10] correctly captures the 20-byte span. */
+  short local_28[10];
 
   if ((dev == (int *)0x0) || (cmd == (int *)0x0)) {
     return 0x14;
@@ -144,7 +148,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
     if ((cmd[7] != 0) && (iVar7 == 0)) {
       iVar7 = sdcc_busy_wait(dev);
     }
-    memset_zero(&local_28,0x14);
+    memset_zero(&local_28, sizeof(local_28));
     sdcc_cleanup(*dev,&local_28);
   }
   return iVar7;
@@ -362,6 +366,10 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
       memset_zero(cmd, sizeof(cmd));
       cmd[0] = 0x23;                              /* CMD35 */
       cmd[1] = sector;                             /* start address */
+      /* NOTE: for non-HC (type 2) cards, CMD35 arg should be byte address
+       * (sector * 0x200), but this path is never taken on msm8909 where the
+       * device is always type 6 (eMMC/HC). Faithfully reproduced from original
+       * FUN_08033d44 which also passes sector unconverted for CMD35. */
       *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                 /* resp_type: R1 */
       iVar1 = sdcc_send_cmd((int *)puVar2, cmd);
       if (iVar1 == 0) {
@@ -370,7 +378,9 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
           cmd[1] = sector + count + -1;            /* HC: sector-addressed */
         }
         else {
-          cmd[1] = sector + count * 0x200 + -0x200; /* non-HC: byte-addressed */
+          /* non-HC: byte-addressed end = sector + (count-1)*512.
+           * Inconsistent with CMD35 which should also use byte address. */
+          cmd[1] = sector + count * 0x200 + -0x200;
         }
         cmd[0] = 0x24;                            /* CMD36 */
         iVar1 = sdcc_send_cmd((int *)puVar2, cmd);
