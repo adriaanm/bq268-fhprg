@@ -296,6 +296,55 @@ def send_command(dev, cmd):
     return read_response(dev)
 
 
+def write_image(dev, image_path, start_sector):
+    """Write a binary image to eMMC via bulk write command (W).
+
+    1. Read file, pad to 512-byte boundary
+    2. Send 'W sector count' command
+    3. Wait for READY response
+    4. Send raw data in USB chunks
+    5. Wait for OK response
+    """
+    with open(image_path, "rb") as f:
+        data = f.read()
+
+    # Pad to 512-byte sector boundary
+    pad = (512 - (len(data) % 512)) % 512
+    if pad:
+        data += b"\x00" * pad
+    count = len(data) // 512
+
+    print(f"Writing {image_path}: {len(data)} bytes ({count} sectors) at sector 0x{start_sector:x}")
+
+    # Send W command
+    cmd = f"W {start_sector:x} {count:x}\n"
+    dev.write(EP_OUT, cmd.encode())
+
+    # Wait for READY
+    resp = read_response(dev, timeout=5000)
+    resp_str = resp.decode("ascii", errors="replace").strip()
+    print(f"  Device: {resp_str}")
+    if not resp_str.startswith("READY"):
+        raise RuntimeError(f"Expected READY, got: {resp_str}")
+
+    # Send raw data in 4096-byte USB chunks
+    chunk_size = 4096
+    sent = 0
+    while sent < len(data):
+        end = min(sent + chunk_size, len(data))
+        dev.write(EP_OUT, data[sent:end])
+        sent = end
+    print(f"  Sent {sent} bytes")
+
+    # Wait for OK
+    resp = read_response(dev, timeout=30000)
+    resp_str = resp.decode("ascii", errors="replace").strip()
+    print(f"  Device: {resp_str}")
+    if not resp_str.startswith("OK"):
+        raise RuntimeError(f"Write failed: {resp_str}")
+    print("Write complete.")
+
+
 def interactive_mode(dev, vid=DEVICE_VID, pid=DEVICE_PID):
     """Interactive terminal mode."""
     try:
@@ -345,6 +394,8 @@ def main():
                         help="Upload programmer ELF via Sahara then connect")
     parser.add_argument("--sahara-timeout", type=int, default=10,
                         help="Sahara device discovery timeout (seconds)")
+    parser.add_argument("--write-aboot", metavar="FILE",
+                        help="Write binary image to aboot partition (sector 0x280C00)")
     parser.add_argument("--install-udev", action="store_true",
                         help=f"Install udev rules to {UDEV_RULES_PATH} (needs sudo)")
     args = parser.parse_args()
@@ -407,7 +458,15 @@ def main():
     except (ValueError, usb.core.USBError):
         print("Connected (string descriptors unavailable)")
 
-    if args.command:
+    if args.write_aboot:
+        # Init eMMC first, then write
+        print("Initializing eMMC...")
+        resp = send_command(dev, "e")
+        if resp:
+            sys.stdout.write(resp.decode("ascii", errors="replace"))
+            sys.stdout.flush()
+        write_image(dev, args.write_aboot, 0x280C00)
+    elif args.command:
         resp = send_command(dev, args.command)
         if resp:
             sys.stdout.write(resp.decode("ascii", errors="replace"))

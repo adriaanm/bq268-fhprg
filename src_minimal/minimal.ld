@@ -1,5 +1,5 @@
 /*
- * minimal.ld — Linker script for minimal embedded-payload firehose programmer.
+ * minimal.ld — Linker script for minimal programmer.
  *
  * Memory map (from fhprg_peek.bin ELF program headers):
  *
@@ -22,7 +22,7 @@ MEMORY
     IMEM_CODE (rwx) : ORIGIN = 0x00220000, LENGTH = 0x3000
     IMEM_DATA (rw)  : ORIGIN = 0x00223000, LENGTH = 0x1000
 
-    /* OCIMEM — main program code + embedded payload */
+    /* OCIMEM — main program code */
     CODE (rx)  : ORIGIN = 0x08006000, LENGTH = 0x46000  /* 280 KB */
 
     /* OCIMEM — initialized data and BSS */
@@ -104,13 +104,6 @@ SECTIONS
     .ddr_data : {
         *(.ddr_data)
     } > IMEM_DATA
-
-    /*------------------------------------------------------------------
-     * Embedded payload — placed at end of CODE region
-     *------------------------------------------------------------------*/
-    .payload : {
-        *(.rodata.payload)
-    } > CODE
 
     /*------------------------------------------------------------------
      * Initialized data — stored in CODE, copied to DATA at runtime

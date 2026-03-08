@@ -96,7 +96,8 @@ extern uint DAT_08059efc[96];   /* partition table: 32 entries × 3 words */
 extern int DAT_0804e2a8;        /* free partition slot counter (init: 0x20) */
 
 /* MMIO timer for qtimer_init */
-extern uint _DAT_004a1000;
+/* QTimer MMIO at 0x004a1000 — mapped by linker script */
+volatile uint _DAT_004a1000 __attribute__((section(".mmio_qtimer"))) = 0;
 
 /* ---- Simple utility functions ---- */
 

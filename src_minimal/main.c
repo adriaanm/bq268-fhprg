@@ -1,8 +1,8 @@
-/* main.c — Embedded payload mode: USB diagnostic console.
+/* main.c — USB diagnostic console + bulk write.
  *
  * This runs after entry.S has initialized hardware (BIMC clocks, DDR, SDCC).
- * Instead of flashing aboot, it provides a USB diagnostic interface for
- * probing registers, memory, and debugging the DDR init sequence.
+ * Provides a USB diagnostic interface for probing registers, memory,
+ * debugging, and writing eMMC partitions via bulk transfer.
  *
  * Protocol (text over USB bulk):
  *   r XXXXXXXX          — read 32-bit word at hex address
@@ -10,19 +10,12 @@
  *   d XXXXXXXX NNNN     — hex dump NNNN bytes from address
  *   i                    — dump CP15 and system info
  *   t                    — test DDR read/write
+ *   W SECTOR COUNT       — bulk write: receive COUNT sectors, write to eMMC
  */
-
-#ifdef MINIMAL_EMBEDDED_PAYLOAD
 
 #include "firehose.h"
 #include "msm8909.h"
 #include "usb.h"
-
-/*========================================================================
- * External symbols from aboot_payload.S (keep linker happy)
- *========================================================================*/
-extern const unsigned char aboot_payload_gz[];
-extern const unsigned int  aboot_payload_gz_len;
 
 /*========================================================================
  * GPIO LED helpers — MSM8909 TLMM
@@ -568,6 +561,9 @@ static void cmd_ddr_test(void)
 /* DMA-accessible sector buffer in DDR (512 bytes, 32-byte aligned) */
 static char sector_buf[512] __attribute__((section(".ddr_bss"), aligned(32)));
 
+/* Bulk write buffer in DDR (1 MB = aboot partition size) */
+static char bulk_buf[0x100000] __attribute__((section(".ddr_bss"), aligned(32)));
+
 /* Track whether eMMC has been initialized */
 static int emmc_inited = 0;
 static mmc_handle_t *emmc_handle = 0;  /* handle from mmc_open_device */
@@ -954,6 +950,81 @@ static void cmd_sector_write(const char *args)
 }
 
 /*========================================================================
+ * Command: bulk write — receive raw data over USB and write to eMMC
+ *
+ * Protocol:
+ *   Host sends:    W SECTOR COUNT\n       (hex sector + hex count)
+ *   Device sends:  READY SECTOR COUNT\n
+ *   Host sends:    [COUNT*512 bytes raw binary data]
+ *   Device sends:  OK COUNT\n             or ERR ...\n
+ *========================================================================*/
+static void cmd_bulk_write(const char *args)
+{
+    int p = 0;
+    const char *p1 = skip_ws(args);
+    unsigned int sector = parse_hex(p1);
+    const char *p2 = skip_ws(skip_nonws(p1));
+    unsigned int count = parse_hex(p2);
+    unsigned int total = count * 512;
+    unsigned int received, written, chunk;
+    int n, ret;
+
+    if (!emmc_inited) {
+        p = put_str(resp, p, "ERR eMMC not initialized\r\n");
+        usb_write(resp, p);
+        return;
+    }
+    if (count == 0 || total > sizeof(bulk_buf)) {
+        p = put_str(resp, p, "ERR invalid count (max ");
+        p = put_hex32(resp, p, (unsigned int)(sizeof(bulk_buf) / 512));
+        p = put_str(resp, p, " sectors)\r\n");
+        usb_write(resp, p);
+        return;
+    }
+
+    /* Signal ready */
+    p = put_str(resp, p, "READY ");
+    p = put_hex32(resp, p, sector);
+    p = put_str(resp, p, " ");
+    p = put_hex32(resp, p, count);
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Receive raw data into DDR */
+    received = 0;
+    while (received < total) {
+        n = usb_read(bulk_buf + received, total - received);
+        if (n > 0)
+            received += (unsigned int)n;
+    }
+
+    /* Write to eMMC in chunks (64 sectors = 32 KB for ADMA) */
+    written = 0;
+    while (written < count) {
+        chunk = count - written;
+        if (chunk > 64) chunk = 64;
+        ret = mmc_write_sectors(emmc_handle, sector + written,
+                                (unsigned int)(bulk_buf + written * 512), chunk);
+        if (ret != 0) {
+            p = put_str(resp, p, "ERR write failed at sector ");
+            p = put_hex32(resp, p, sector + written);
+            p = put_str(resp, p, " ret=");
+            p = put_dec(resp, p, (unsigned int)ret);
+            p = put_str(resp, p, "\r\n");
+            usb_write(resp, p);
+            return;
+        }
+        written += chunk;
+    }
+
+    /* Report success */
+    p = put_str(resp, p, "OK ");
+    p = put_hex32(resp, p, count);
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p);
+}
+
+/*========================================================================
  * main — entry point from assembly
  *
  * At this point entry.S has already:
@@ -967,19 +1038,17 @@ void main(void)
     int n, p;
     static const char banner[] =
         "=== MSM8909 Diag Console ===\r\n"
-        "  r ADDR       — read 32-bit word\r\n"
-        "  w ADDR VAL   — write 32-bit word\r\n"
-        "  d ADDR LEN   — hex dump\r\n"
-        "  i            — system info\r\n"
-        "  t            — DDR test\r\n"
-        "  e            — init eMMC\r\n"
-        "  c            — eMMC card status\r\n"
-        "  s SECTOR     — read sector (hex)\r\n"
-        "  S SECTOR BYTE — write sector with fill byte\r\n"
+        "  r ADDR          read 32-bit word\r\n"
+        "  w ADDR VAL      write 32-bit word\r\n"
+        "  d ADDR LEN      hex dump\r\n"
+        "  i               system info\r\n"
+        "  t               DDR test\r\n"
+        "  e               init eMMC\r\n"
+        "  c               eMMC card status\r\n"
+        "  s SECTOR        read sector (hex)\r\n"
+        "  S SECTOR BYTE   write sector fill\r\n"
+        "  W SECTOR COUNT  bulk write\r\n"
         "> ";
-
-    (void)aboot_payload_gz;
-    (void)aboot_payload_gz_len;
 
     led_init(LED_RED_GPIO);
     led_init(LED_GREEN_GPIO);
@@ -1020,8 +1089,11 @@ void main(void)
         case 'r': case 'R':
             cmd_read(skip_ws(cmd_buf + 1));
             break;
-        case 'w': case 'W':
+        case 'w':
             cmd_write(cmd_buf + 1);
+            break;
+        case 'W':
+            cmd_bulk_write(cmd_buf + 1);
             break;
         case 'd': case 'D':
             cmd_dump(cmd_buf + 1);
@@ -1051,152 +1123,3 @@ void main(void)
         led_off(LED_RED_GPIO);
     }
 }
-
-#endif /* MINIMAL_EMBEDDED_PAYLOAD */
-
-/*========================================================================
- * Firehose mode — full eMMC access via firehose XML protocol
- *
- * Built without -DMINIMAL_EMBEDDED_PAYLOAD.
- * Enables the complete eMMC driver stack and firehose command handlers.
- *========================================================================*/
-
-#ifndef MINIMAL_EMBEDDED_PAYLOAD
-
-#include "firehose.h"
-#include "msm8909.h"
-#include "usb.h"
-
-#define REG32(addr)  (*(volatile unsigned int *)(addr))
-
-static void led_init(int gpio)
-{
-    REG32(GPIO_CFG_ADDR(gpio)) =
-          (GPIO_NO_PULL << GPIO_PULL_SHIFT)
-        | (0            << GPIO_FUNC_SHIFT)
-        | (GPIO_2MA     << GPIO_DRV_SHIFT)
-        | (GPIO_OE_ENABLE << GPIO_OE_SHIFT);
-}
-
-static void led_off(int gpio)
-{
-    REG32(GPIO_IN_OUT_ADDR(gpio)) = 0;
-}
-
-static void led_on(int gpio)
-{
-    REG32(GPIO_IN_OUT_ADDR(gpio)) = GPIO_OUT_BIT;
-}
-
-/* xml_parser_init — initialize XML parser state.
- * Matches original FUN_08039030: sets buffer, size, resets state. */
-static void xml_parser_init(parser, buf, size_lo, size_hi)
-uint *parser; uint buf; uint size_lo; uint size_hi;
-{
-    parser[0] = buf;        /* buffer pointer */
-    parser[2] = size_lo;    /* size (lo) */
-    parser[3] = size_hi;    /* size (hi) */
-    parser[6] = 0;          /* position (lo) */
-    parser[7] = 0;          /* position (hi) */
-    parser[8] = 0;          /* tag depth (lo) */
-    parser[9] = 0;          /* tag depth (hi) */
-    *(char *)(parser + 4) = 0;  /* state = 0 */
-}
-
-/* xml_writer_setup — initialize XML writer state.
- * The writer needs a buffer and capacity so xml_wr_* functions work. */
-static void xml_writer_setup(writer, buf, capacity)
-uint *writer; uint buf; uint capacity;
-{
-    writer[0] = buf;        /* buffer pointer */
-    writer[2] = capacity;   /* capacity (lo) */
-    writer[3] = 0;          /* capacity (hi) */
-    writer[4] = 0;          /* write pos (lo) */
-    writer[5] = 0;          /* write pos (hi) */
-}
-
-/* XML writer buffer (4 KB in DDR for USB write access) */
-static char xml_wr_buf[4096] __attribute__((section(".ddr_bss"), aligned(32)));
-
-/* XML receive buffer (4 KB) */
-static char xml_rx_buf[4096] __attribute__((aligned(32)));
-
-/* firehose_main — XML command loop.
- *
- * Reads XML commands from USB, parses them, dispatches to handlers.
- * Matches the original FUN_08030fa8 but simplified for synchronous USB. */
-void firehose_main()
-{
-    int n, ret;
-
-    /* Initialize XML writer with DDR buffer */
-    xml_writer_setup(&DAT_08055f18, (uint)xml_wr_buf, sizeof(xml_wr_buf));
-
-    /* Initialize firehose state */
-    DAT_08058458 = 0x200;       /* sector size = 512 */
-    DAT_0805845c = 0;
-    DAT_08055fb8 = 0x100000;    /* buffer capacity = 1 MB */
-    DAT_08055fbc = 0;
-    DAT_0804d3a4 = 0;           /* dispatch state = idle */
-    DAT_08055f88 = 0;           /* no transfer error */
-    DAT_08055fd8 = 0;           /* validation disabled */
-
-    firehose_log("Minimal firehose programmer ready");
-
-    /* Main loop: read XML commands, dispatch */
-    for (;;) {
-        n = usb_read(xml_rx_buf, sizeof(xml_rx_buf));
-        if (n <= 0)
-            continue;
-
-        /* Toggle green LED for activity */
-        led_on(LED_GREEN_GPIO);
-
-        /* Initialize parser with received XML data */
-        xml_parser_init(&DAT_08055ea0, (uint)xml_rx_buf, (uint)n, 0);
-
-        /* Dispatch all commands in this XML block */
-        do {
-            ret = firehose_dispatch();
-        } while (ret != 1);
-
-        led_off(LED_GREEN_GPIO);
-    }
-}
-
-/* main — firehose mode entry point.
- *
- * Called from entry.S after hardware init (DDR, clocks).
- * Enables SDCC clocks, initializes USB and eMMC, enters firehose loop. */
-void main(void)
-{
-    /* Initialize LEDs */
-    led_init(LED_RED_GPIO);
-    led_init(LED_GREEN_GPIO);
-    led_off(LED_RED_GPIO);
-    led_off(LED_GREEN_GPIO);
-
-    /* Enable SDCC1 clocks (must be before any SDCC register access) */
-    sdcc_clock_init();
-
-    /* Pre-populate slot context so mmc_init_card skips full re-init.
-     * PBL already initialized eMMC — we just need the data structures. */
-    sdcc_pre_init_slot(0);
-
-    /* Inherit PBL's USB session — online immediately */
-    usb_init();
-
-    /* Initialize eMMC: ext_csd read + partition setup */
-    {
-        mmc_handle_t *h = (mmc_handle_t *)(uintptr_t)mmc_open_device(0, 0);
-        if (h) { emmc_handle = h; emmc_inited = 1; }
-    }
-
-    /* Green LED = eMMC init complete */
-    led_on(LED_GREEN_GPIO);
-
-    /* Enter firehose XML command loop (never returns) */
-    firehose_main();
-}
-
-#endif /* !MINIMAL_EMBEDDED_PAYLOAD */
