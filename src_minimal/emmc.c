@@ -261,14 +261,28 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
         }
         if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) goto LAB_0803376e;
       }
-      /* PIO/SDMA transfer path */
-      if ((int)(uVar4 << 0x1e) < 0) {
-        iVar8 = sdcc_adma_transfer((int *)iVar5,(uint *)local_2c,iVar1);
-      }
-      else {
-        _GHIDRA_FIELD(local_40, 0, uint24_t) = (uint3)(ushort)local_40;
-        sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
-        iVar8 = sdcc_pio_transfer((int *)iVar5,(byte *)local_2c,iVar1);
+      /* PIO/SDMA transfer path.
+       *
+       * iVar1 = return from sdcc_pre_write_setup:
+       *   - dev[0x16]=0 (standard): iVar1 = num_blocks (block count)
+       *   - dev[0x16]=1 (custom):   iVar1 = sector_size * num_blocks (byte count)
+       *
+       * sdcc_adma_transfer/sdcc_pio_transfer expect a byte count.
+       * When ADMA is enabled (+0xA4 != 0), the ADMA function pointer
+       * path handles block→byte conversion internally. When ADMA is
+       * disabled (our case), we must convert here.
+       */
+      {
+        int xfer_bytes = (dev[DEV_CUSTOM_SECTOR] != 0) ? iVar1
+                         : iVar1 * (int)dev[DEV_SECTOR_SIZE];
+        if ((int)(uVar4 << 0x1e) < 0) {
+          iVar8 = sdcc_adma_transfer((int *)iVar5,(uint *)local_2c,xfer_bytes);
+        }
+        else {
+          _GHIDRA_FIELD(local_40, 0, uint24_t) = (uint3)(ushort)local_40;
+          sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
+          iVar8 = sdcc_pio_transfer((int *)iVar5,(byte *)local_2c,xfer_bytes);
+        }
       }
       local_40 = 0;
       local_3c = 0;
