@@ -47,7 +47,8 @@ MMIO_REGIONS = {
     'GCC':        (0x01800000,  0x80000),   # clock control
     'TIMETICK':   (0x004A0000,  0xC000),    # sleep timetick + PSHOLD
     'BIMC_QOS':   (0x00400000,  0x60000),   # BIMC bus arb
-    'SDCC':       (0x07800000,  0x100000),  # eMMC SDCC + SPMI slave
+    'USB':        (0x078D9000,  0x1000),    # USB controller (CI13xxx)
+    'SDCC':       (0x07800000,  0xD9000),   # eMMC SDCC (below USB region)
     'TCSR':       (0x01900000,  0x80000),   # TCSR misc
     'MPM':        (0x00004000,  0x4000),    # MPM2
     'SPMI':       (0x02000000,  0x100000),  # SPMI (PMIC bus)
@@ -164,6 +165,18 @@ class MmioState:
             if offset == 0x024:  # *_STATUS
                 return self.regs.get(addr, 0) | (1 << 30)
 
+        # USB GCC CBCR registers — specific addresses
+        if addr in (0x01841000, 0x01841004, 0x01841008, 0x01841030,
+                     0x01841034, 0x0184103C):
+            val = self.regs.get(addr, (1 << 31))
+            if val & 1:
+                val &= ~(1 << 31)
+            return val
+
+        # USB GCC CMD_RCGR — clear update bit 0
+        if addr == 0x01841010:
+            return self.regs.get(addr, 0) & ~1
+
         # CBCR registers — clear bit 31 (CLK_OFF) when bit 0 (enable) is set
         if 0x01800000 <= addr < 0x01880000:
             offset = addr & 0xFFF
@@ -184,17 +197,35 @@ class MmioState:
         if 0x00400000 <= addr < 0x00460000:
             return self.regs.get(addr, 0)
 
+        # USB controller (CI13xxx) at 0x078D9000
+        if 0x078D9000 <= addr < 0x078DA000:
+            # ULPI viewport (0x078D9170): clear bit 30 = operation complete
+            if addr == 0x078D9170:
+                val = self.regs.get(addr, 0)
+                return val & ~(1 << 30)
+            # PORTSC (0x078D9184): return high-speed connected
+            # PSPD bits [27:26] = 10 (high-speed), CCS bit 0 = 1 (connected)
+            if addr == 0x078D9184:
+                val = self.regs.get(addr, 0)
+                return val | (2 << 26) | 1
+            # USBSTS (0x078D9144): return idle (no pending interrupts)
+            if addr == 0x078D9144:
+                return 0
+            # USBCMD (0x078D9140): return stored value
+            if addr == 0x078D9140:
+                return self.regs.get(addr, 0)
+            # ENDPOINTLISTADDR (0x078D9158): return stored value
+            if addr == 0x078D9158:
+                return self.regs.get(addr, 0)
+            return self.regs.get(addr, 0)
+
         # SDCC — basic simulation
-        if 0x07800000 <= addr < 0x07900000:
+        if 0x07800000 <= addr < 0x078D9000:
             offset = addr & 0xFFF
             # MCI_STATUS: ready + no errors
             if offset == 0x034:
                 return 0x00000000
-            val = self.regs.get(addr, 0)
-            # SPMI/SDCC command complete: clear bit 30 (0x40000000)
-            if addr == 0x078d9170:
-                return val & ~(1 << 30)
-            return val
+            return self.regs.get(addr, 0)
 
         # TCSR — return stored or 0
         if 0x01900000 <= addr < 0x01980000:
@@ -355,18 +386,21 @@ class InitEmulator:
             'FUN_0800bfac':            (0, "sdcc_irq_clear_poll"),
             'FUN_0800c154':            (0, "sdcc_flag_clear_poll"),
             'FUN_0800a54c':            (1, "sdcc_cmd_submit_poll"),
-            'FUN_08030528':            (0, "spmi_reg_read_poll"),
-            'FUN_0803056c':            (0, "spmi_reg_write_poll"),
-            'FUN_0803015c':            (0, "spmi_reg_write2"),
+            # 'FUN_08030528' — ULPI viewport read (un-stubbed)
+            # 'FUN_0803056c' — ULPI viewport write (un-stubbed)
+            # 'FUN_0803015c' — USB PORTSC speed read (un-stubbed)
             'FUN_0803456c':            (0, "sdcc_cmd_status_poll"),
             'FUN_0800b140':            (1, "cbcr_clock_enable_poll"),
 
-            # eMMC card init (hw reset, queue init, card enumeration)
-            'FUN_0801aba0':            (0, "sdcc_hw_reset_init"),
-            'FUN_0801ab18':            (0, "sdcc_queue_init"),
-            'FUN_0801a704':            (0, "sdcc_clock_gate_enable"),
-            'FUN_0801a728':            (0, "sdcc_clock_gate_disable"),
-            'FUN_0801a948':            (0, "sdcc_card_status_cfg"),
+            # eMMC card init — USB-related functions UN-STUBBED for tracing
+            # 'FUN_0801aba0' — USB init (un-stubbed)
+            # 'FUN_0801ab18' — dQH init (un-stubbed)
+            # 'FUN_0801a704' — USB clock gate enable (un-stubbed)
+            # 'FUN_0801a728' — USB clock gate disable (un-stubbed)
+            # 'FUN_0801a948' — USB endpoint config (un-stubbed)
+
+            # USB enumeration polling (would loop forever without real host)
+            'FUN_0802f9ea':            (0, "usb_enum_poll"),
 
             # Firehose protocol init polling
             'FUN_0802f57c':            (0, "xml_response_poll"),
@@ -374,9 +408,9 @@ class InitEmulator:
             'FUN_08030ac4':            (0, "firehose_ctrl_write"),
             'FUN_08030af4':            (0, "firehose_ctrl_read"),
 
-            # Top-level card/firehose init (to avoid infinite retry)
-            'FUN_0803016c':            (0, "sdcc_card_init_toplevel"),
-            'FUN_08030704':            (0, "firehose_init_wrapper"),
+            # Top-level card/firehose init
+            # 'FUN_0803016c' — USB card init toplevel (un-stubbed)
+            # 'FUN_08030704' — firehose init wrapper (un-stubbed for USB tracing)
         }
 
         for name, (retval, reason) in stubs.items():
@@ -602,6 +636,28 @@ class InitEmulator:
             0x01821000: "GPLL0_MODE",
             0x01821024: "GPLL0_STATUS",
             0x01845000: "APCS_GPLL_ENA_VOTE",
+            # USB GCC clock registers
+            0x01841000: "USB_HS_BCR",
+            0x01841004: "USB_HS_SYSTEM_CBCR",
+            0x01841008: "USB_HS_AHB_CBCR",
+            0x01841010: "USB_HS_SYSTEM_CMD_RCGR",
+            0x01841014: "USB_HS_SYSTEM_CFG_RCGR",
+            0x01841030: "USB_HS_PHY_CFG_AHB_CBCR",
+            0x01841034: "USB2A_PHY_SLEEP_CBCR",
+            0x0184103C: "USB2_HS_PHY_ONLY_CBCR",
+            # USB controller registers
+            0x078D9098: "USB_SBUSCFG",
+            0x078D90A0: "USB_AHB_BURST",
+            0x078D9140: "USB_USBCMD",
+            0x078D9144: "USB_USBSTS",
+            0x078D9148: "USB_USBINTR",
+            0x078D9158: "USB_ENDPOINTLISTADDR",
+            0x078D9170: "USB_ULPI_VIEWPORT",
+            0x078D9184: "USB_PORTSC",
+            0x078D91A8: "USB_USBMODE",
+            0x078D91AC: "USB_ENDPTSETUPSTAT",
+            0x078D91C0: "USB_ENDPTCTRL0",
+            0x078D91C4: "USB_ENDPTCTRL1",
         }
         if addr in descs:
             return descs[addr]
