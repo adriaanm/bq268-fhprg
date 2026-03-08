@@ -179,26 +179,16 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
   uint uVar4;
   int iVar5;
   int iVar6;
-  uint uVar7;
   int iVar8;
-  undefined4 uVar9;
-  uint3 local_60;
-  undefined1 uStack_5d;
-  uint local_5c;
-  undefined1 local_58;
-  uint local_44;
-  undefined4 local_40;
-  undefined4 local_3c;
+  /* Transfer mode struct: 8 bytes, passed as ushort* to sdcc_set_transfer_mode.
+   * Layout (matching Ghidra's local_40/local_3c contiguous pair):
+   *   byte 0-1 (short[0]): block count (low 16 bits of num_blocks)
+   *   byte 2   (char):     DMA enable (1 if ADMA supported)
+   *   byte 3   (char):     auto CMD (unused, 0)
+   *   byte 4-5 (short[2]): direction + flags (0x100=write, 0x101=multi-block write)
+   *   byte 6-7:            block count enable */
+  uint xfer_mode[2];
   uint local_38;
-  undefined4 *puStack_34;
-  int *piStack_30;
-  undefined4 local_2c;
-  uint uStack_28;
-
-  puStack_34 = dev;
-  piStack_30 = cmd;
-  local_2c = buf;
-  uStack_28 = num_blocks;
 
   /* eMMC path (card[0x23] != 1, not SPI mode) */
   {
@@ -218,17 +208,17 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
     if (dev[0x16] != 0) {
       num_blocks = dev[9];
     }
-    local_40 = num_blocks & 0xffff;
-    local_3c = 0x100; /* transfer mode: write */
+    xfer_mode[0] = num_blocks & 0xffff;  /* block count in low 16 bits */
+    xfer_mode[1] = 0x100; /* transfer mode: write */
     /* Check if ADMA is supported (EXT_CSD+0xA4 != 0) */
     if (*(int *)(iVar5 + 0xa4) != 0) {
-      _GHIDRA_FIELD(local_40, 0, uint24_t) = CONCAT12(1,(short)num_blocks);
-      local_40 = (uint)(uint3)local_40;
+      /* Set DMA enable flag (byte 2) and keep block count (bytes 0-1) */
+      xfer_mode[0] = (uint)CONCAT12(1,(short)num_blocks) & 0x00ffffff;
     }
     /* Reliable write: set multi-block flag */
     if ((int)(uVar4 << 0x1e) < 0) {
-      local_3c = 0x101; /* multi-block write */
-      sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
+      xfer_mode[1] = 0x101; /* multi-block write */
+      sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
     }
     /* Send the command (CMD17/CMD18 for read, CMD24/CMD25 for write) */
     if ((int)(uVar4 << 0x1d) < 0) {
@@ -252,10 +242,10 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
           uVar3 = 2;
         }
         /* Call ADMA engine via function pointer at EXT_CSD+0xAC */
-        iVar6 = (**(code **)(iVar5 + 0xac))(iVar5,local_2c,iVar1,uVar3);
+        iVar6 = (**(code **)(iVar5 + 0xac))(iVar5,buf,iVar1,uVar3);
         if (iVar6 == 0) {
           if ((uVar4 & 1) != 0) {
-            sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
+            sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
           }
           iVar8 = sdcc_post_write_check(dev);
         }
@@ -276,17 +266,18 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
         int xfer_bytes = (dev[DEV_CUSTOM_SECTOR] != 0) ? iVar1
                          : iVar1 * (int)dev[DEV_SECTOR_SIZE];
         if ((int)(uVar4 << 0x1e) < 0) {
-          iVar8 = sdcc_adma_transfer((int *)iVar5,(uint *)local_2c,xfer_bytes);
+          iVar8 = sdcc_adma_transfer((int *)iVar5,(uint *)buf,xfer_bytes);
         }
         else {
-          _GHIDRA_FIELD(local_40, 0, uint24_t) = (uint3)(ushort)local_40;
-          sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
-          iVar8 = sdcc_pio_transfer((int *)iVar5,(byte *)local_2c,xfer_bytes);
+          /* Clear DMA enable flag, keep block count */
+          xfer_mode[0] = (uint)(ushort)xfer_mode[0];
+          sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
+          iVar8 = sdcc_pio_transfer((int *)iVar5,(byte *)buf,xfer_bytes);
         }
       }
-      local_40 = 0;
-      local_3c = 0;
-      sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
+      xfer_mode[0] = 0;
+      xfer_mode[1] = 0;
+      sdcc_set_transfer_mode(*dev,(ushort *)xfer_mode);
     }
 LAB_0803376e:
     /* Post-write: send stop command if needed (CMD12 for multi-block) */

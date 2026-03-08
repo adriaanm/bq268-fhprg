@@ -271,7 +271,7 @@ void sdcc_set_bus_speed(int slot, int speed);
 
 /* ---- sdcc_helpers.c ---- */
 void adma_bounce_read(int slot, int buf, int *remaining);
-undefined8 adma_bounce_write(int slot, int buf, int *remaining);
+void adma_bounce_write(int slot, int buf, int *remaining);
 void sdcc_event_notify(int flags, int addr, uint size);
 undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop);
 int  sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count);

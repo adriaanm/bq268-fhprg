@@ -23,36 +23,66 @@ static void write_le32(undefined4 val, undefined1 *buf)
   return;
 }
 
-/* orig: 0x08008ba4 — DMA read: copy words from FIFO to buffer, polling status */
-static int dma_read_helper(int dst, int fifo, uint *status_reg, uint mask)
+/* orig: 0x08008ba4 — DMA read: burst-read 8 words from FIFO to buffer.
+ * Polls status register for data-available bit between bursts.
+ *   dst        = destination buffer (RAM)
+ *   fifo       = FIFO data port base (8 consecutive MMIO words)
+ *   status_reg = SDCC status register (volatile MMIO)
+ *   mask       = data-available bitmask (0x8000 = RXDATA_AVAIL) */
+static int dma_read_helper(int dst, int fifo, volatile uint *status_reg, uint mask)
 {
   uint *src = (uint *)fifo;
   uint *out = (uint *)dst;
 
   while ((*status_reg & mask) != 0) {
-    /* Copy 8 words (32 bytes) per iteration */
-    out[0] = *src; out[1] = *src; out[2] = *src; out[3] = *src;
-    out[4] = *src; out[5] = *src; out[6] = *src; out[7] = *src;
+    /* Read 8 words (32 bytes) from FIFO port */
+    out[0] = src[0]; out[1] = src[1]; out[2] = src[2]; out[3] = src[3];
+    out[4] = src[4]; out[5] = src[5]; out[6] = src[6]; out[7] = src[7];
     out += 8;
   }
   return (int)out;
 }
 
-/* orig: 0x08008bc4 — DMA write: copy words from buffer to FIFO, decrementing size */
-static int dma_write_helper(int fifo, int src, int *remaining)
+/* DMA descriptor for dma_write_helper: 4 contiguous words.
+ *   [0] = status register address (FIFO status, volatile MMIO)
+ *   [1] = FIFO-ready bitmask (0x4000 = TXDATA_AVAIL)
+ *   [2] = byte count remaining (decremented by 32 each burst)
+ *   [3] = error bitmask (0x1a = error/overflow bits, causes early exit) */
+typedef struct {
+  uint status_reg_addr;
+  uint ready_mask;
+  int  remaining;
+  uint error_mask;
+} dma_write_desc_t;
+
+/* orig: 0x08008bc4 — DMA write: burst-write 8 words from buffer to FIFO.
+ * Polls FIFO status register between bursts for space and errors.
+ *   fifo = FIFO data port base (single MMIO word, writes auto-advance)
+ *   src  = source buffer (RAM)
+ *   desc = 4-word descriptor (see dma_write_desc_t) */
+static int dma_write_helper(int fifo, int src, dma_write_desc_t *desc)
 {
   uint *dst = (uint *)fifo;
   uint *in = (uint *)src;
-  int rem = remaining[0];
+  int rem = desc->remaining;
+  volatile uint *status_reg = (volatile uint *)desc->status_reg_addr;
+  uint ready_mask = desc->ready_mask;
+  uint error_mask = desc->error_mask;
 
-  while (rem > 0) {
-    /* Write 8 words (32 bytes) per iteration */
+  while (1) {
+    /* Write 8 words (32 bytes) to FIFO */
     *dst = in[0]; *dst = in[1]; *dst = in[2]; *dst = in[3];
     *dst = in[4]; *dst = in[5]; *dst = in[6]; *dst = in[7];
     in += 8;
-    rem -= 32;
+    rem -= 0x20;
+    if (rem < 0x20) break;
+    /* Poll: wait for FIFO space, break on error */
+    do {
+      if ((*status_reg & error_mask) != 0) goto done;
+    } while ((*status_reg & ready_mask) == 0);
   }
-  remaining[0] = rem;
+done:
+  desc->remaining = rem;
   return (int)in;
 }
 
@@ -67,22 +97,18 @@ void adma_bounce_read(int slot, int buf, int *remaining)
   return;
 }
 
-/* orig: 0x0800bc20 — ADMA bounce write: wrapper around DMA write */
-undefined8 adma_bounce_write(int slot, int buf, int *remaining)
+/* orig: 0x0800bc20 — ADMA bounce write: burst-write via DMA descriptor */
+void adma_bounce_write(int slot, int buf, int *remaining)
 {
   int iVar1;
-  int local_20;
-  undefined4 local_1c;
-  int local_18;
-  undefined4 local_14;
+  dma_write_desc_t desc;
 
-  local_20 = (int)((&DAT_0804e2c8)[slot] + 0x34);
-  local_1c = 0x4000;
-  local_18 = *remaining;
-  local_14 = 0x1a;
-  iVar1 = dma_write_helper((&DAT_0804e2d0)[slot] + 0x80,buf,&local_20);
+  desc.status_reg_addr = ((uint *)&DAT_0804e2c8)[slot] + 0x34;
+  desc.ready_mask = 0x4000;
+  desc.remaining = *remaining;
+  desc.error_mask = 0x1a;
+  iVar1 = dma_write_helper((&DAT_0804e2d0)[slot] + 0x80, buf, &desc);
   *remaining = *remaining - (iVar1 - buf);
-  return CONCAT44(local_1c,local_20);
 }
 
 /* ---- eMMC higher-level helpers (from fhprg_80327f8.c) ---- */
