@@ -10,6 +10,55 @@
  * Source: src/fhprg/fhprg_80327f8.c
  */
 #include "firehose.h"
+#include "usb.h"
+
+/*------------------------------------------------------------------------
+ * Debug trace — emit "[tag XX]" over USB for pinpointing hangs.
+ * Enable with EMMC_DEBUG. Remove when done debugging.
+ *----------------------------------------------------------------------*/
+#define EMMC_DEBUG 1
+
+#if EMMC_DEBUG
+#include "msm8909.h"
+#define REG32(a) (*(volatile unsigned int *)(a))
+static const char hex_chars_e[] = "0123456789ABCDEF";
+
+/* LED-safe debug: blink green N times, then emit "[tag XXXXXXXX]\r\n" over USB.
+ * If USB write itself is causing the abort, at least we see the LED count. */
+static void dbg(const char *tag, unsigned int val)
+{
+    char buf[32];
+    int i = 0, j;
+    buf[i++] = '[';
+    while (*tag) buf[i++] = *tag++;
+    buf[i++] = ' ';
+    for (j = 28; j >= 0; j -= 4)
+        buf[i++] = hex_chars_e[(val >> j) & 0xF];
+    buf[i++] = ']';
+    buf[i++] = '\r';
+    buf[i++] = '\n';
+    usb_write(buf, i);
+}
+
+/* Blink green LED n times (no USB, no bus dependencies) */
+static void dbg_blink(int n)
+{
+    volatile unsigned int *tick = (volatile unsigned int *)MPM2_MPM_SLEEP_TIMETICK_COUNT_VAL;
+    unsigned int start;
+    int i;
+    for (i = 0; i < n; i++) {
+        REG32(GPIO_IN_OUT_ADDR(69)) = GPIO_OUT_BIT; /* green on */
+        start = *tick; while ((*tick - start) < 3277) {} /* 100ms */
+        REG32(GPIO_IN_OUT_ADDR(69)) = 0;             /* green off */
+        start = *tick; while ((*tick - start) < 3277) {} /* 100ms */
+    }
+    /* pause between groups */
+    start = *tick; while ((*tick - start) < 9830) {} /* 300ms */
+}
+#else
+#define dbg(tag, val) ((void)0)
+#define dbg_blink(n) ((void)0)
+#endif
 
 /*========================================================================
  * SDCC controller interface
@@ -207,8 +256,11 @@ int sdcc_write_data(undefined4 *dev, int *cmd, undefined4 buf, uint num_blocks)
     iVar8 = 0;
     local_38 = (int)(uVar4 << 0x1e) >> 0x1f; /* bit 1 of flags: reliable write */
     iVar6 = 0;
+    dbg("WD:flags", uVar4);
+    dbg("WD:extcsd", (uint)iVar5);
     /* Pre-write DMA/buffer setup */
     iVar1 = sdcc_pre_write_setup(dev,local_38 + 1,num_blocks);
+    dbg("WD:presetup", (uint)iVar1);
     if (iVar1 == 0) {
       dev[4] = 0x14;
       return 0x14;
@@ -220,6 +272,7 @@ int sdcc_write_data(undefined4 *dev, int *cmd, undefined4 buf, uint num_blocks)
     local_40 = num_blocks & 0xffff;
     local_3c = 0x100; /* transfer mode: write */
     /* Check if ADMA is supported (EXT_CSD+0xA4 != 0) */
+    dbg("WD:adma?", *(uint *)(iVar5 + 0xa4));
     if (*(int *)(iVar5 + 0xa4) != 0) {
       _GHIDRA_FIELD(local_40, 0, uint24_t) = CONCAT12(1,(short)num_blocks);
       local_40 = (uint)(uint3)local_40;
@@ -229,13 +282,17 @@ int sdcc_write_data(undefined4 *dev, int *cmd, undefined4 buf, uint num_blocks)
       local_3c = 0x101; /* multi-block write */
       sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
     }
-    /* Send the write command (CMD24/CMD25) */
+    /* Send the command (CMD17/CMD18 for read, CMD24/CMD25 for write) */
+    dbg("WD:cmd", (uint)*cmd);
     if ((int)(uVar4 << 0x1d) < 0) {
+      dbg("WD:adma_wr", 0);
       iVar2 = sdcc_adma_write(dev, (undefined4 *)cmd);
     }
     else {
+      dbg("WD:send_cmd", 0);
       iVar2 = sdcc_send_cmd((int *)dev,cmd);
     }
+    dbg("WD:cmd_ret", (uint)iVar2);
     /* Check R1 address out of range bit */
     if (((uint)cmd[3] >> 0x1a & 1) != 0) {
       dev[4] = 0x1d; /* address out of range */
@@ -251,23 +308,31 @@ int sdcc_write_data(undefined4 *dev, int *cmd, undefined4 buf, uint num_blocks)
           uVar3 = 2;
         }
         /* Call ADMA engine via function pointer at EXT_CSD+0xAC */
+        dbg("WD:adma_xfer", (uint)iVar5);
         iVar6 = (**(code **)(iVar5 + 0xac))(iVar5,local_2c,iVar1,uVar3);
+        dbg("WD:adma_ret", (uint)iVar6);
         if (iVar6 == 0) {
           if ((uVar4 & 1) != 0) {
             sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
           }
+          dbg("WD:post_chk", 0);
           iVar8 = sdcc_post_write_check(dev);
+          dbg("WD:post_ret", (uint)iVar8);
         }
         if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) goto LAB_0803376e;
       }
       /* PIO/SDMA transfer path */
       if ((int)(uVar4 << 0x1e) < 0) {
+        dbg("WD:adma_t", (uint)local_2c);
         iVar8 = sdcc_adma_transfer((int *)iVar5,(uint *)local_2c,iVar1);
+        dbg("WD:adma_t_r", (uint)iVar8);
       }
       else {
         _GHIDRA_FIELD(local_40, 0, uint24_t) = (uint3)(ushort)local_40;
         sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
+        dbg("WD:pio", (uint)local_2c);
         iVar8 = sdcc_pio_transfer((int *)iVar5,(byte *)local_2c,iVar1);
+        dbg("WD:pio_ret", (uint)iVar8);
       }
       local_40 = 0;
       local_3c = 0;
@@ -281,7 +346,9 @@ LAB_0803376e:
     else {
       uVar3 = 1; /* need CMD12 STOP */
     }
+    dbg("WD:cleanup", 0);
     iVar1 = sdcc_post_write_cleanup((int *)dev,local_38 + 1,uVar3);
+    dbg("WD:clean_r", (uint)iVar1);
     /* ADMA completion callback */
     if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) {
       if ((int)(uVar4 << 0x1e) < 0) {
@@ -290,11 +357,14 @@ LAB_0803376e:
       else {
         uVar3 = 2;
       }
+      dbg("WD:adma_done", 0);
       iVar8 = (**(code **)(iVar5 + 0xb0))(iVar5,uVar3); /* ADMA done callback */
+      dbg("WD:done_r", (uint)iVar8);
     }
     if (iVar8 == 0) {
       iVar8 = iVar1;
     }
+    dbg("WD:result", (uint)iVar8);
     dev[4] = iVar8; /* store result in device struct */
     return iVar8;
   }
@@ -836,20 +906,28 @@ int mmc_open_device(int slot, undefined4 flags)
 
   local_20 = 0;
   if (slot < 3) {
+    dbg_blink(1); /* 1 blink: entering mmc_init_card */
     iVar2 = mmc_init_card(slot);
+    dbg_blink(2); /* 2 blinks: mmc_init_card returned */
     if (iVar2 == 0) {
       return 0;
     }
     iVar2 = mmc_get_slot_context(slot);
+    dbg_blink(3); /* 3 blinks: got slot context */
     if (iVar2 != 0) {
       iVar4 = iVar2 + 0xc;
+      dbg_blink(4); /* 4 blinks: entering mmc_read_ext_csd */
       local_20 = (int)mmc_read_ext_csd(slot,flags);
+      dbg_blink(5); /* 5 blinks: ext_csd done */
       if (local_20 == 0) {
+        dbg_blink(6); /* 6 blinks: entering mmc_setup_partitions */
         iVar2 = mmc_setup_partitions(iVar4);
         if (iVar2 != 0) {
           return local_20;
         }
+        dbg_blink(7); /* 7 blinks: entering mmc_finalize_init */
         mmc_finalize_init(iVar4);
+        dbg_blink(8); /* 8 blinks: open_device done */
         return local_20;
       }
       /* Error handling: classify and potentially recover */

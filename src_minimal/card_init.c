@@ -634,20 +634,27 @@ int mmc_set_speed(int *dev)
   return iVar2;
 }
 
-/* orig: 0x080335b4 mmc_finalize_init — disable clock and clear device state */
+/* orig: 0x080335b4 mmc_finalize_init — disable clock and clear device state.
+ *
+ * dev+0x90 points to a "slot context" struct: [0]=slot_num, [1]=active_flag.
+ * If this pointer wasn't populated during init (some init sub-functions we
+ * call may not set it up), dereferencing it causes a data abort (DFSR=8). */
 void mmc_finalize_init(int dev)
 {
-  int *piVar1;
-  int iVar2;
+  int *slot_ctx;
+  int slot;
 
-  piVar1 = *(int **)(dev + 0x90);
-  iVar2 = *piVar1;
+  slot_ctx = *(int **)(dev + 0x90);
+  if (slot_ctx == (int *)0x0) {
+    return; /* slot context not populated — skip cleanup */
+  }
+  slot = *slot_ctx;
   if (*(char *)(dev + 9) != '\0') {
-    if ((char)piVar1[1] != '\0') {
-      *(uint *)(&DAT_0804e2c8)[iVar2] = *(uint *)(&DAT_0804e2c8)[iVar2] & 0xfffffffe;
-      sdcc_enable_clock(iVar2);
-      sdcc_enable_slot(iVar2,0);
-      *(undefined1 *)(piVar1 + 1) = 0;
+    if ((char)slot_ctx[1] != '\0') {
+      *(uint *)(&DAT_0804e2c8)[slot] = *(uint *)(&DAT_0804e2c8)[slot] & 0xfffffffe;
+      sdcc_enable_clock(slot);
+      sdcc_enable_slot(slot,0);
+      *(undefined1 *)(slot_ctx + 1) = 0;
     }
     *(undefined1 *)(dev + 8) = 0;
     *(undefined1 *)(dev + 9) = 0;
