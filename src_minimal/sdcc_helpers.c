@@ -91,8 +91,8 @@ void adma_bounce_read(int slot, int buf, int *remaining)
 {
   int iVar1;
 
-  iVar1 = dma_read_helper(buf,(&DAT_0804e2d0)[slot] + 0x80,(&DAT_0804e2c8)[slot] + 0x34,
-                       0x8000);
+  iVar1 = dma_read_helper(buf,(&DAT_0804e2d0)[slot] + 0x80,
+                       (volatile uint *)(DAT_0804e2c8[slot] + 0x34), 0x8000);
   *remaining = *remaining - (iVar1 - buf);
   return;
 }
@@ -103,7 +103,7 @@ void adma_bounce_write(int slot, int buf, int *remaining)
   int iVar1;
   dma_write_desc_t desc;
 
-  desc.status_reg_addr = ((uint *)&DAT_0804e2c8)[slot] + 0x34;
+  desc.status_reg_addr = DAT_0804e2c8[slot] + 0x34;
   desc.ready_mask = 0x4000;
   desc.remaining = *remaining;
   desc.error_mask = 0x1a;
@@ -353,16 +353,16 @@ undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
     if (0x7ffff < uVar3) goto LAB_08034c08;
     uVar1 = sdcc_read_status(iVar4);
     if ((uVar1 & 0x40) != 0) {
-      *(undefined4 *)((&DAT_0804e2c8)[iVar4] + 0x38) = 0x40;
+      *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 0x40;
       uVar5 = 0;
       if ((uVar1 & 0x800000) != 0) {
-        *(undefined4 *)((&DAT_0804e2c8)[iVar4] + 0x38) = 0x800000;
+        *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000;
         cmd[7] = 0;
       }
       goto LAB_08034c08;
     }
     if ((uVar1 & 4) != 0) {
-      *(undefined4 *)((&DAT_0804e2c8)[iVar4] + 0x38) = 4;
+      *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 4;
       uVar5 = 2;
       goto LAB_08034c08;
     }
@@ -375,7 +375,7 @@ undefined4 sdcc_setup_data_xfer(int *dev, int *cmd)
   else {
     uVar5 = 4;
   }
-  *(undefined4 *)((&DAT_0804e2c8)[iVar4] + 0x38) = 1;
+  *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 1;
 LAB_08034c08:
   cmd[8] = uVar1;
   return uVar5;
@@ -409,7 +409,7 @@ undefined4 sdcc_adma_transfer(int *dev, uint *buf, int byte_count)
       if (byte_count == 0) break;
       if ((uVar1 & 0x200000) != 0) {
         if (((uVar1 & 0x8000) == 0) || (bVar6)) {
-          uVar1 = *(uint *)((&DAT_0804e2c8)[iVar4] + 0x80);
+          uVar1 = *(uint *)(DAT_0804e2c8[iVar4] + 0x80);
           if (bVar6) {
             uVar2 = 0;
             puVar3 = buf;
@@ -441,16 +441,16 @@ LAB_08034c9e:
       mmc_set_bus_width(dev + 3,5,0,0);
       {
         int iVar2 = *dev;
-        undefined4 *puVar1 = (undefined4 *)(&DAT_0804e2c8)[iVar2];
+        undefined4 *puVar1 = (undefined4 *)DAT_0804e2c8[iVar2];
         undefined4 uVar3 = puVar1[1];
         undefined4 uVar4a = *puVar1;
         undefined4 uVar5a = puVar1[0xf];
         sdcc_clock_setup(iVar2,0,2);
-        *(undefined4 *)((&DAT_0804e2c8)[iVar2] + 4) = uVar3;
+        *(undefined4 *)(DAT_0804e2c8[iVar2] + 4) = uVar3;
         sdcc_enable_clock(iVar2);
-        *(undefined4 *)(&DAT_0804e2c8)[iVar2] = uVar4a;
+        *(undefined4 *)DAT_0804e2c8[iVar2] = uVar4a;
         sdcc_enable_clock(iVar2);
-        *(undefined4 *)((&DAT_0804e2c8)[iVar2] + 0x3c) = uVar5a;
+        *(undefined4 *)(DAT_0804e2c8[iVar2] + 0x3c) = uVar5a;
         mmc_set_bus_width(dev + 3,*(char *)((int)dev + 0x15) == '\x02',0,0);
       }
     }
@@ -512,12 +512,12 @@ void sdcc_pre_cmd_hook(int *dev, int *cmd)
   uVar3 = 0;
   memset_zero(cmd_config, 0x14);
   do {
-    *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x38) = 0x18007ff;
+    *(undefined4 *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
     uVar3 = uVar3 + 1;
     uVar1 = sdcc_read_status(slot);
     if ((uVar1 & 0x18007ff) == 0) goto status_clear;
   } while (uVar3 < 1000);
-  *(uint *)((&DAT_0804e2c8)[slot] + 0x2c) = *(uint *)((&DAT_0804e2c8)[slot] + 0x2c) & 0xfffffffe;
+  *(uint *)(DAT_0804e2c8[slot] + 0x2c) = *(uint *)(DAT_0804e2c8[slot] + 0x2c) & 0xfffffffe;
   sdcc_enable_clock(slot);
 status_clear:
   cmd_config[6] = (short)*cmd;          /* command index */
@@ -608,11 +608,11 @@ int sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks)
   else {
     iVar2 = dev[0x21] * iVar2;
   }
-  *(int *)((&DAT_0804e2c8)[(short)uVar1] + 0x24) = iVar2;
+  *(int *)(DAT_0804e2c8[(short)uVar1] + 0x24) = iVar2;
   if (dev[0x16] == 1) {
     uVar3 = dev[9] & 0xffff;
   }
-  *(uint *)((&DAT_0804e2c8)[(short)uVar1] + 0x28) = uVar3 * num_blocks;
+  *(uint *)(DAT_0804e2c8[(short)uVar1] + 0x28) = uVar3 * num_blocks;
   return uVar3 * num_blocks;
 }
 
@@ -663,7 +663,7 @@ LAB_0803517c:
     }
     uVar1 = sdcc_read_status(iVar4);
     if ((uVar1 & 0x800000) != 0) {
-      *(undefined4 *)((&DAT_0804e2c8)[iVar4] + 0x38) = 0x800000;
+      *(undefined4 *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000;
       goto LAB_0803517c;
     }
     thunk_FUN_080199b4(10);
@@ -713,7 +713,7 @@ LAB_08035218:
           uVar3 = uVar3 + 8;
           pbVar5 = buf;
         } while (uVar3 < 0x20);
-        *(uint *)((&DAT_0804e2c8)[iVar7] + 0x80) = uVar4;
+        *(uint *)(DAT_0804e2c8[iVar7] + 0x80) = uVar4;
       }
       else {
         if (bVar9) goto LAB_08035218;
@@ -729,7 +729,7 @@ LAB_08035218:
 LAB_0803520c:
         uVar2 = *(undefined4 *)buf;
         buf = buf + 4;
-        *(undefined4 *)((&DAT_0804e2c8)[iVar7] + 0x80) = uVar2;
+        *(undefined4 *)(DAT_0804e2c8[iVar7] + 0x80) = uVar2;
       }
       byte_count = byte_count + -4;
     }

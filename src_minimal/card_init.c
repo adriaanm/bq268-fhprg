@@ -653,8 +653,8 @@ int mmc_set_speed(int *dev)
   iVar2 = sdcc_send_cmd(dev,(undefined4 *)cmd);
   if (iVar2 == 0) {
     dev[9] = 0x200;
-    *(uint *)((&DAT_0804e2c8)[*dev] + 0x2c) =
-         *(uint *)((&DAT_0804e2c8)[*dev] + 0x2c) & 0xfffe000f | 0x2000;
+    *(uint *)(DAT_0804e2c8[*dev] + 0x2c) =
+         *(uint *)(DAT_0804e2c8[*dev] + 0x2c) & 0xfffe000f | 0x2000;
     sdcc_enable_clock(*dev);
   }
   cVar1 = (char)dev[2];
@@ -691,7 +691,7 @@ void mmc_finalize_init(int dev)
   iVar2 = *piVar1;
   if (*(char *)(dev + 9) != '\0') {
     if ((char)piVar1[1] != '\0') {
-      *(uint *)(&DAT_0804e2c8)[iVar2] = *(uint *)(&DAT_0804e2c8)[iVar2] & 0xfffffffe;
+      *(uint *)DAT_0804e2c8[iVar2] = *(uint *)DAT_0804e2c8[iVar2] & 0xfffffffe;
       sdcc_enable_clock(iVar2);
       sdcc_enable_slot(iVar2,0);
       *(undefined1 *)(piVar1 + 1) = 0;
@@ -742,17 +742,17 @@ char mmc_classify_error(int *handle)
   if (2 < uVar2) {
     return 0;
   }
-  *(uint *)(&DAT_0804e2c8)[uVar2] = *(uint *)(&DAT_0804e2c8)[uVar2] | 1;
+  *(uint *)DAT_0804e2c8[uVar2] = *(uint *)DAT_0804e2c8[uVar2] | 1;
   sdcc_enable_clock(uVar2);
   if (*(char *)(*handle + 0x8c) == '\0') {
-    *(uint *)((&DAT_0804e2c8)[uVar2] + 4) = *(uint *)((&DAT_0804e2c8)[uVar2] + 4) | 0x100;
+    *(uint *)(DAT_0804e2c8[uVar2] + 4) = *(uint *)(DAT_0804e2c8[uVar2] + 4) | 0x100;
     sdcc_enable_clock(uVar2);
     sdcc_set_flow_control(uVar2,0);
     thunk_FUN_080199b4(1000);
     sdcc_set_flow_control(uVar2,1);
     thunk_FUN_080199b4(1000);
-    *(uint *)((&DAT_0804e2c8)[uVar2] + 4) =
-         *(uint *)((&DAT_0804e2c8)[uVar2] + 4) & 0xffff3fff | 0x8000;
+    *(uint *)(DAT_0804e2c8[uVar2] + 4) =
+         *(uint *)(DAT_0804e2c8[uVar2] + 4) & 0xffff3fff | 0x8000;
     sdcc_enable_clock(uVar2);
   }
   else {
@@ -928,22 +928,22 @@ undefined4 mmc_init_card(int slot)
     mmc_set_bus_width(piVar4,5,0,0);
     thunk_FUN_080199b4(1000);
     sdcc_init_bases();
-    *(undefined4 *)((&DAT_0804e2c8)[slot] + 0xc) = 0;
+    *(undefined4 *)(DAT_0804e2c8[slot] + 0xc) = 0;
     sdcc_enable_clock(slot);
-    *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x2c) = 0;
+    *(undefined4 *)(DAT_0804e2c8[slot] + 0x2c) = 0;
     sdcc_enable_clock(slot);
-    *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x38) = 0x18007ff;
-    *(uint *)((&DAT_0804e2c8)[slot] + 4) = *(uint *)((&DAT_0804e2c8)[slot] + 4) | 0x200000;
-    *(uint *)((&DAT_0804e2c8)[slot] + 4) = *(uint *)((&DAT_0804e2c8)[slot] + 4) & 0xfffff3ff;
+    *(undefined4 *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
+    *(uint *)(DAT_0804e2c8[slot] + 4) = *(uint *)(DAT_0804e2c8[slot] + 4) | 0x200000;
+    *(uint *)(DAT_0804e2c8[slot] + 4) = *(uint *)(DAT_0804e2c8[slot] + 4) & 0xfffff3ff;
     sdcc_enable_clock(slot);
-    *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x38) = 0x400000;
-    *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x3c) = 0;
+    *(undefined4 *)(DAT_0804e2c8[slot] + 0x38) = 0x400000;
+    *(undefined4 *)(DAT_0804e2c8[slot] + 0x3c) = 0;
     *piVar4 = slot;
     *(undefined1 *)((int)piVar1 + 0x15) = 1;
     iVar2 = sdcc_get_adma_mode();
     piVar1[0x19] = 1;
     piVar1[0x25] = iVar2;
-    *(uint *)(&DAT_0804e2c8)[slot] = *(uint *)(&DAT_0804e2c8)[slot] | 1;
+    *(uint *)DAT_0804e2c8[slot] = *(uint *)DAT_0804e2c8[slot] | 1;
     sdcc_enable_clock(slot);
     sdcc_set_bus_width_bit(slot,1);
     sdcc_reset_data_line(slot,1);

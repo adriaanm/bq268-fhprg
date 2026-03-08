@@ -32,7 +32,7 @@ void sdcc_set_transfer_mode(int slot, ushort *mode)
   if (*(char *)((int)mode + 5) != '\0') {
     uVar1 = uVar1 | 1;
   }
-  *(uint *)((&DAT_0804e2c8)[slot] + 0x2c) = uVar1;
+  *(uint *)(DAT_0804e2c8[slot] + 0x2c) = uVar1;
   sdcc_enable_clock(slot);
   return;
 }
@@ -60,8 +60,8 @@ void sdcc_cleanup(int slot, short *cmd_config)
     if (*cmd_config == 1) {
       uVar1 = uVar1 | 0x1000;
     }
-    *(undefined4 *)((&DAT_0804e2c8)[slot] + 8) = *(undefined4 *)(cmd_config + 8);
-    *(uint *)((&DAT_0804e2c8)[slot] + 0xc) = uVar1;
+    *(undefined4 *)(DAT_0804e2c8[slot] + 8) = *(undefined4 *)(cmd_config + 8);
+    *(uint *)(DAT_0804e2c8[slot] + 0xc) = uVar1;
     sdcc_enable_clock(slot);
     return;
   }
@@ -71,14 +71,14 @@ void sdcc_cleanup(int slot, short *cmd_config)
 /* orig: 0x0800bd78 sdcc_set_all_irq — set interrupt status to 0x18007ff (all bits) */
 void sdcc_set_all_irq(int slot)
 {
-  *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x38) = 0x18007ff;
+  *(undefined4 *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
   return;
 }
 
 /* orig: 0x0800bd8c sdcc_read_status — read SDCC status register */
 undefined4 sdcc_read_status(int slot)
 {
-  return *(undefined4 *)((&DAT_0804e2c8)[slot] + 0x34);
+  return *(undefined4 *)(DAT_0804e2c8[slot] + 0x34);
 }
 
 /* orig: 0x0800bda0 sdcc_enable_clock — busy-wait for clock stable (up to 1000 iterations) */
@@ -94,7 +94,7 @@ void sdcc_enable_clock(int slot)
     if (bVar2) {
       return;
     }
-  } while ((*(uint *)((&DAT_0804e2c8)[slot] + 0x6c) & 1) != 0);
+  } while ((*(uint *)(DAT_0804e2c8[slot] + 0x6c) & 1) != 0);
   return;
 }
 
@@ -310,23 +310,23 @@ void sdcc_wait_pll_lock(int slot)
 
   iVar3 = 100000;
   do {
-    uVar2 = *(uint *)((&DAT_0804e2c8)[slot] + 0xdc);
+    uVar2 = *(uint *)(DAT_0804e2c8[slot] + 0xdc);
     if (uVar2 != 0) break;
     thunk_FUN_080199b4(1);
     bVar4 = iVar3 != 0;
     iVar3 = iVar3 + -1;
   } while (bVar4);
-  *(uint *)((&DAT_0804e2c8)[slot] + 0xe4) = uVar2;
+  *(uint *)(DAT_0804e2c8[slot] + 0xe4) = uVar2;
   if ((uVar2 & 3) == 0) {
     uVar1 = 4;
   }
   else {
     uVar1 = 1;
   }
-  *(undefined4 *)((&DAT_0804e2c8)[slot] + 0xe8) = uVar1;
+  *(undefined4 *)(DAT_0804e2c8[slot] + 0xe8) = uVar1;
   iVar3 = 100000;
   do {
-    if (*(int *)((&DAT_0804e2c8)[slot] + 0xdc) == 0) {
+    if (*(int *)(DAT_0804e2c8[slot] + 0xdc) == 0) {
       return;
     }
     thunk_FUN_080199b4(1);
@@ -472,14 +472,14 @@ void sdcc_set_bus_width_bit(int slot, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)((&DAT_0804e2c8)[slot] + 0x78);
+  uVar1 = *(uint *)(DAT_0804e2c8[slot] + 0x78);
   if (enable == 1) {
     uVar1 = uVar1 | 1;
   }
   else {
     uVar1 = uVar1 & 0xfffffffe;
   }
-  *(uint *)((&DAT_0804e2c8)[slot] + 0x78) = uVar1;
+  *(uint *)(DAT_0804e2c8[slot] + 0x78) = uVar1;
   return;
 }
 
@@ -505,14 +505,14 @@ void sdcc_set_flow_control(int slot, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)((&DAT_0804e2c8)[slot] + 4);
+  uVar1 = *(uint *)(DAT_0804e2c8[slot] + 4);
   if (enable == 0) {
     uVar1 = uVar1 & 0xfffffdff;
   }
   else {
     uVar1 = uVar1 | 0x200;
   }
-  *(uint *)((&DAT_0804e2c8)[slot] + 4) = uVar1;
+  *(uint *)(DAT_0804e2c8[slot] + 4) = uVar1;
   sdcc_enable_clock(slot);
   return;
 }
@@ -534,8 +534,8 @@ void sdcc_set_bus_speed(int slot, int speed)
       uVar1 = 0xc00;
     }
   }
-  *(uint *)((&DAT_0804e2c8)[slot] + 4) =
-       *(uint *)((&DAT_0804e2c8)[slot] + 4) & 0xfffff3ff | uVar1;
+  *(uint *)(DAT_0804e2c8[slot] + 4) =
+       *(uint *)(DAT_0804e2c8[slot] + 4) & 0xfffff3ff | uVar1;
   sdcc_enable_clock(slot);
   return;
 }

@@ -852,6 +852,23 @@ static void cmd_sector_read(const char *args)
         p = put_dec(resp, p, (dev[1] == (int)emmc_handle[1]) ? 1 : 0);
         p = put_str(resp, p, "\r\n");
         usb_write(resp, p); p = 0;
+
+        /* Trace transfer path config */
+        {
+            int hpd = dev[0x24]; /* hotplug descriptor ptr */
+            p = put_str(resp, p, "xfer: custom=");
+            p = put_hex32(resp, p, dev[0x16]);
+            p = put_str(resp, p, " sectorsz=");
+            p = put_hex32(resp, p, dev[9]);
+            p = put_str(resp, p, " hpd=");
+            p = put_hex32(resp, p, hpd);
+            p = put_str(resp, p, " adma=");
+            p = put_hex32(resp, p, *(uint *)(hpd + 0xa4));
+            p = put_str(resp, p, " hpd[0]=");
+            p = put_hex32(resp, p, *(uint *)hpd);
+            p = put_str(resp, p, "\r\n");
+            usb_write(resp, p); p = 0;
+        }
     }
 
     ret = mmc_read_blocks(emmc_handle, sector, (unsigned int)sector_buf, 1);
@@ -860,6 +877,10 @@ static void cmd_sector_read(const char *args)
     p = put_hex32(resp, p, sector);
     p = put_str(resp, p, ": ret=");
     p = put_dec(resp, p, (unsigned int)ret);
+    p = put_str(resp, p, " buf@");
+    p = put_hex32(resp, p, (unsigned int)sector_buf);
+    p = put_str(resp, p, " [0]=");
+    p = put_hex32(resp, p, *(unsigned int *)sector_buf);
     p = put_str(resp, p, "\r\n");
     usb_write(resp, p); p = 0;
 
