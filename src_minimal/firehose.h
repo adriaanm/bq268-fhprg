@@ -273,35 +273,35 @@ void     sdcc_set_bus_speed(int slot, int speed);
 void adma_bounce_read(int slot, int buf, int *remaining);
 void adma_bounce_write(int slot, int buf, int *remaining);
 void sdcc_event_notify(int flags, int addr, uint size);
-undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop);
-int  sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count);
-undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count);
-undefined4 sdcc_wait_complete(int slot, uint mask, uint *out_status);
-int  mmc_switch_cmd6(int *dev, undefined4 cmd6_arg);
-undefined4 sdcc_setup_data_xfer(int *dev, int *cmd);
-undefined4 sdcc_adma_transfer(int *dev, uint *buf, int byte_count);
-undefined4 sdcc_adma_write(int *dev, undefined4 *cmd);
+uint sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop);
+int  sdcc_fifo_write(int *dev, int cmd_config, uint *buf, uint byte_count);
+uint sdcc_dma_setup(int slot, int buf, uint byte_count);
+uint sdcc_wait_complete(int slot, uint mask, uint *out_status);
+int  mmc_switch_cmd6(int *dev, uint cmd6_arg);
+uint sdcc_setup_data_xfer(int *dev, int *cmd);
+uint sdcc_adma_transfer(int *dev, uint *buf, int byte_count);
+uint sdcc_adma_write(int *dev, uint *cmd);
 void sdcc_pre_cmd_hook(int *dev, int *cmd);
-int  sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks);
-undefined4 sdcc_post_write_check(undefined4 *dev);
-undefined4 sdcc_busy_wait(int *dev);
-undefined4 sdcc_pio_transfer(int *dev, byte *buf, int byte_count);
+int  sdcc_pre_write_setup(uint *dev, int is_reliable, int num_blocks);
+uint sdcc_post_write_check(uint *dev);
+uint sdcc_busy_wait(int *dev);
+uint sdcc_pio_transfer(int *dev, byte *buf, int byte_count);
 uint sdcc_get_card_status(int *dev);
 
 /* ---- card_init.c ---- */
 void sdcc_pre_init_slot(int slot);
 void sdcc_clock_setup(int slot, uint *freq, int mode);
-void mmc_set_bus_width(undefined4 *dev, undefined4 speed_mode, undefined4 unused1, uint freq_hint);
+void mmc_set_bus_width(uint *dev, uint speed_mode, uint unused1, uint freq_hint);
 int  mmc_set_speed(int *dev);
 int  mmc_get_slot_context(uint slot);
 void mmc_finalize_init(int dev);
-void mmc_release_slot(undefined4 *handle);
+void mmc_release_slot(uint *handle);
 char mmc_classify_error(int *handle);
 int  mmc_identify_card(int dev);
 int  mmc_config_bus(int dev);
-undefined4 mmc_init_card(int slot);
+uint mmc_init_card(int slot);
 int *mmc_alloc_handle(short slot, int flags);
-undefined4 mmc_setup_partitions(int dev);
+uint mmc_setup_partitions(int dev);
 
 /* ---- xml.c ---- */
 int  xml_advance();             /* 0x08038db4: tokenizer state machine */

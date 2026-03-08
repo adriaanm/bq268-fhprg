@@ -34,7 +34,7 @@
  * for up to 2 slots. Only slot 0 (eMMC) is used. */
 uint sdcc_get_device(uint slot)
 {
-  undefined4 uVar1;
+  uint uVar1;
 
   uVar1 = 0;
   if (slot < 2) {
@@ -102,7 +102,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
       uVar8 = uVar4;
     }
     if (uVar4 < 800) {
-      *(undefined4 *)(DAT_0804e2c8[iVar7] + 0x38) = 0x80;
+      *(uint *)(DAT_0804e2c8[iVar7] + 0x38) = 0x80;
       while (uVar4 < 800) {
         uVar8 = sdcc_read_status(iVar7);
         if ((uVar8 & 0x80) == 0) {
@@ -175,7 +175,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
 {
   int iVar1;
   int iVar2;
-  undefined4 uVar3;
+  uint uVar3;
   uint uVar4;
   int iVar5;
   int iVar6;
@@ -224,7 +224,7 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
     }
     /* Send the command (CMD17/CMD18 for read, CMD24/CMD25 for write) */
     if ((int)(uVar4 << 0x1d) < 0) {
-      iVar2 = sdcc_adma_write(dev, (undefined4 *)cmd);
+      iVar2 = sdcc_adma_write(dev, (uint *)cmd);
     }
     else {
       iVar2 = sdcc_send_cmd((int *)dev,cmd);
@@ -312,7 +312,7 @@ LAB_0803376e:
 }
 
 /* orig: 0x08033cbc mmc_get_card_type — always MMC for eMMC-only build */
-uint mmc_get_card_type(uint slot, undefined1 *type_out, undefined1 *subtype_out)
+uint mmc_get_card_type(uint slot, uint8_t *type_out, uint8_t *subtype_out)
 {
   *type_out = 0; /* MMC */
   *subtype_out = 0; /* MMC */
@@ -327,7 +327,7 @@ uint mmc_close_handle(mmc_handle_t *handle)
 
   if ((handle != (int *)0x0) && (*handle != 0)) {
     local_10 = handle;
-    mmc_release_slot((undefined4 *)&local_10);
+    mmc_release_slot((uint *)&local_10);
     return 0;
   }
   return 0x14;
@@ -350,7 +350,7 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
   uint *puVar2;
   int cmd[10]; /* command struct (reused for CMD35/36/38) */
 
-  if (((handle == (undefined4 *)0x0) || (puVar2 = (uint *)*handle, puVar2 == (uint *)0x0)) ||
+  if (((handle == (uint *)0x0) || (puVar2 = (uint *)*handle, puVar2 == (uint *)0x0)) ||
      (2 < *puVar2)) {
     iVar1 = 0x14;
   }
@@ -362,7 +362,7 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
       memset_zero(cmd, sizeof(cmd));
       cmd[0] = 0x23;                              /* CMD35 */
       cmd[1] = sector;                             /* start address */
-      *(undefined1 *)&cmd[2] = 1;                 /* resp_type: R1 */
+      *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                 /* resp_type: R1 */
       iVar1 = sdcc_send_cmd((int *)puVar2, cmd);
       if (iVar1 == 0) {
         /* CMD36: ERASE_GROUP_END */
@@ -378,7 +378,7 @@ int mmc_erase_range(mmc_handle_t *handle, int sector, int count)
           /* CMD38: ERASE */
           memset_zero(cmd, sizeof(cmd));
           cmd[0] = 0x26;                           /* CMD38 */
-          *(undefined1 *)&cmd[2] = 1;              /* resp_type: R1 */
+          *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;              /* resp_type: R1 */
           cmd[7] = 1;                              /* busy_wait */
           iVar1 = sdcc_send_cmd((int *)puVar2, cmd);
           if (iVar1 == 0) {
@@ -462,7 +462,7 @@ uint mmc_get_partition_info(mmc_handle_t *handle, char *info)
     *(uint *)(info + 8) = puVar3[DEV_CARD_ID]; /* card identifier */
     *(uint *)(info + 0x20) = local_24; /* partition type */
     *(uint *)(info + 0x1c) = puVar3[DEV_RELIABLE_WR_CNT]; /* reliable write count */
-    *(undefined2 *)(info + 0x26) = *(undefined2 *)((int)puVar3 + 0x3e); /* speed class */
+    *(uint16_t *)(info + 0x26) = *(uint16_t *)((int)puVar3 + 0x3e); /* speed class */
     *(short *)(info + 0x28) = (short)puVar3[DEV_SPEED_MODE]; /* speed mode */
     memcpy(info + 0x2a, (char *)puVar3 + 0x42, 7); /* manufacturer ID */
     info[0x31] = *(char *)((int)puVar3 + 0x49); /* product revision */
@@ -495,7 +495,7 @@ int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
    *   [7] = reserved   [8] = status      [9] = flags */
   int cmd[10];
 
-  if (((handle == (undefined4 *)0x0) || (puVar3 = (uint *)*handle, puVar3 == (uint *)0x0)) ||
+  if (((handle == (uint *)0x0) || (puVar3 = (uint *)*handle, puVar3 == (uint *)0x0)) ||
      (2 < *puVar3)) {
     iVar2 = 0x14;
   }
@@ -517,7 +517,7 @@ int mmc_read_blocks(mmc_handle_t *handle, int sector, uint buf, int num_blocks)
         else {
           cmd[0] = 0x12; /* CMD18: READ_MULTIPLE_BLOCK */
         }
-        *(undefined1 *)&cmd[2] = 1; /* resp_type: R1 */
+        *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1; /* resp_type: R1 */
         cmd[7] = 0;                  /* reserved */
         cmd[1] = sector;             /* cmd_arg */
         /* Convert sector number to byte address for non-HC cards */
@@ -647,7 +647,7 @@ int mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_blocks
             } else {
                 cmd[0] = 0x19;     /* CMD25: WRITE_MULTIPLE_BLOCK */
             }
-            *(undefined1 *)&cmd[2] = 1; /* resp_type: R1 */
+            *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1; /* resp_type: R1 */
             cmd[7] = 0;                  /* reserved */
             cmd[1] = sector;
             /* Convert to byte address for non-HC cards */
@@ -675,7 +675,7 @@ int mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_blocks
 uint mmc_get_capacity(mmc_handle_t *handle, uint *sectors, uint *part_type)
 {
   uint uVar1;
-  undefined4 uVar2;
+  uint uVar2;
   int iVar3;
 
   iVar3 = *handle;       /* device struct */
@@ -876,15 +876,15 @@ int mmc_open_device(int slot, uint flags)
             }
             iVar3 = mmc_identify_card(iVar4);
             if (iVar3 == 0) {
-              mmc_set_bus_width((undefined4 *)iVar4,1,0,0);
+              mmc_set_bus_width((uint *)iVar4,1,0,0);
               iVar4 = mmc_set_speed((int *)iVar4);
               if (iVar4 == 0) {
-                *(undefined1 *)(iVar2 + 0x15) = 2;
-                *(undefined1 *)(iVar2 + 0xa0) = 0;
+                *(uint8_t *)(iVar2 + SLOT_CTX_INIT_STATE) = 2;
+                *(uint8_t *)(iVar2 + 0xa0) = 0;
                 return local_20;
               }
               *(int *)(iVar2 + 0x1c) = iVar4;
-              *(undefined1 *)(iVar2 + 0x14) = 0;
+              *(uint8_t *)(iVar2 + 0x14) = 0;
               goto LAB_080340c6;
             }
           }
@@ -895,7 +895,7 @@ LAB_080340c6:
         return 0;
       }
 LAB_08034086:
-      mmc_release_slot((undefined4 *)&local_20);
+      mmc_release_slot((uint *)&local_20);
       return local_20;
     }
   }
@@ -934,7 +934,7 @@ uint send_xml_response(int ack, int num_attrs, uint attr1, uint attr2)
     uint *puVar5;
     uint *puVar6;
     int iVar7;
-    undefined1 auStack_130[256];
+    uint8_t auStack_130[256];
     int local_30;
     uint uStack_8;
     uint uStack_4;

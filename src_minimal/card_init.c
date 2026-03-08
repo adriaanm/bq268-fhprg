@@ -26,9 +26,9 @@ static void _trace(const char *s) {
 /* Sub-function forward declarations */
 static uint csd_parse_mmc(int *resp, int dev);
 static uint csd_get_rca(int dev);
-static undefined4 cmd7_select_card(int dev, int select);
-static undefined4 clock_set_divider(void);
-static undefined4 clock_set_sdr_mode(void);
+static uint cmd7_select_card(int dev, int select);
+static uint clock_set_divider(void);
+static uint clock_set_sdr_mode(void);
 
 /* ---- SDCC1 clock configuration ---- */
 
@@ -74,7 +74,7 @@ static void sdcc_set_clock_rate(uint freq_khz)
 /* orig: 0x0800af10 — set GCC clock source mux.
  * Called from sdcc_clock_setup for lower speed ranges:
  *   1 → 400 kHz, 2 → 25 MHz (use 50 MHz), 3 → 50 MHz */
-static void gcc_clock_mux_set(undefined4 mode)
+static void gcc_clock_mux_set(uint mode)
 {
   switch ((uint)mode) {
   case 1: sdcc_set_clock_rate(400); break;
@@ -86,7 +86,7 @@ static void gcc_clock_mux_set(undefined4 mode)
 /* orig: 0x0800af38 — set GCC clock divider with source.
  * Called from sdcc_clock_setup for higher speed ranges.
  * freq = target frequency in kHz. */
-static void gcc_clock_divider_set(undefined4 freq, undefined4 source)
+static void gcc_clock_divider_set(uint freq, uint source)
 {
   (void)source;
   sdcc_set_clock_rate((uint)freq);
@@ -106,13 +106,13 @@ extern uint _DAT_004a1000;
 /* ---- Simple utility functions ---- */
 
 /* orig: 0x08032acc — get ADMA transfer mode (always 0x20 = ADMA2) */
-static undefined4 sdcc_get_adma_mode(void)
+static uint sdcc_get_adma_mode(void)
 {
   return 0x20;
 }
 
 /* orig: 0x08032ad0 — get max clock speed for slot */
-static undefined4 sdcc_get_max_clock(int slot)
+static uint sdcc_get_max_clock(int slot)
 {
   if (slot != 0) {
     return 200000;
@@ -123,7 +123,7 @@ static undefined4 sdcc_get_max_clock(int slot)
 /* orig: 0x08032b0c — enable SDCC clock for slot.
  * slot = slot (0 for eMMC), enable = enable (1) / disable (0).
  * Configures RCG at 400 KHz and enables/disables branch clocks. */
-static undefined4 sdcc_enable_slot(uint slot, uint enable)
+static uint sdcc_enable_slot(uint slot, uint enable)
 {
   (void)slot;
   if (enable) {
@@ -280,8 +280,8 @@ void sdcc_clock_setup(int slot, uint *freq, int mode)
       gcc_clock_mux_set(3);
     }
     else {
-      undefined4 uVar1;
-      undefined4 uVar2;
+      uint uVar1;
+      uint uVar2;
       if (uVar3 < 0x186a1) {
         uVar1 = 100000;
       }
@@ -303,10 +303,10 @@ void sdcc_clock_setup(int slot, uint *freq, int mode)
 }
 
 /* orig: 0x08032f98 — set bus speed mode register */
-static undefined4 sdcc_set_bus_speed_mode(int slot, undefined4 speed)
+static uint sdcc_set_bus_speed_mode(int slot, uint speed)
 {
   int iVar1;
-  undefined4 uVar2;
+  uint uVar2;
 
   switch(speed) {
   case 0:
@@ -338,7 +338,7 @@ static uint csd_get_rca(int dev)
 
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 3;                                      /* CMD3: SEND_RELATIVE_ADDR */
-  *(undefined1 *)&cmd[2] = 1;                      /* resp_type: R1 */
+  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                      /* resp_type: R1 */
   if ((*(char *)(dev + DEV_BYTE_CARD_TYPE) == '\x02') || (*(char *)(dev + DEV_BYTE_CARD_TYPE) == '\x06')) {
     uVar1 = 2;
     cmd[1] = 0x20000;                              /* MMC: assigned RCA */
@@ -375,7 +375,7 @@ static uint csd_parse_mmc(int *resp, int dev)
     uVar3 = uVar3 >> 8;
   } while (0 < iVar2);
   *(char *)(dev + 0x47) = (char)((uint)resp[2] >> 0x18);
-  *(undefined1 *)(dev + 0x48) = 0;
+  *(uint8_t *)(dev + 0x48) = 0;
   *(char *)(dev + 0x49) = (char)((uint)resp[2] >> 0x10);
   *(uint *)(dev + 0x4c) = resp[2] << 0x10 | (uint)resp[3] >> 0x10;
   return 1;
@@ -384,7 +384,7 @@ static uint csd_parse_mmc(int *resp, int dev)
 /* csd_parse_sd removed — eMMC only */
 
 /* orig: 0x0803351c — parse EXT_CSD byte stream into structured fields */
-static undefined4 mmc_parse_ext_csd(byte *data, short *out)
+static uint mmc_parse_ext_csd(byte *data, short *out)
 {
   byte bVar1;
   char cVar2;
@@ -436,15 +436,15 @@ static undefined4 mmc_parse_ext_csd(byte *data, short *out)
 /* ---- Card init sub-steps ---- */
 
 /* orig: 0x08034e78 — send CMD7 (SELECT_CARD) to move card to transfer state */
-static undefined4 cmd7_select_card(int dev, int select)
+static uint cmd7_select_card(int dev, int select)
 {
-  undefined4 uVar1;
+  uint uVar1;
   int cmd[10];
 
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 7;                                      /* CMD7: SELECT/DESELECT */
   cmd[1] = (select != 0) ? ((uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10) : 0;
-  *(undefined1 *)&cmd[2] = 1;                      /* resp_type: R1 */
+  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 1;                      /* resp_type: R1 */
   uVar1 = sdcc_send_cmd((int *)dev, cmd);
   if (select == 0) {
     uVar1 = 0;
@@ -462,7 +462,7 @@ static int mmc_send_cid(int dev)
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 10;                                     /* CMD10: SEND_CID */
   cmd[1] = (uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10;    /* RCA */
-  *(undefined1 *)&cmd[2] = 4;                      /* resp_type: R2 */
+  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 4;                      /* resp_type: R2 */
   iVar1 = sdcc_send_cmd((int *)dev, cmd);
   /* eMMC only: always MMC type '\x02' or '\x06' */
   if ((iVar1 == 0) &&
@@ -473,7 +473,7 @@ static int mmc_send_cid(int dev)
 }
 
 /* orig: 0x0803321e — extract CSD capacity/timing fields (stubbed) */
-static void mmc_parse_csd_fields(int dev, undefined1 *csd, char *out)
+static void mmc_parse_csd_fields(int dev, uint8_t *csd, char *out)
 {
   /* CSD field extraction into local struct.
    * Complex bit manipulation. Stubbed — capacity info is
@@ -510,14 +510,14 @@ int mmc_get_slot_context(uint slot)
 /* orig: 0x080345b8 mmc_config_bus — send CMD2 and parse CSD to get RCA */
 int mmc_config_bus(int dev)
 {
-  undefined2 uVar1;
+  uint16_t uVar1;
   int iVar2;
   int iVar3;
   int cmd[10];
 
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 2;                                      /* CMD2: ALL_SEND_CID */
-  *(undefined1 *)&cmd[2] = 4;                      /* resp_type: R2 */
+  *(uint8_t *)&cmd[CMD_RESP_TYPE] = 4;                      /* resp_type: R2 */
   iVar2 = sdcc_send_cmd((int *)dev, cmd);
   if (iVar2 == 0) {
     iVar3 = csd_parse_mmc(cmd + 3, dev);
@@ -526,7 +526,7 @@ int mmc_config_bus(int dev)
     }
     else {
       uVar1 = csd_get_rca(dev);
-      *(undefined2 *)(dev + DEV_HALF_RCA) = uVar1;
+      *(uint16_t *)(dev + DEV_HALF_RCA) = uVar1;
     }
   }
   return iVar2;
@@ -537,7 +537,7 @@ int mmc_identify_card(int dev)
 {
   int iVar2;
   int iVar3;
-  undefined1 uVar4;
+  uint8_t uVar4;
   /* CSD parsed output struct — 0x28 bytes, contiguous for memset_zero.
    * Layout: [0x04]=speed_class, [0x08]=c_size_mult, [0x10]=c_size, [0x18]=read_bl_len */
   char csd_parsed[0x28];
@@ -549,34 +549,34 @@ int mmc_identify_card(int dev)
     memset_zero(cmd, sizeof(cmd));
     cmd[0] = 9;                                    /* CMD9: SEND_CSD */
     cmd[1] = (uint)*(ushort *)(dev + DEV_HALF_RCA) << 0x10;  /* RCA */
-    *(undefined1 *)&cmd[2] = 4;                    /* resp_type: R2 */
+    *(uint8_t *)&cmd[CMD_RESP_TYPE] = 4;                    /* resp_type: R2 */
     iVar3 = sdcc_send_cmd((int *)dev, cmd);
     if (iVar3 == 0) {
       memset_zero(csd_parsed, 0x28);
-      mmc_parse_csd_fields(dev, (undefined1 *)(cmd + 3), csd_parsed);
+      mmc_parse_csd_fields(dev, (uint8_t *)(cmd + 3), csd_parsed);
       /* eMMC only: card type is always '\x02' (MMC) or '\x06' (eMMC) */
       uVar4 = 3;
       if (*(char *)(dev + DEV_BYTE_CARD_TYPE) != '\x06') {
         mmc_calc_capacity(dev, (sbyte)csd_parsed[0x08],
-                          (undefined1)csd_parsed[0x18], *(int *)(csd_parsed + 0x10));
+                          (uint8_t)csd_parsed[0x18], *(int *)(csd_parsed + 0x10));
       }
       if (csd_parsed[0x04] != '2') {
-        *(undefined1 *)(dev + DEV_BYTE_SPEED_GRADE) = 2;
+        *(uint8_t *)(dev + DEV_BYTE_SPEED_GRADE) = 2;
         return 0;
       }
-      *(undefined1 *)(dev + DEV_BYTE_SPEED_GRADE) = uVar4;
+      *(uint8_t *)(dev + DEV_BYTE_SPEED_GRADE) = uVar4;
     }
   }
   return iVar3;
 }
 
 /* orig: 0x08032dcc mmc_set_bus_width — configure clock speed based on card type */
-void mmc_set_bus_width(undefined4 *dev, undefined4 speed_mode, undefined4 unused1, uint freq_hint)
+void mmc_set_bus_width(uint *dev, uint speed_mode, uint unused1, uint freq_hint)
 {
   char cVar1;
   uint uVar2;
   uint uVar3;
-  undefined4 uVar4;
+  uint uVar4;
   uint local_18;
 
   uVar4 = *dev;
@@ -587,7 +587,7 @@ void mmc_set_bus_width(undefined4 *dev, undefined4 speed_mode, undefined4 unused
   switch(speed_mode) {
   case 0:
     uVar3 = 400;
-    *(undefined1 *)((int)dev + DEV_BYTE_SPEED_GRADE) = 2;
+    *(uint8_t *)((int)dev + DEV_BYTE_SPEED_GRADE) = 2;
     break;
   case 1:
   case 2:
@@ -606,11 +606,11 @@ switchD_caseD_1:
     goto LAB_08032e26;
   case 4:
     if ((cVar1 == '\x02') || (cVar1 == '\x06')) {
-      *(undefined1 *)((int)dev + DEV_BYTE_SPEED_GRADE) = 4;
+      *(uint8_t *)((int)dev + DEV_BYTE_SPEED_GRADE) = 4;
       goto switchD_caseD_1;
     }
     if ((cVar1 != '\x01') && (cVar1 != '\x05')) break;
-    *(undefined1 *)((int)dev + DEV_BYTE_SPEED_GRADE) = 1;
+    *(uint8_t *)((int)dev + DEV_BYTE_SPEED_GRADE) = 1;
 LAB_08032e26:
     if ((cVar1 == '\x01') || (cVar1 == '\x05')) {
       if (*(char *)((int)dev + DEV_BYTE_SPEED_GRADE) == '\x01') {
@@ -650,13 +650,13 @@ int mmc_set_speed(int *dev)
   if (iVar2 != 0) {
     return iVar2;
   }
-  *(undefined1 *)((int)dev + DEV_BYTE_INIT_PHASE) = 2;
+  *(uint8_t *)((int)dev + DEV_BYTE_INIT_PHASE) = 2;
   dev[DEV_CUSTOM_SECTOR] = 1;
   memset_zero(cmd, sizeof(cmd));
   cmd[0] = 0x10;       /* CMD16 SET_BLOCKLEN */
   cmd[1] = 0x200;      /* arg: 512 bytes */
   cmd[2] = 1;          /* resp_type: R1 */
-  iVar2 = sdcc_send_cmd(dev,(undefined4 *)cmd);
+  iVar2 = sdcc_send_cmd(dev,(uint *)cmd);
   if (iVar2 == 0) {
     dev[DEV_SECTOR_SIZE] = 0x200;
     *(uint *)(DAT_0804e2c8[*dev] + 0x2c) =
@@ -700,17 +700,17 @@ void mmc_finalize_init(int dev)
       *(uint *)DAT_0804e2c8[iVar2] = *(uint *)DAT_0804e2c8[iVar2] & 0xfffffffe;
       sdcc_enable_clock(iVar2);
       sdcc_enable_slot(iVar2,0);
-      *(undefined1 *)(piVar1 + 1) = 0;
+      *(uint8_t *)(piVar1 + 1) = 0;
     }
-    *(undefined1 *)(dev + DEV_BYTE_CARD_TYPE) = 0;
-    *(undefined1 *)(dev + DEV_BYTE_INIT_PHASE) = 0;
-    *(undefined4 *)(dev + 0x84) = 0;
+    *(uint8_t *)(dev + DEV_BYTE_CARD_TYPE) = 0;
+    *(uint8_t *)(dev + DEV_BYTE_INIT_PHASE) = 0;
+    *(uint *)(dev + 0x84) = 0;
   }
   return;
 }
 
 /* orig: 0x080335fc mmc_release_slot — release device handle and partition entries */
-void mmc_release_slot(undefined4 *handle)
+void mmc_release_slot(uint *handle)
 {
   int *piVar1;
   int iVar2;
@@ -766,21 +766,21 @@ char mmc_classify_error(int *handle)
     thunk_FUN_080199b4(1000);
     sdcc_set_led(uVar2,1);
   }
-  mmc_set_bus_width((undefined4 *)*handle,0,0,0);
+  mmc_set_bus_width((uint *)*handle,0,0,0);
   uVar2 = sdcc_get_slot_status(uVar2);
   if ((uVar2 & 1) != 0) {
     /* MMC detection path: CMD0 (GO_IDLE) then CMD1 (SEND_OP_COND) loop */
     iVar4 = *handle;
     memset_zero(cmd, sizeof(cmd));
     /* CMD0: no response */
-    sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
+    sdcc_send_cmd((int *)iVar4,(uint *)cmd);
     uVar2 = 0;
     while( true ) {
       memset_zero(cmd, sizeof(cmd));
       cmd[0] = 1;            /* CMD1 SEND_OP_COND */
       cmd[1] = 0x40ff8000;   /* arg: sector mode + voltage window */
       cmd[2] = 1;            /* resp_type: R3 (uses R1 code) */
-      iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
+      iVar1 = sdcc_send_cmd((int *)iVar4,(uint *)cmd);
       if (iVar1 != 0) {
         return 0;
       }
@@ -801,14 +801,14 @@ char mmc_classify_error(int *handle)
   uVar3 = 0xff8000;
   memset_zero(cmd, sizeof(cmd));
   /* CMD0: no response */
-  sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
+  sdcc_send_cmd((int *)iVar4,(uint *)cmd);
   uVar2 = 0;
   do {
     memset_zero(cmd, sizeof(cmd));
     cmd[0] = 8;       /* CMD8 SEND_IF_COND */
     cmd[1] = 0x1aa;   /* arg: voltage + check pattern */
     cmd[2] = 1;       /* resp_type: R7 (uses R1 code) */
-    iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
+    iVar1 = sdcc_send_cmd((int *)iVar4,(uint *)cmd);
     if (iVar1 == 0) {
       if (cmd[3] != 0x1aa) {   /* check pattern mismatch */
         return 0;
@@ -825,7 +825,7 @@ char mmc_classify_error(int *handle)
     memset_zero(cmd, sizeof(cmd));
     cmd[0] = 0x37;    /* CMD55 */
     cmd[2] = 1;       /* resp_type: R1 */
-    iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
+    iVar1 = sdcc_send_cmd((int *)iVar4,(uint *)cmd);
     if (iVar1 != 0) {
       return 0;
     }
@@ -834,7 +834,7 @@ char mmc_classify_error(int *handle)
     cmd[0] = 0x29;    /* ACMD41 */
     cmd[1] = uVar3;   /* arg: HCS + voltage window */
     cmd[2] = 1;       /* resp_type: R3 (uses R1 code) */
-    iVar1 = sdcc_send_cmd((int *)iVar4,(undefined4 *)cmd);
+    iVar1 = sdcc_send_cmd((int *)iVar4,(uint *)cmd);
     if (iVar1 != 0) {
       return 0;
     }
@@ -851,7 +851,7 @@ char mmc_classify_error(int *handle)
 }
 
 /* orig: 0x08034888 mmc_setup_partitions — check if partition entry exists */
-undefined4 mmc_setup_partitions(int dev)
+uint mmc_setup_partitions(int dev)
 {
   int *piVar1;
 
@@ -897,14 +897,14 @@ LAB_08034cd8:
 
 
 /* orig: 0x08034704 mmc_init_card — full card init with identification */
-undefined4 mmc_init_card(int slot)
+uint mmc_init_card(int slot)
 {
   int *piVar1;
   int iVar2;
-  undefined4 uVar3;
+  uint uVar3;
   int *piVar4;
   bool bVar5;
-  undefined4 local_28;
+  uint local_28;
 
   local_28 = 0;
   piVar1 = (int *)mmc_get_slot_context(slot);
@@ -924,8 +924,8 @@ undefined4 mmc_init_card(int slot)
       *piVar4 = slot;
       piVar1[0x27] = (int)piVar1;
       *piVar1 = slot;
-      *(undefined1 *)(piVar1 + 1) = 1;
-      *(undefined1 *)(piVar1 + 0x26) = 1;
+      *(uint8_t *)(piVar1 + 1) = 1;
+      *(uint8_t *)(piVar1 + 0x26) = 1;
     }
     sdcc_enable_slot(slot,1);
     sdcc_qtimer_init();
@@ -934,18 +934,18 @@ undefined4 mmc_init_card(int slot)
     mmc_set_bus_width(piVar4,5,0,0);
     thunk_FUN_080199b4(1000);
     sdcc_init_bases();
-    *(undefined4 *)(DAT_0804e2c8[slot] + 0xc) = 0;
+    *(uint *)(DAT_0804e2c8[slot] + 0xc) = 0;
     sdcc_enable_clock(slot);
-    *(undefined4 *)(DAT_0804e2c8[slot] + 0x2c) = 0;
+    *(uint *)(DAT_0804e2c8[slot] + 0x2c) = 0;
     sdcc_enable_clock(slot);
-    *(undefined4 *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
+    *(uint *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
     *(uint *)(DAT_0804e2c8[slot] + 4) = *(uint *)(DAT_0804e2c8[slot] + 4) | 0x200000;
     *(uint *)(DAT_0804e2c8[slot] + 4) = *(uint *)(DAT_0804e2c8[slot] + 4) & 0xfffff3ff;
     sdcc_enable_clock(slot);
-    *(undefined4 *)(DAT_0804e2c8[slot] + 0x38) = 0x400000;
-    *(undefined4 *)(DAT_0804e2c8[slot] + 0x3c) = 0;
+    *(uint *)(DAT_0804e2c8[slot] + 0x38) = 0x400000;
+    *(uint *)(DAT_0804e2c8[slot] + 0x3c) = 0;
     *piVar4 = slot;
-    *(undefined1 *)((int)piVar1 + 0x15) = 1;
+    *(uint8_t *)((int)piVar1 + SLOT_CTX_INIT_STATE) = 1;
     iVar2 = sdcc_get_adma_mode();
     piVar1[0x19] = 1;
     piVar1[0x25] = iVar2;
@@ -961,10 +961,10 @@ undefined4 mmc_init_card(int slot)
     *(byte *)((int)piVar1 + 0x99) = (byte)((uint)(piVar1[0x2e] << 0x1d) >> 0x1f);
     bVar5 = -1 < piVar1[0x2d] << 0xc;
     if (bVar5) {
-      *(undefined1 *)((int)piVar1 + 0x9a) = 0;
+      *(uint8_t *)((int)piVar1 + 0x9a) = 0;
     }
     else {
-      *(undefined1 *)((int)piVar1 + 0x9a) = 1;
+      *(uint8_t *)((int)piVar1 + 0x9a) = 1;
     }
     sdcc_set_8bit_mode(slot,!bVar5);
 LAB_08034876:
