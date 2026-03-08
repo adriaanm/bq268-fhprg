@@ -11,6 +11,26 @@
  */
 #include "firehose.h"
 
+/* Lightweight trace: outputs a short tag + hex value over USB.
+ * Used temporarily to locate hangs in data transfer path. */
+static char _tbuf[64];
+static void _trace(const char *tag, unsigned int val)
+{
+  int p = 0;
+  const char *s;
+  for (s = tag; *s; s++) _tbuf[p++] = *s;
+  /* inline hex32 */
+  {
+    int i;
+    for (i = 28; i >= 0; i -= 4) {
+      int nib = (val >> i) & 0xF;
+      _tbuf[p++] = (nib < 10) ? ('0' + nib) : ('A' - 10 + nib);
+    }
+  }
+  _tbuf[p++] = '\r'; _tbuf[p++] = '\n';
+  usb_write(_tbuf, p);
+}
+
 /*========================================================================
  * SDCC controller interface
  *
@@ -208,12 +228,14 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
     local_38 = (int)(uVar4 << 0x1e) >> 0x1f; /* bit 1 of flags: reliable write */
     iVar6 = 0;
 
+    _trace("WD:ext=", iVar5);
     /* Pre-write DMA/buffer setup */
     iVar1 = sdcc_pre_write_setup(dev,local_38 + 1,num_blocks);
     if (iVar1 == 0) {
       dev[4] = 0x14;
       return 0x14;
     }
+    _trace("WD:pre=", iVar1);
     /* If device has custom sector size, use it */
     if (dev[0x16] != 0) {
       num_blocks = dev[9];
@@ -231,12 +253,14 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
       sdcc_set_transfer_mode(*dev,(ushort *)&local_40);
     }
     /* Send the command (CMD17/CMD18 for read, CMD24/CMD25 for write) */
+    _trace("WD:cmd=", *cmd);
     if ((int)(uVar4 << 0x1d) < 0) {
       iVar2 = sdcc_adma_write(dev, (undefined4 *)cmd);
     }
     else {
       iVar2 = sdcc_send_cmd((int *)dev,cmd);
     }
+    _trace("WD:ret=", iVar2);
     /* Check R1 address out of range bit */
     if (((uint)cmd[3] >> 0x1a & 1) != 0) {
       dev[4] = 0x1d; /* address out of range */
@@ -262,8 +286,11 @@ int sdcc_write_data(mmc_dev_t *dev, mmc_cmd_t *cmd, uint buf, uint num_blocks)
         if ((*(int *)(iVar5 + 0xa4) != 0) && (iVar6 == 0)) goto LAB_0803376e;
       }
       /* PIO/SDMA transfer path */
+      _trace("WD:xfr=", uVar4);
       if ((int)(uVar4 << 0x1e) < 0) {
+        _trace("WD:adma buf=", local_2c);
         iVar8 = sdcc_adma_transfer((int *)iVar5,(uint *)local_2c,iVar1);
+        _trace("WD:adma ret=", iVar8);
       }
       else {
         _GHIDRA_FIELD(local_40, 0, uint24_t) = (uint3)(ushort)local_40;
