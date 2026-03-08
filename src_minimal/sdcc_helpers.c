@@ -46,7 +46,7 @@
  *   0x2a = DATA_CRC_FAIL | CMD_TIMEOUT | RX_OVERRUN   (read-path errors)
  *   0x1a = DATA_CRC_FAIL | DATA_TIMEOUT | TX_UNDERRUN (write-path errors)
  */
-#include "firehose.h"
+#include "globals.h"
 
 /* Forward declarations for functions defined later in this file */
 static uint sdcc_wait_card_ready(mmc_dev_t *dev);

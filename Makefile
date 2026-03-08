@@ -35,7 +35,7 @@ ASM_OBJ = $(patsubst src_minimal/%.S,tmp/minimal_%.o,$(ASM_SRC))
 all: elf
 
 # C compilation
-tmp/minimal_%.o: src_minimal/%.c src_minimal/firehose.h src_minimal/libc_glue.h
+tmp/minimal_%.o: src_minimal/%.c src_minimal/globals.h src_minimal/libc_glue.h
 	@mkdir -p tmp
 	$(CC) $(CFLAGS) -c $< -o $@
 

@@ -10,7 +10,7 @@
  *
  * Source: src/fhprg/fhprg_80327f8.c
  */
-#include "firehose.h"
+#include "globals.h"
 #include "msm8909.h"
 
 #define REG32(addr)  (*(volatile unsigned int *)(addr))

@@ -9,14 +9,14 @@
  *
  * Source: src/fhprg/fhprg_80327f8.c
  */
-#include "firehose.h"
+#include "globals.h"
 
 /*========================================================================
  * SDCC controller interface
  *
  * These functions talk directly to the SDCC controller's memory-mapped
  * registers. They are NOT in our minimal closure — they live at 0x0800xxxx
- * and are declared as externs in firehose.h.
+ * and are declared as externs in globals.h.
  *
  * Key register-level functions:
  *   sdcc_read_status(slot)          — read controller status register

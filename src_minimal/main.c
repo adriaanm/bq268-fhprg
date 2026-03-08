@@ -13,7 +13,7 @@
  *   W SECTOR COUNT       — bulk write: receive COUNT sectors, write to eMMC
  */
 
-#include "firehose.h"
+#include "globals.h"
 #include "msm8909.h"
 #include "usb.h"
 

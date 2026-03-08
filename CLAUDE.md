@@ -42,7 +42,7 @@ make clean
 ### Key Files
 
 - `src_minimal/` — Minimal programmer source (C + assembly)
-- `src_minimal/firehose.h` — Central header with type definitions and forward declarations
+- `src_minimal/globals.h` — Central header with type definitions and forward declarations
 - `src_minimal/entry.S` — Entry point, hardware init, exception vectors
 - `src_minimal/main.c` — Diagnostic console (USB command loop)
 - `src_minimal/emmc.c` — eMMC read/write/erase operations

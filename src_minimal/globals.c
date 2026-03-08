@@ -7,7 +7,7 @@
  * String values verified against fhprg_peek.bin ELF at their original VAs.
  * State variable initial values taken from the .data segment.
  */
-#include "firehose.h"
+#include "globals.h"
 
 /*========================================================================
  * MMIO timer register (hardware, read-only at runtime)

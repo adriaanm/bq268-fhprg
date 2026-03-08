@@ -1,4 +1,4 @@
-/* firehose.h — Shared types, constants, and forward declarations for the
+/* globals.h — Shared types, constants, and forward declarations for the
  * minimal programmer.
  *
  * Every function preserves a comment: orig: 0xADDRESS

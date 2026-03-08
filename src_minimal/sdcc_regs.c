@@ -81,7 +81,7 @@
  *
  * Source: src/fhprg/fhprg_8007b18.c (lines 5734–6630)
  */
-#include "firehose.h"
+#include "globals.h"
 
 /* Register base arrays:
  *   sdcc_mci_base[slot] = MCI core base  (slot 0 = 0x07824000)

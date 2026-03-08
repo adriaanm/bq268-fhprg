@@ -2,7 +2,7 @@
  *
  * Provides: memset, memcpy, delay_us.
  */
-#include "firehose.h"
+#include "globals.h"
 
 /*========================================================================
  * memset — fill memory with a byte value
