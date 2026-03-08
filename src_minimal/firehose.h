@@ -289,18 +289,18 @@ undefined4 sdcc_pio_transfer(int *dev, byte *buf, int byte_count);
 uint sdcc_get_card_status(int *dev);
 
 /* ---- card_init.c ---- */
-void sdcc_clock_setup();            /* 0x08032a04: clock source setup */
-void mmc_set_bus_width();            /* 0x08032dcc: mmc_set_bus_width */
-int  mmc_set_speed();            /* 0x08032eac: mmc_set_speed */
-int  mmc_get_slot_context();            /* 0x08033ca0: mmc_get_slot_context */
-void mmc_finalize_init();            /* 0x080335b4: mmc_finalize_init */
-void mmc_release_slot();            /* 0x080335fc: mmc_release_slot */
-char mmc_classify_error();            /* 0x08033dfc: mmc_classify_error */
-int  mmc_identify_card();            /* 0x08033b30: mmc_identify_card */
-int  mmc_config_bus();            /* 0x080345b8: mmc_config_bus */
-undefined4 mmc_init_card();      /* 0x08034704: mmc_init_card */
-int *mmc_read_ext_csd();            /* 0x08034cb4: mmc_read_ext_csd */
-undefined4 mmc_setup_partitions();      /* 0x08034888: mmc_setup_partitions */
+void sdcc_clock_setup(int slot, uint *freq, int mode);
+void mmc_set_bus_width(undefined4 *dev, undefined4 speed_mode, undefined4 unused1, uint freq_hint);
+int  mmc_set_speed(int *dev);
+int  mmc_get_slot_context(uint slot);
+void mmc_finalize_init(int dev);
+void mmc_release_slot(undefined4 *handle);
+char mmc_classify_error(int *handle);
+int  mmc_identify_card(int dev);
+int  mmc_config_bus(int dev);
+undefined4 mmc_init_card(int slot);
+int *mmc_read_ext_csd(short slot, int flags);
+undefined4 mmc_setup_partitions(int dev);
 
 /* ---- xml.c ---- */
 int  xml_advance();             /* 0x08038db4: tokenizer state machine */
