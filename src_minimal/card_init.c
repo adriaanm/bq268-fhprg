@@ -12,6 +12,14 @@
  */
 #include "firehose.h"
 #include "msm8909.h"
+#include "usb.h"
+
+/* Temporary trace: write short string to USB for debugging */
+static void _trace(const char *s) {
+  int n = 0;
+  while (s[n]) n++;
+  usb_write(s, n);
+}
 
 #define REG32(addr)  (*(volatile unsigned int *)(addr))
 
@@ -919,16 +927,19 @@ int *mmc_read_ext_csd(short slot, int flags)
   int *piVar2;
 
   if (DAT_0804e2a8 < 1) {
+    _trace("EC:full\r\n");  /* no free partition slots */
     return (int *)0x0;
   }
   for (piVar2 = (int *)&DAT_08059efc; piVar2 < partition_table_end; piVar2 = piVar2 + 3) {
     if (*piVar2 == 0) goto LAB_08034cd8;
   }
+  _trace("EC:noslot\r\n");  /* all entries occupied */
   piVar2 = (int *)0x0;
 LAB_08034cd8:
   if (piVar2 != (int *)0x0) {
     iVar1 = mmc_get_slot_context((int)slot);
     if (iVar1 == 0) {
+      _trace("EC:noctx\r\n");  /* slot context not found */
       return (int *)0x0;
     }
     *piVar2 = iVar1 + 0xc;

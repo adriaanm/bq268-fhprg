@@ -125,17 +125,12 @@ _thumb_entry:
 
     /*--------------------------------------------------------------
      * 3. Copy .data from CODE (LMA) to DATA (VMA)
+     *
+     * SKIP: mbn_wrap.py sets p_paddr = p_vaddr for all LOAD segments,
+     * so PBL loads .data directly to its runtime address (0x0804c000).
+     * Copying from _data_load (which points to zero-filled CODE padding)
+     * would OVERWRITE the correct initialized values with zeros.
      *--------------------------------------------------------------*/
-    ldr     r0, =_data_start
-    ldr     r1, =_data_load
-    ldr     r2, =_data_end
-.Ldata_loop:
-    cmp     r0, r2
-    bge     .Ldata_done
-    ldr     r3, [r1], #4
-    str     r3, [r0], #4
-    b       .Ldata_loop
-.Ldata_done:
 
     /*--------------------------------------------------------------
      * 4. Zero BSS
