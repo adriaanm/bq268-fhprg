@@ -2,10 +2,10 @@
  *
  * The Qualcomm SDCC controller exposes two distinct register windows per slot:
  *
- *   DAT_0804e2c8[slot]  MCI core base  (slot 0 = 0x07824000, slot 1 = 0x07864000)
- *   DAT_0804e2d8[slot]  SDHCI HC base  (slot 0 = 0x07824900, slot 1 = 0x07864900)
+ *   sdcc_mci_base[slot]  MCI core base  (slot 0 = 0x07824000, slot 1 = 0x07864000)
+ *   sdcc_hc_base[slot]  SDHCI HC base  (slot 0 = 0x07824900, slot 1 = 0x07864900)
  *
- * MCI core registers (offsets from DAT_0804e2c8[slot]):
+ * MCI core registers (offsets from sdcc_mci_base[slot]):
  *   +0x00  MCI_POWER
  *   +0x04  MCI_CLK              — clock config, bus speed, flow control (bit 9)
  *   +0x08  MCI_ARGUMENT
@@ -38,7 +38,7 @@
  *   +0xE4  (PLL divider latch)
  *   +0xE8  (PLL mode select)
  *
- * SDHCI HC registers (offsets from DAT_0804e2d8[slot]):
+ * SDHCI HC registers (offsets from sdcc_hc_base[slot]):
  *   +0x04  BLKSZ_REG            — block size (16-bit)
  *   +0x06  BLK_CNT_REG          — block count (16-bit)
  *   +0x08  ARGUMENT_REG         — command argument (32-bit)
@@ -70,7 +70,7 @@
  *   +0x58  ADM_ADDR_REG         — ADMA system address lo (32-bit)
  *   +0x5C  (ADMA system address hi, 32-bit)
  *
- * Vendor-specific registers (offsets from DAT_0804e2d8[slot]):
+ * Vendor-specific registers (offsets from sdcc_hc_base[slot]):
  *   +0x100  DLL_CONFIG_REG           — DLL/vendor control:
  *              bit 29 DLL_RST  bit 30 DLL_PDN (power down)
  *   +0x108  REG_DLL_STATUS
@@ -84,8 +84,8 @@
 #include "firehose.h"
 
 /* Register base arrays:
- *   DAT_0804e2c8[slot] = MCI core base  (slot 0 = 0x07824000)
- *   DAT_0804e2d8[slot] = SDHCI HC base  (slot 0 = 0x07824900)
+ *   sdcc_mci_base[slot] = MCI core base  (slot 0 = 0x07824000)
+ *   sdcc_hc_base[slot] = SDHCI HC base  (slot 0 = 0x07824900)
  */
 
 /* orig: 0x0800bbb4 sdcc_set_transfer_mode — build and write TRANS_MODE_REG (HC+0x2C).
@@ -102,7 +102,7 @@
  *   mode[0]+5 lo  blk_cnt_en  → TRANS_MODE_REG bit 0  (BLK_CNT_EN)
  *
  * Register written: MCI_DATA_CTL (MCI core+0x2C) — note: despite the HC
- * description above, the write target here is DAT_0804e2c8[slot]+0x2C which
+ * description above, the write target here is sdcc_mci_base[slot]+0x2C which
  * is MCI_DATA_CTL, the legacy transfer-control register, not the SDHCI
  * TRANS_MODE_REG at HC+0x0C.  The bit encoding matches MCI_DATA_CTL:
  *   bit 0  ENABLE   bit 1  DIR(1=read)  bit 3  DMA_EN  bit 4..7  BLOCK_SIZE
@@ -126,7 +126,7 @@ void sdcc_set_transfer_mode(int slot, ushort *mode)
     uVar1 = uVar1 | 1;   /* MCI_DATA_CTL bit 0: ENABLE */
   }
   /* MCI_DATA_CTL = MCI core base + 0x2C */
-  *(uint *)(DAT_0804e2c8[slot] + 0x2c) = uVar1;
+  *(uint *)(sdcc_mci_base[slot] + 0x2c) = uVar1;
   sdcc_enable_clock(slot);
   return;
 }
@@ -172,9 +172,9 @@ void sdcc_cleanup(int slot, short *cmd_config)
       uVar1 = uVar1 | 0x1000; /* bit 12: PROG_ENA (data-path enable) */
     }
     /* MCI_ARGUMENT (MCI core+0x08) ← cmd_config[8] (32-bit word at byte offset 16) */
-    *(uint *)(DAT_0804e2c8[slot] + 8) = *(uint *)(cmd_config + 8);
+    *(uint *)(sdcc_mci_base[slot] + 8) = *(uint *)(cmd_config + 8);
     /* MCI_CMD (MCI core+0x0C) */
-    *(uint *)(DAT_0804e2c8[slot] + 0xc) = uVar1;
+    *(uint *)(sdcc_mci_base[slot] + 0xc) = uVar1;
     sdcc_enable_clock(slot);
     return;
   }
@@ -193,7 +193,7 @@ void sdcc_cleanup(int slot, short *cmd_config)
  */
 void sdcc_set_all_irq(int slot)
 {
-  *(uint *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
+  *(uint *)(sdcc_mci_base[slot] + 0x38) = 0x18007ff;
   return;
 }
 
@@ -209,7 +209,7 @@ void sdcc_set_all_irq(int slot)
  */
 uint sdcc_read_status(int slot)
 {
-  return *(uint *)(DAT_0804e2c8[slot] + 0x34);
+  return *(uint *)(sdcc_mci_base[slot] + 0x34);
 }
 
 /* orig: 0x0800bda0 sdcc_enable_clock — poll MCI_STATUS2 bit 0 until clear (up to 1000 iterations).
@@ -233,7 +233,7 @@ void sdcc_enable_clock(int slot)
       return;
     }
     /* MCI_STATUS2 bit 0: 1 = clock not yet stable / bus busy */
-  } while ((*(uint *)(DAT_0804e2c8[slot] + 0x6c) & 1) != 0);
+  } while ((*(uint *)(sdcc_mci_base[slot] + 0x6c) & 1) != 0);
   return;
 }
 
@@ -247,7 +247,7 @@ void sdcc_enable_clock(int slot)
  */
 uint sdcc_read_present(int slot)
 {
-  return *(uint *)(DAT_0804e2d8[slot] + 0x30);
+  return *(uint *)(sdcc_hc_base[slot] + 0x30);
 }
 
 /* orig: 0x0800be68 sdcc_read_present_state — read PRESENT_STATE_REG (HC+0x24).
@@ -261,7 +261,7 @@ uint sdcc_read_present(int slot)
  */
 uint sdcc_read_present_state(int slot)
 {
-  return *(uint *)(DAT_0804e2d8[slot] + 0x24);
+  return *(uint *)(sdcc_hc_base[slot] + 0x24);
 }
 
 /* orig: 0x0800be78 sdcc_read_response — read 1 or 4 response words from RESP_REG (HC+0x10..0x1C).
@@ -286,7 +286,7 @@ void sdcc_read_response(int slot, uint *resp, int is_r2)
   uint uVar3;
   uint uVar4;
 
-  iVar1 = DAT_0804e2d8[slot];
+  iVar1 = sdcc_hc_base[slot];
   uVar3 = *(uint *)(iVar1 + 0x10);  /* RESP_REG word 0 (HC+0x10) */
   *resp = uVar3;
   if (is_r2 != 0) {
@@ -324,12 +324,12 @@ void sdcc_clear_status(int slot, uint mask)
   iVar2 = 100000;
   do {
     /* Write 1 to clear the requested bits in NRML_INT_STS_REG */
-    *(uint *)(DAT_0804e2d8[slot] + 0x30) = mask & 0x7ff003f;
+    *(uint *)(sdcc_hc_base[slot] + 0x30) = mask & 0x7ff003f;
     uVar1 = sdcc_read_present(slot);
     if ((mask & 0x7ff003f & uVar1) == 0) {
       return;
     }
-    thunk_FUN_080199b4(1);  /* delay_us(1) */
+    delay_us(1);  /* delay_us(1) */
     bVar3 = iVar2 != 0;
     iVar2 = iVar2 + -1;
   } while (bVar3);
@@ -344,7 +344,7 @@ void sdcc_clear_status(int slot, uint mask)
  */
 void sdcc_set_block_count(int slot, uint16_t count)
 {
-  *(uint16_t *)(DAT_0804e2d8[slot] + 6) = count;
+  *(uint16_t *)(sdcc_hc_base[slot] + 6) = count;
   return;
 }
 
@@ -357,7 +357,7 @@ void sdcc_set_block_count(int slot, uint16_t count)
  */
 void sdcc_set_block_size(int slot, uint16_t size)
 {
-  *(uint16_t *)(DAT_0804e2d8[slot] + 4) = size;
+  *(uint16_t *)(sdcc_hc_base[slot] + 4) = size;
   return;
 }
 
@@ -370,7 +370,7 @@ void sdcc_set_block_size(int slot, uint16_t size)
  */
 void sdcc_set_cmd_arg(int slot, uint arg)
 {
-  *(uint *)(DAT_0804e2d8[slot] + 8) = arg;
+  *(uint *)(sdcc_hc_base[slot] + 8) = arg;
   return;
 }
 
@@ -390,7 +390,7 @@ void sdcc_set_cmd_arg(int slot, uint arg)
  */
 void sdcc_fire_cmd(int slot, byte *cmd_desc)
 {
-  *(uint16_t *)(DAT_0804e2d8[slot] + 0xe) =
+  *(uint16_t *)(sdcc_hc_base[slot] + 0xe) =
        (ushort)*cmd_desc << 8     |  /* cmd_index    → bits 8-13 (shifted to 15:8) */
        (ushort)cmd_desc[1] << 6   |  /* cmd_type     → bits 7-6 */
        (ushort)cmd_desc[2] << 5   |  /* data_present → bit 5 */
@@ -411,7 +411,7 @@ void sdcc_fire_cmd(int slot, byte *cmd_desc)
  */
 void sdcc_set_irq_mask(int slot, uint8_t mask)
 {
-  *(uint8_t *)(DAT_0804e2d8[slot] + 0x2e) = mask;
+  *(uint8_t *)(sdcc_hc_base[slot] + 0x2e) = mask;
   return;
 }
 
@@ -433,7 +433,7 @@ void sdcc_set_irq_mask(int slot, uint8_t mask)
  */
 void sdcc_set_transfer_ctrl(int slot, byte *ctrl)
 {
-  *(uint16_t *)(DAT_0804e2d8[slot] + 0xc) =
+  *(uint16_t *)(sdcc_hc_base[slot] + 0xc) =
        (ushort)*ctrl    << 5 |  /* dma_en    (or multi_blk?)  → bit 5? see note */
        (ushort)ctrl[1]  << 4 |  /* blk_cnt_en → bit 4 */
        (ushort)ctrl[2]  << 2 |  /* auto_cmd   → bits 3-2 */
@@ -462,11 +462,11 @@ void sdcc_reset_data_line(int slot, byte bits)
   bool bVar3;
 
   iVar1 = 100000;
-  iVar2 = DAT_0804e2d8[slot];
+  iVar2 = sdcc_hc_base[slot];
   *(uint8_t *)(iVar2 + 0x2f) = bits;   /* RESET_REG: initiate reset */
   while ((bVar3 = iVar1 != 0, iVar1 = iVar1 + -1, bVar3 &&
          ((*(uint8_t *)(iVar2 + 0x2f) & bits) != 0))) {
-    thunk_FUN_080199b4(1);  /* delay_us(1): wait for reset to complete */
+    delay_us(1);  /* delay_us(1): wait for reset to complete */
   }
   return;
 }
@@ -486,7 +486,7 @@ void sdcc_reset_data_line(int slot, byte bits)
  */
 void sdcc_set_clock_divider(int slot, uint divider)
 {
-  *(uint16_t *)(DAT_0804e2d8[slot] + 0x2c) =
+  *(uint16_t *)(sdcc_hc_base[slot] + 0x2c) =
        (ushort)(divider << 8)           |  /* SDCLK_FREQ_SEL[7:0] → bits 15:8 */
        (ushort)((divider & 0x300) >> 2) |  /* SDCLK_FREQ_SEL[9:8] → bits 7:6 */
        1;                                   /* INTERNAL_CLK_EN → bit 0 */
@@ -502,7 +502,7 @@ void sdcc_set_clock_divider(int slot, uint divider)
  */
 void sdcc_set_adma_addr_lo(int slot, uint addr)
 {
-  *(uint *)(DAT_0804e2d8[slot] + 0x58) = addr;
+  *(uint *)(sdcc_hc_base[slot] + 0x58) = addr;
   return;
 }
 
@@ -515,7 +515,7 @@ void sdcc_set_adma_addr_lo(int slot, uint addr)
  */
 void sdcc_set_adma_addr_hi(int slot, uint addr)
 {
-  *(uint *)(DAT_0804e2d8[slot] + 0x5c) = addr;
+  *(uint *)(sdcc_hc_base[slot] + 0x5c) = addr;
   return;
 }
 
@@ -537,8 +537,8 @@ void sdcc_set_8bit_mode(int slot, int enable)
   if (enable != 0) {
     bVar1 = 0x10;  /* HOST_CTRL1_REG bit 4: DATA_WIDTH_8BIT */
   }
-  *(uint8_t *)(DAT_0804e2d8[slot] + 0x28) =
-       *(uint8_t *)(DAT_0804e2d8[slot] + 0x28) & 0xe7 | bVar1;
+  *(uint8_t *)(sdcc_hc_base[slot] + 0x28) =
+       *(uint8_t *)(sdcc_hc_base[slot] + 0x28) & 0xe7 | bVar1;
   return;
 }
 
@@ -558,7 +558,7 @@ void sdcc_trigger_vendor_reset(int slot)
   uint *puVar1;
   uint uVar2;
 
-  puVar1 = (uint *)(DAT_0804e2d8[slot] + 0x100);  /* DLL_CONFIG_REG */
+  puVar1 = (uint *)(sdcc_hc_base[slot] + 0x100);  /* DLL_CONFIG_REG */
   uVar2 = *puVar1;
   *puVar1 = uVar2 | 0x20000000;  /* set bit 29: DLL_RST */
   *puVar1 = uVar2 | 0x60000000;  /* set bit 29 + bit 30: DLL_RST | DLL_PDN */
@@ -580,8 +580,8 @@ void sdcc_trigger_vendor_reset(int slot)
  */
 void sdcc_set_clock_mode(int slot)
 {
-  *(uint16_t *)(DAT_0804e2d8[slot] + 0x3e) =
-       (*(uint16_t *)(DAT_0804e2d8[slot] + 0x3e) & 0xfff8) + 4;  /* UHS_MODE_SEL = 4 (DDR50/HS200) */
+  *(uint16_t *)(sdcc_hc_base[slot] + 0x3e) =
+       (*(uint16_t *)(sdcc_hc_base[slot] + 0x3e) & 0xfff8) + 4;  /* UHS_MODE_SEL = 4 (DDR50/HS200) */
   return;
 }
 
@@ -598,8 +598,8 @@ void sdcc_set_clock_mode(int slot)
  */
 void sdcc_set_hs_mode(int slot, char enable)
 {
-  *(uint8_t *)(DAT_0804e2d8[slot] + 0x2c) =
-       *(uint8_t *)(DAT_0804e2d8[slot] + 0x2c) & 0xfb | (uint8_t)(enable << 2);
+  *(uint8_t *)(sdcc_hc_base[slot] + 0x2c) =
+       *(uint8_t *)(sdcc_hc_base[slot] + 0x2c) & 0xfb | (uint8_t)(enable << 2);
   return;
 }
 
@@ -614,8 +614,8 @@ void sdcc_set_hs_mode(int slot, char enable)
  */
 void sdcc_read_caps(int slot, uint *caps)
 {
-  caps[0] = *(uint *)(DAT_0804e2d8[slot] + 0x40);  /* CAPS_REG1 */
-  caps[1] = *(uint *)(DAT_0804e2d8[slot] + 0x44);  /* CAPS_REG2 */
+  caps[0] = *(uint *)(sdcc_hc_base[slot] + 0x40);  /* CAPS_REG1 */
+  caps[1] = *(uint *)(sdcc_hc_base[slot] + 0x44);  /* CAPS_REG2 */
   return;
 }
 
@@ -629,7 +629,7 @@ void sdcc_read_caps(int slot, uint *caps)
  */
 uint8_t sdcc_read_power_mode(int slot)
 {
-  return *(uint8_t *)(DAT_0804e2d8[slot] + 0x29) & 0xf;
+  return *(uint8_t *)(sdcc_hc_base[slot] + 0x29) & 0xf;
 }
 
 /* orig: 0x0800beb8 sdcc_wait_pll_lock — wait for PLL lock via MCI core +0xDC, then configure.
@@ -667,30 +667,30 @@ void sdcc_wait_pll_lock(int slot)
   /* Phase 1: wait for PLL status to become non-zero */
   iVar3 = 100000;
   do {
-    uVar2 = *(uint *)(DAT_0804e2c8[slot] + 0xdc);  /* MCI+0xDC: PLL_STATUS */
+    uVar2 = *(uint *)(sdcc_mci_base[slot] + 0xdc);  /* MCI+0xDC: PLL_STATUS */
     if (uVar2 != 0) break;
-    thunk_FUN_080199b4(1);  /* delay_us(1) */
+    delay_us(1);  /* delay_us(1) */
     bVar4 = iVar3 != 0;
     iVar3 = iVar3 + -1;
   } while (bVar4);
 
   /* Phase 2: latch status and select PLL mode */
-  *(uint *)(DAT_0804e2c8[slot] + 0xe4) = uVar2;  /* MCI+0xE4: PLL_DIVIDER latch */
+  *(uint *)(sdcc_mci_base[slot] + 0xe4) = uVar2;  /* MCI+0xE4: PLL_DIVIDER latch */
   if ((uVar2 & 3) == 0) {
     uVar1 = 4;   /* bits 1:0 == 0: select fractional/bypass mode */
   }
   else {
     uVar1 = 1;   /* bits 1:0 != 0: select integer-N mode */
   }
-  *(uint *)(DAT_0804e2c8[slot] + 0xe8) = uVar1;  /* MCI+0xE8: PLL_MODE */
+  *(uint *)(sdcc_mci_base[slot] + 0xe8) = uVar1;  /* MCI+0xE8: PLL_MODE */
 
   /* Phase 3: wait for PLL status to return to zero (handshake acknowledge) */
   iVar3 = 100000;
   do {
-    if (*(uint *)(DAT_0804e2c8[slot] + 0xdc) == 0) {
+    if (*(uint *)(sdcc_mci_base[slot] + 0xdc) == 0) {
       return;
     }
-    thunk_FUN_080199b4(1);  /* delay_us(1) */
+    delay_us(1);  /* delay_us(1) */
     bVar4 = iVar3 != 0;
     iVar3 = iVar3 + -1;
   } while (bVar4);
@@ -709,11 +709,11 @@ void sdcc_set_int_enable(int slot, uint mask, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)(DAT_0804e2d8[slot] + 0x38) & ~mask;  /* NRML_INT_SIG_EN_REG */
+  uVar1 = *(uint *)(sdcc_hc_base[slot] + 0x38) & ~mask;  /* NRML_INT_SIG_EN_REG */
   if (enable == 1) {
     uVar1 = uVar1 | mask;
   }
-  *(uint *)(DAT_0804e2d8[slot] + 0x38) = uVar1;
+  *(uint *)(sdcc_hc_base[slot] + 0x38) = uVar1;
   return;
 }
 
@@ -734,7 +734,7 @@ void sdcc_set_int_signal(int slot, uint mask, int enable)
   bool bVar4;
 
   iVar3 = 100000;
-  puVar1 = (uint *)(DAT_0804e2d8[slot] + 0x34);  /* NRML_INT_STS_EN_REG */
+  puVar1 = (uint *)(sdcc_hc_base[slot] + 0x34);  /* NRML_INT_STS_EN_REG */
   uVar2 = *puVar1;
   if (enable == 0) {
     *puVar1 = uVar2 & ~mask;  /* clear bits: single write, no readback check */
@@ -746,7 +746,7 @@ void sdcc_set_int_signal(int slot, uint mask, int enable)
       if ((mask & ~uVar2) == 0) {  /* verify all requested bits are now set */
         return;
       }
-      thunk_FUN_080199b4(1);  /* delay_us(1) */
+      delay_us(1);  /* delay_us(1) */
       bVar4 = iVar3 != 0;
       iVar3 = iVar3 + -1;
     } while (bVar4);
@@ -767,7 +767,7 @@ void sdcc_set_int_signal(int slot, uint mask, int enable)
 uint sdcc_read_clock_stable(int slot)
 {
   /* Isolate CLK_CTRL_REG bit 1 (INTERNAL_CLK_STABLE): shift bit 1 to bit 31, then >> 31 → 0 or 1 */
-  return ((uint)*(uint8_t *)(DAT_0804e2d8[slot] + 0x2c) << 0x1e) >> 0x1f;
+  return ((uint)*(uint8_t *)(sdcc_hc_base[slot] + 0x2c) << 0x1e) >> 0x1f;
 }
 
 /* orig: 0x0800bf88 sdcc_set_led — set or clear HC_SELECT/LED bit in VENDOR_SPECIFIC_FUNC (HC+0x10C).
@@ -783,14 +783,14 @@ void sdcc_set_led(int slot, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)(DAT_0804e2d8[slot] + 0x10c);  /* VENDOR_SPECIFIC_FUNC */
+  uVar1 = *(uint *)(sdcc_hc_base[slot] + 0x10c);  /* VENDOR_SPECIFIC_FUNC */
   if (enable == 1) {
     uVar1 = uVar1 | 2;           /* bit 1: HC_SELECT/LED on */
   }
   else {
     uVar1 = uVar1 & 0xfffffffd;  /* bit 1: HC_SELECT/LED off */
   }
-  *(uint *)(DAT_0804e2d8[slot] + 0x10c) = uVar1;
+  *(uint *)(sdcc_hc_base[slot] + 0x10c) = uVar1;
   return;
 }
 
@@ -813,7 +813,7 @@ void sdcc_set_dma_mode(int slot, int mode)
 {
   uint8_t bVar1;
 
-  bVar1 = *(uint8_t *)(DAT_0804e2d8[slot] + 0x28);  /* HOST_CTRL1_REG */
+  bVar1 = *(uint8_t *)(sdcc_hc_base[slot] + 0x28);  /* HOST_CTRL1_REG */
   if (mode == 0) {
     bVar1 = bVar1 & 0xdd;          /* SDMA: clear DMA_SEL bits (see NOTE above) */
   }
@@ -826,7 +826,7 @@ void sdcc_set_dma_mode(int slot, int mode)
     }
     bVar1 = bVar1 | 0x20;          /* 64-bit ADMA2: set bit 5 (see NOTE) */
   }
-  *(uint8_t *)(DAT_0804e2d8[slot] + 0x28) = bVar1;
+  *(uint8_t *)(sdcc_hc_base[slot] + 0x28) = bVar1;
   return;
 }
 
@@ -855,7 +855,7 @@ void sdcc_setup_caps(int slot)
   int iVar4;
 
   uVar1 = sdcc_get_slot_status(0);
-  iVar4 = DAT_0804e2d8[slot];
+  iVar4 = sdcc_hc_base[slot];
   uVar2 = *(uint *)(iVar4 + 0x40);  /* CAPS_REG1 (HC+0x40) */
   uVar3 = *(uint *)(iVar4 + 0x44);  /* CAPS_REG2 (HC+0x44) */
   if ((uVar1 & 3) != 0) {
@@ -873,7 +873,7 @@ void sdcc_setup_caps(int slot)
     uVar2 = uVar2 & 0x38ffffff | 0x44040000;
   }
   *(uint *)(iVar4 + 0x11c) = uVar2;              /* VENDOR_SPECIFIC_CAPABILITIES0 */
-  *(uint *)(DAT_0804e2d8[slot] + 0x120) = uVar3; /* shadow of CAPS_REG2 */
+  *(uint *)(sdcc_hc_base[slot] + 0x120) = uVar3; /* shadow of CAPS_REG2 */
   return;
 }
 
@@ -890,8 +890,8 @@ void sdcc_setup_caps(int slot)
  */
 void sdcc_set_bus_power(int slot, uint8_t enable)
 {
-  *(uint8_t *)(DAT_0804e2d8[slot] + 0x29) =
-       *(uint8_t *)(DAT_0804e2d8[slot] + 0x29) & 0xfe | enable;
+  *(uint8_t *)(sdcc_hc_base[slot] + 0x29) =
+       *(uint8_t *)(sdcc_hc_base[slot] + 0x29) & 0xfe | enable;
   return;
 }
 
@@ -906,8 +906,8 @@ void sdcc_set_bus_power(int slot, uint8_t enable)
  */
 void sdcc_set_voltage(int slot, uint8_t voltage)
 {
-  *(uint8_t *)(DAT_0804e2d8[slot] + 0x29) =
-       *(uint8_t *)(DAT_0804e2d8[slot] + 0x29) & 0xf1 | voltage;
+  *(uint8_t *)(sdcc_hc_base[slot] + 0x29) =
+       *(uint8_t *)(sdcc_hc_base[slot] + 0x29) & 0xf1 | voltage;
   return;
 }
 
@@ -926,43 +926,43 @@ void sdcc_set_bus_width_bit(int slot, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)(DAT_0804e2c8[slot] + 0x78);  /* MCI_HC_MODE */
+  uVar1 = *(uint *)(sdcc_mci_base[slot] + 0x78);  /* MCI_HC_MODE */
   if (enable == 1) {
     uVar1 = uVar1 | 1;           /* bit 0: 8-bit bus width */
   }
   else {
     uVar1 = uVar1 & 0xfffffffe;  /* bit 0: 1-bit bus width */
   }
-  *(uint *)(DAT_0804e2c8[slot] + 0x78) = uVar1;
+  *(uint *)(sdcc_mci_base[slot] + 0x78) = uVar1;
   return;
 }
 
 /* orig: 0x0800bc84 sdcc_init_bases — initialize MCI core and SDHCI HC base address tables.
  *
- * Idempotent: guarded by the DAT_0804e2c4 flag (set to 1 after first call).
+ * Idempotent: guarded by the sdcc_bases_inited flag (set to 1 after first call).
  *
  * Sets four base address arrays for two slots:
- *   DAT_0804e2c8[0] = 0x07824000  MCI core base, slot 0 (eMMC)
- *   DAT_0804e2c8[1] = 0x07864000  MCI core base, slot 1 (SD)
- *   DAT_0804e2d0[0] = 0x07824000  DMA/FIFO base (same as MCI core for this controller)
- *   DAT_0804e2d0[1] = 0x07864000
- *   DAT_0804e2d8[0] = 0x07824900  SDHCI HC base, slot 0  (MCI core + 0x900)
- *   DAT_0804e2d8[1] = 0x07864900  SDHCI HC base, slot 1
- *   DAT_0804e2e0[0] = 0x07824900  SDHCI HC base (alt/duplicate), slot 0
- *   DAT_0804e2e0[1] = 0x07864900
+ *   sdcc_mci_base[0] = 0x07824000  MCI core base, slot 0 (eMMC)
+ *   sdcc_mci_base[1] = 0x07864000  MCI core base, slot 1 (SD)
+ *   sdcc_dma_base[0] = 0x07824000  DMA/FIFO base (same as MCI core for this controller)
+ *   sdcc_dma_base[1] = 0x07864000
+ *   sdcc_hc_base[0] = 0x07824900  SDHCI HC base, slot 0  (MCI core + 0x900)
+ *   sdcc_hc_base[1] = 0x07864900  SDHCI HC base, slot 1
+ *   sdcc_hc_base_alt[0] = 0x07824900  SDHCI HC base (alt/duplicate), slot 0
+ *   sdcc_hc_base_alt[1] = 0x07864900
  */
 void sdcc_init_bases(void)
 {
-  if (DAT_0804e2c4 != '\x01') {
-    DAT_0804e2c8[0] = 0x7824000;   /* slot 0 MCI core base */
-    DAT_0804e2d0[0] = 0x7824000;   /* slot 0 DMA/FIFO base */
-    DAT_0804e2c8[1] = 0x7864000;   /* slot 1 MCI core base */
-    DAT_0804e2d0[1] = 0x7864000;   /* slot 1 DMA/FIFO base */
-    DAT_0804e2d8[0] = 0x7824900;   /* slot 0 SDHCI HC base */
-    DAT_0804e2e0[0] = 0x7824900;   /* slot 0 SDHCI HC base (alt) */
-    DAT_0804e2d8[1] = 0x7864900;   /* slot 1 SDHCI HC base */
-    DAT_0804e2e0[1] = 0x7864900;   /* slot 1 SDHCI HC base (alt) */
-    DAT_0804e2c4 = '\x01';         /* mark as initialized */
+  if (sdcc_bases_inited != '\x01') {
+    sdcc_mci_base[0] = 0x7824000;   /* slot 0 MCI core base */
+    sdcc_dma_base[0] = 0x7824000;   /* slot 0 DMA/FIFO base */
+    sdcc_mci_base[1] = 0x7864000;   /* slot 1 MCI core base */
+    sdcc_dma_base[1] = 0x7864000;   /* slot 1 DMA/FIFO base */
+    sdcc_hc_base[0] = 0x7824900;   /* slot 0 SDHCI HC base */
+    sdcc_hc_base_alt[0] = 0x7824900;   /* slot 0 SDHCI HC base (alt) */
+    sdcc_hc_base[1] = 0x7864900;   /* slot 1 SDHCI HC base */
+    sdcc_hc_base_alt[1] = 0x7864900;   /* slot 1 SDHCI HC base (alt) */
+    sdcc_bases_inited = '\x01';         /* mark as initialized */
   }
   return;
 }
@@ -979,14 +979,14 @@ void sdcc_set_flow_control(int slot, int enable)
 {
   uint uVar1;
 
-  uVar1 = *(uint *)(DAT_0804e2c8[slot] + 4);  /* MCI_CLK */
+  uVar1 = *(uint *)(sdcc_mci_base[slot] + 4);  /* MCI_CLK */
   if (enable == 0) {
     uVar1 = uVar1 & 0xfffffdff;  /* clear bit 9: FLOW_ENA off */
   }
   else {
     uVar1 = uVar1 | 0x200;      /* set bit 9: FLOW_ENA on */
   }
-  *(uint *)(DAT_0804e2c8[slot] + 4) = uVar1;
+  *(uint *)(sdcc_mci_base[slot] + 4) = uVar1;
   sdcc_enable_clock(slot);
   return;
 }
@@ -1019,8 +1019,8 @@ void sdcc_set_bus_speed(int slot, int speed)
     }
   }
   /* MCI_CLK: clear BUS_SPEED bits then write new value */
-  *(uint *)(DAT_0804e2c8[slot] + 4) =
-       *(uint *)(DAT_0804e2c8[slot] + 4) & 0xfffff3ff | uVar1;
+  *(uint *)(sdcc_mci_base[slot] + 4) =
+       *(uint *)(sdcc_mci_base[slot] + 4) & 0xfffff3ff | uVar1;
   sdcc_enable_clock(slot);
   return;
 }

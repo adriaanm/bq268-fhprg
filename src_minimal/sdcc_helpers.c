@@ -7,11 +7,11 @@
  * Source: src/fhprg/fhprg_80327f8.c, src/fhprg/fhprg_8007b18.c
  *
  * Register bases (per slot, initialized by sdcc_init_bases):
- *   DAT_0804e2c8[slot] = MCI core base  (slot 0: 0x7824000, slot 1: 0x7864000)
- *   DAT_0804e2d0[slot] = MCI core base  (duplicate, alias for DMA/FIFO use)
- *   DAT_0804e2d8[slot] = SDHCI HC base  (slot 0: 0x7824900, slot 1: 0x7864900)
+ *   sdcc_mci_base[slot] = MCI core base  (slot 0: 0x7824000, slot 1: 0x7864000)
+ *   sdcc_dma_base[slot] = MCI core base  (duplicate, alias for DMA/FIFO use)
+ *   sdcc_hc_base[slot] = SDHCI HC base  (slot 0: 0x7824900, slot 1: 0x7864900)
  *
- * Key MCI registers (offsets from DAT_0804e2c8[slot]):
+ * Key MCI registers (offsets from sdcc_mci_base[slot]):
  *   +0x00  MCI_POWER       — power control
  *   +0x04  MCI_CLK         — clock control
  *   +0x08  MCI_ARGUMENT    — command argument
@@ -158,8 +158,8 @@ done:
  * buf       — destination RAM buffer address (must be 4-byte aligned)
  * remaining — in/out: byte count; decremented by the number of bytes read
  *
- * Uses DAT_0804e2d0[slot] + 0x80 (MCI_FIFO) as the source FIFO address.
- * Polls DAT_0804e2c8[slot] + 0x34 (MCI_STATUS) for RX_FIFO_HFULL (0x8000).
+ * Uses sdcc_dma_base[slot] + 0x80 (MCI_FIFO) as the source FIFO address.
+ * Polls sdcc_mci_base[slot] + 0x34 (MCI_STATUS) for RX_FIFO_HFULL (0x8000).
  *
  * Note: called only when buf is word-aligned AND RX_FIFO_HFULL (0x8000)
  * is set; the caller (sdcc_adma_transfer) checks both before dispatching here.
@@ -168,11 +168,11 @@ void adma_bounce_read(int slot, int buf, int *remaining)
 {
   int iVar1;
 
-  /* MCI_FIFO    = DAT_0804e2d0[slot] + 0x80
-   * MCI_STATUS  = DAT_0804e2c8[slot] + 0x34
+  /* MCI_FIFO    = sdcc_dma_base[slot] + 0x80
+   * MCI_STATUS  = sdcc_mci_base[slot] + 0x34
    * poll mask   = 0x8000 (RX_FIFO_HFULL: >= 8 words available) */
-  iVar1 = dma_read_helper(buf, DAT_0804e2d0[slot] + 0x80,
-                          (volatile uint *)(DAT_0804e2c8[slot] + 0x34), 0x8000);
+  iVar1 = dma_read_helper(buf, sdcc_dma_base[slot] + 0x80,
+                          (volatile uint *)(sdcc_mci_base[slot] + 0x34), 0x8000);
   *remaining = *remaining - (iVar1 - buf);
   return;
 }
@@ -185,7 +185,7 @@ void adma_bounce_read(int slot, int buf, int *remaining)
  * remaining — in/out: byte count; decremented by the number of bytes written
  *
  * Builds a dma_write_desc_t on the stack:
- *   status_reg_addr = DAT_0804e2c8[slot] + 0x34 (MCI_STATUS)
+ *   status_reg_addr = sdcc_mci_base[slot] + 0x34 (MCI_STATUS)
  *   ready_mask      = 0x4000 (TX_FIFO_HFULL: FIFO has room for 8+ words)
  *   remaining       = *remaining
  *   error_mask      = 0x1a (DATA_CRC_FAIL | DATA_TIMEOUT | TX_UNDERRUN)
@@ -195,11 +195,11 @@ void adma_bounce_write(int slot, int buf, int *remaining)
   int iVar1;
   dma_write_desc_t desc;
 
-  desc.status_reg_addr = DAT_0804e2c8[slot] + 0x34; /* MCI_STATUS */
+  desc.status_reg_addr = sdcc_mci_base[slot] + 0x34; /* MCI_STATUS */
   desc.ready_mask      = 0x4000;                     /* TX_FIFO_HFULL */
   desc.remaining       = *remaining;
   desc.error_mask      = 0x1a;                       /* DATA_CRC_FAIL | DATA_TIMEOUT | TX_UNDERRUN */
-  iVar1 = dma_write_helper(DAT_0804e2d0[slot] + 0x80, buf, &desc); /* MCI_FIFO (+0x80) */
+  iVar1 = dma_write_helper(sdcc_dma_base[slot] + 0x80, buf, &desc); /* MCI_FIFO (+0x80) */
   *remaining = *remaining - (iVar1 - buf);
 }
 
@@ -282,7 +282,7 @@ uint sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop)
  * per iteration. Each iteration waits for SDHCI buffer-ready via
  * sdcc_wait_complete, then clears the status, then transfers uVar6 words.
  *
- * SDHCI data buffer port: DAT_0804e2d8[slot] + 0x20 (SDHCI_BUF_DATA).
+ * SDHCI data buffer port: sdcc_hc_base[slot] + 0x20 (SDHCI_BUF_DATA).
  * sdcc_wait_complete wait masks:
  *   0x20 = SDHCI BUFF_READ_READY  (read direction)
  *   0x10 = SDHCI BUFF_WRITE_READY (write direction)
@@ -331,18 +331,18 @@ int sdcc_fifo_write(int *dev, int cmd_config, uint *buf, uint byte_count)
     sdcc_clear_status(iVar4, uVar7);
     uVar2 = 0;
     if ((int)(*(uint *)(cmd_config + 0x24) << 0x1e) < 0) {
-      /* READ: pull words from SDHCI_BUF_DATA (DAT_0804e2d8[slot] + 0x20) */
+      /* READ: pull words from SDHCI_BUF_DATA (sdcc_hc_base[slot] + 0x20) */
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
-        *buf = *(uint *)(DAT_0804e2d8[iVar4] + 0x20); /* SDHCI_BUF_DATA (+0x20) */
+        *buf = *(uint *)(sdcc_hc_base[iVar4] + 0x20); /* SDHCI_BUF_DATA (+0x20) */
         buf = buf + 1;
       }
     }
     else if ((*(uint *)(cmd_config + 0x24) & 1) != 0) {
-      /* WRITE: push words to SDHCI_BUF_DATA (DAT_0804e2d8[slot] + 0x20) */
+      /* WRITE: push words to SDHCI_BUF_DATA (sdcc_hc_base[slot] + 0x20) */
       for (; uVar2 < uVar6; uVar2 = uVar2 + 1) {
         uVar3 = *buf;
         buf = buf + 1;
-        *(uint *)(DAT_0804e2d8[iVar4] + 0x20) = uVar3; /* SDHCI_BUF_DATA (+0x20) */
+        *(uint *)(sdcc_hc_base[iVar4] + 0x20) = uVar3; /* SDHCI_BUF_DATA (+0x20) */
       }
     }
     uVar5 = uVar5 - 1;
@@ -476,7 +476,7 @@ uint sdcc_wait_complete(int slot, uint mask, uint *out_status)
         }
         return 1;                        /* error bits set */
       }
-      thunk_FUN_080199b4(100);           /* delay 100 µs */
+      delay_us(100);           /* delay 100 µs */
       uVar3 = uVar3 + 100;
     } while (uVar3 < 5000000);           /* timeout after 5 seconds */
     uVar2 = 3;                           /* timeout */
@@ -580,16 +580,16 @@ uint sdcc_setup_data_xfer(int *dev, int *cmd)
     if (0x7ffff < uVar3) goto LAB_08034c08;
     uVar1 = sdcc_read_status(iVar4);     /* MCI_STATUS (+0x34) */
     if ((uVar1 & 0x40) != 0) {           /* CMD_RESPONSE_END (0x40): command completed */
-      *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 0x40; /* MCI_CLEAR (+0x38): ack CMD_RESPONSE_END */
+      *(uint *)(sdcc_mci_base[iVar4] + 0x38) = 0x40; /* MCI_CLEAR (+0x38): ack CMD_RESPONSE_END */
       uVar5 = 0;
       if ((uVar1 & 0x800000) != 0) {     /* PROG_DONE (0x800000): card already done */
-        *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
+        *(uint *)(sdcc_mci_base[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
         cmd[7] = 0;                      /* clear busy_wait: no need to poll card busy */
       }
       goto LAB_08034c08;
     }
     if ((uVar1 & 4) != 0) {              /* CMD_TIMEOUT (0x4) */
-      *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 4; /* MCI_CLEAR (+0x38): ack CMD_TIMEOUT */
+      *(uint *)(sdcc_mci_base[iVar4] + 0x38) = 4; /* MCI_CLEAR (+0x38): ack CMD_TIMEOUT */
       uVar5 = 2;
       goto LAB_08034c08;
     }
@@ -603,7 +603,7 @@ uint sdcc_setup_data_xfer(int *dev, int *cmd)
   else {
     uVar5 = 4;                           /* genuine CRC error on other commands */
   }
-  *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 1; /* MCI_CLEAR (+0x38): ack CMD_CRC_FAIL */
+  *(uint *)(sdcc_mci_base[iVar4] + 0x38) = 1; /* MCI_CLEAR (+0x38): ack CMD_CRC_FAIL */
 LAB_08034c08:
   cmd[8] = uVar1;                        /* CMD_STATUS: save MCI_STATUS snapshot */
   return uVar5;
@@ -674,7 +674,7 @@ uint sdcc_adma_transfer(int *dev, uint *buf, int byte_count)
       if ((uVar1 & 0x200000) != 0) {    /* RX_DATA_AVAIL (0x200000): data in FIFO? */
         if (((uVar1 & 0x8000) == 0) || (bVar6)) {
           /* RX_FIFO_HFULL not set, or unaligned buf: read one word from MCI_FIFO (+0x80) */
-          uVar1 = *(uint *)(DAT_0804e2c8[iVar4] + 0x80); /* MCI_FIFO (+0x80) */
+          uVar1 = *(uint *)(sdcc_mci_base[iVar4] + 0x80); /* MCI_FIFO (+0x80) */
           if (bVar6) {
             /* Unaligned buffer: scatter the 32-bit FIFO word byte-by-byte */
             uVar2 = 0;
@@ -719,16 +719,16 @@ LAB_08034c9e:
       mmc_set_bus_width(dev + 3, 5, 0, 0);
       {
         int iVar2 = *dev;
-        uint *puVar1 = (uint *)DAT_0804e2c8[iVar2]; /* MCI base */
+        uint *puVar1 = (uint *)sdcc_mci_base[iVar2]; /* MCI base */
         uint saved_clk  = puVar1[1];       /* MCI_CLK   (+0x04): save before reset */
         uint saved_pwr  = *puVar1;         /* MCI_POWER (+0x00): save before reset */
         uint saved_mask = puVar1[0xf];     /* MCI_INT_MASK0 (+0x3C): save before reset */
         sdcc_clock_setup(iVar2, 0, 2);
-        *(uint *)(DAT_0804e2c8[iVar2] + 4)    = saved_clk;  /* MCI_CLK: restore */
+        *(uint *)(sdcc_mci_base[iVar2] + 4)    = saved_clk;  /* MCI_CLK: restore */
         sdcc_enable_clock(iVar2);
-        *(uint *)DAT_0804e2c8[iVar2]           = saved_pwr;  /* MCI_POWER: restore */
+        *(uint *)sdcc_mci_base[iVar2]           = saved_pwr;  /* MCI_POWER: restore */
         sdcc_enable_clock(iVar2);
-        *(uint *)(DAT_0804e2c8[iVar2] + 0x3c) = saved_mask; /* MCI_INT_MASK0: restore */
+        *(uint *)(sdcc_mci_base[iVar2] + 0x3c) = saved_mask; /* MCI_INT_MASK0: restore */
         mmc_set_bus_width(dev + 3, *(char *)((int)dev + 0x15) == '\x02', 0, 0);
       }
     }
@@ -815,13 +815,13 @@ void sdcc_pre_cmd_hook(int *dev, int *cmd)
   memset_zero(cmd_config, 0x14);
   do {
     /* MCI_CLEAR (+0x38) = 0x18007ff: write-1-to-clear all status bits */
-    *(uint *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
+    *(uint *)(sdcc_mci_base[slot] + 0x38) = 0x18007ff;
     uVar3 = uVar3 + 1;
     uVar1 = sdcc_read_status(slot);    /* MCI_STATUS (+0x34) */
     if ((uVar1 & 0x18007ff) == 0) goto status_clear;
   } while (uVar3 < 1000);
   /* Timeout: disable MCI_DATA_CTL (+0x2c) bit 0 (clock enable) then re-enable */
-  *(uint *)(DAT_0804e2c8[slot] + 0x2c) = *(uint *)(DAT_0804e2c8[slot] + 0x2c) & 0xfffffffe;
+  *(uint *)(sdcc_mci_base[slot] + 0x2c) = *(uint *)(sdcc_mci_base[slot] + 0x2c) & 0xfffffffe;
   sdcc_enable_clock(slot);
 status_clear:
   cmd_config[6] = (short)*cmd;          /* command_index */
@@ -899,7 +899,7 @@ uint sdcc_wait_card_ready(int *dev)
     }
     iVar1 = sdcc_get_card_status(dev);
     if (iVar1 == 4) break;               /* state == transfer (4): card ready */
-    thunk_FUN_080199b4(100);             /* delay 100 µs */
+    delay_us(100);             /* delay 100 µs */
     uVar2 = uVar2 + 1;
   }
   return 0;
@@ -915,8 +915,8 @@ uint sdcc_wait_card_ready(int *dev)
  * Returns: total byte count (sector_size × num_blocks).
  *
  * Writes to two MCI registers:
- *   MCI_DATA_TIMER  (DAT_0804e2c8[slot] + 0x24) = timeout counter value
- *   MCI_DATA_LENGTH (DAT_0804e2c8[slot] + 0x28) = total transfer bytes
+ *   MCI_DATA_TIMER  (sdcc_mci_base[slot] + 0x24) = timeout counter value
+ *   MCI_DATA_LENGTH (sdcc_mci_base[slot] + 0x28) = total transfer bytes
  *
  * Timeout computation:
  *   Base (ms per block):
@@ -961,12 +961,12 @@ int sdcc_pre_write_setup(uint *dev, int is_reliable, int num_blocks)
     iVar2 = dev[DEV_CLOCK_KHZ] * iVar2;           /* scale by device max clock ticks per ms */
   }
   /* MCI_DATA_TIMER (+0x24): data transfer timeout in controller clock ticks */
-  *(int *)(DAT_0804e2c8[(short)uVar1] + 0x24) = iVar2;
+  *(int *)(sdcc_mci_base[(short)uVar1] + 0x24) = iVar2;
   if (dev[DEV_CUSTOM_SECTOR] == 1) {                  /* DEV_CUSTOM_SECTOR: multi-block device */
     uVar3 = dev[DEV_SECTOR_SIZE] & 0xffff;            /* DEV_SECTOR_SIZE: low 16 bits */
   }
   /* MCI_DATA_LENGTH (+0x28): total byte count for this transfer */
-  *(uint *)(DAT_0804e2c8[(short)uVar1] + 0x28) = uVar3 * num_blocks;
+  *(uint *)(sdcc_mci_base[(short)uVar1] + 0x28) = uVar3 * num_blocks;
   return uVar3 * num_blocks;
 }
 
@@ -1058,10 +1058,10 @@ LAB_0803517c:
     }
     uVar1 = sdcc_read_status(iVar4);     /* MCI_STATUS (+0x34) */
     if ((uVar1 & 0x800000) != 0) {       /* PROG_DONE (0x800000): card done programming */
-      *(uint *)(DAT_0804e2c8[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
+      *(uint *)(sdcc_mci_base[iVar4] + 0x38) = 0x800000; /* MCI_CLEAR (+0x38): ack PROG_DONE */
       goto LAB_0803517c;
     }
-    thunk_FUN_080199b4(10);              /* delay 10 µs */
+    delay_us(10);              /* delay 10 µs */
     uVar2 = uVar2 + 1;
   } while( true );
 }
@@ -1143,7 +1143,7 @@ LAB_08035218:
           uVar3 = uVar3 + 8;
           pbVar5 = buf;
         } while (uVar3 < 0x20);
-        *(uint *)(DAT_0804e2c8[iVar7] + 0x80) = uVar4; /* MCI_FIFO (+0x80): write assembled word */
+        *(uint *)(sdcc_mci_base[iVar7] + 0x80) = uVar4; /* MCI_FIFO (+0x80): write assembled word */
       }
       else {
         /* TX_FIFO_HFULL (0x4000) is set */
@@ -1162,7 +1162,7 @@ LAB_0803520c:
         /* Word-aligned buf, < 32 bytes or FIFO not half-full: write one word */
         uVar2 = *(uint *)buf;
         buf = buf + 4;
-        *(uint *)(DAT_0804e2c8[iVar7] + 0x80) = uVar2; /* MCI_FIFO (+0x80): write one word */
+        *(uint *)(sdcc_mci_base[iVar7] + 0x80) = uVar2; /* MCI_FIFO (+0x80): write one word */
       }
       byte_count = byte_count + -4;
     }

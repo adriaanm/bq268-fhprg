@@ -30,7 +30,7 @@
  *========================================================================*/
 
 /* orig: 0x08032ae4 sdcc_get_device — get device handle from slot table.
- * The SDCC slot table at DAT_0804e2b8 holds pointers to device structs
+ * The SDCC slot table at sdcc_device_table holds pointers to device structs
  * for up to 2 slots. Only slot 0 (eMMC) is used. */
 uint sdcc_get_device(uint slot)
 {
@@ -38,19 +38,19 @@ uint sdcc_get_device(uint slot)
 
   uVar1 = 0;
   if (slot < 2) {
-    uVar1 = DAT_0804e2b8[slot];
+    uVar1 = sdcc_device_table[slot];
   }
   return uVar1;
 }
 
 /* orig: 0x08032af8 sdcc_get_slot_status — get slot status flags.
- * The slot status table at DAT_0804e2ac holds per-slot status.
+ * The slot status table at sdcc_slot_status holds per-slot status.
  * bit 0: card present, bit 1: initialized, etc. */
 uint sdcc_get_slot_status(uint slot)
 {
     uint uVar1 = 0;
     if (slot < 2) {
-        uVar1 = (uint)DAT_0804e2ac[slot];
+        uVar1 = (uint)sdcc_slot_status[slot];
     }
     return uVar1;
 }
@@ -102,17 +102,17 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
     while ((uVar4 = uVar8 + 1, uVar8 < 800 &&
             (uVar8 = sdcc_read_status(iVar7), (uVar8 & 0x80) == 0)))
     {
-      thunk_FUN_080199b4(10); /* delay 10us */
+      delay_us(10); /* delay 10us */
       uVar8 = uVar4;
     }
     if (uVar4 < 800) {
-      *(uint *)(DAT_0804e2c8[iVar7] + 0x38) = 0x80;
+      *(uint *)(sdcc_mci_base[iVar7] + 0x38) = 0x80;
       while (uVar4 < 800) {
         uVar8 = sdcc_read_status(iVar7);
         if ((uVar8 & 0x80) == 0) {
           return 0;
         }
-        thunk_FUN_080199b4(10);
+        delay_us(10);
         uVar4 = uVar4 + 1;
       }
     }
@@ -135,7 +135,7 @@ int sdcc_send_cmd(mmc_dev_t *dev, mmc_cmd_t *cmd)
         }
         piVar5 = cmd + 3; /* response dest */
         for (uVar4 = 0; uVar4 < uVar8; uVar4 = uVar4 + 1) {
-          *piVar5 = *(int *)(DAT_0804e2c8[*dev] + uVar4 * 4 + 0x14);
+          *piVar5 = *(int *)(sdcc_mci_base[*dev] + uVar4 * 4 + 0x14);
           piVar5 = piVar5 + 1;
         }
         /* Check R1 error bits for CMD52 (0x34) and CMD53 (0x35) */
@@ -880,8 +880,8 @@ int mmc_open_device(int slot, uint flags)
           iVar3 = mmc_config_bus(iVar4);
           if (iVar3 == 0) {
             if (*(char *)(iVar2 + 0x98) == '\0') {
-              *(uint *)(DAT_0804e2c8[slot] + 4) =
-                   *(uint *)(DAT_0804e2c8[slot] + 4) | 0x1000;
+              *(uint *)(sdcc_mci_base[slot] + 4) =
+                   *(uint *)(sdcc_mci_base[slot] + 4) | 0x1000;
               sdcc_enable_clock(slot);
             }
             iVar3 = mmc_identify_card(iVar4);

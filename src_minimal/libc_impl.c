@@ -26,12 +26,12 @@ void *memcpy(void *dest, const void *src, unsigned int n)
 }
 
 /*========================================================================
- * thunk_FUN_080199b4 — microsecond delay using ARM generic timer (CNTPCT)
+ * delay_us — microsecond delay using ARM generic timer (CNTPCT)
  *
  * The QTimer runs at 19.2 MHz on MSM8909. Each tick = 1/19200000 sec.
  * delay_us = ticks * 19.2 ≈ ticks * 19 (close enough for init delays).
  *========================================================================*/
-void thunk_FUN_080199b4(param_1)
+void delay_us(param_1)
 uint param_1;
 {
 #ifdef EMU_BUILD

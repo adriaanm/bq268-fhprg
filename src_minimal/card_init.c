@@ -90,14 +90,14 @@ static void gcc_clock_divider_set(uint freq, uint source)
 /* Partition table: 32 entries × 3 words each.
  * In the original binary at 0x08059efc; in our build, allocated in globals.c.
  * Ghidra decompiled the loop bound as the hardcoded address 0x0805a071 —
- * we replace that with partition_table_end (= &DAT_08059efc + 96). */
-extern uint DAT_08059efc[96];   /* partition table: 32 entries × 3 words */
-#define partition_table_end  ((int *)(DAT_08059efc + 96))
-extern int DAT_0804e2a8;        /* free partition slot counter (init: 0x20) */
+ * we replace that with partition_table_end (= &partition_table + 96). */
+extern uint partition_table[96];   /* partition table: 32 entries × 3 words */
+#define partition_table_end  ((int *)(partition_table + 96))
+extern int sdcc_free_slots;        /* free partition slot counter (init: 0x20) */
 
 /* MMIO timer for qtimer_init */
 /* QTimer MMIO at 0x004a1000 — mapped by linker script */
-volatile uint _DAT_004a1000 __attribute__((section(".mmio_qtimer"))) = 0;
+volatile uint mmio_qtimer __attribute__((section(".mmio_qtimer"))) = 0;
 
 /* ---- Simple utility functions ---- */
 
@@ -161,7 +161,7 @@ void sdcc_clock_init(void)
  *   - SDCC register base addresses (sdcc_init_bases)
  *   - Slot context: init_state=1, slot number, self-pointer
  *   - Device struct: slot=0, card_type=6 (eMMC), sector_size=512
- *   - Device handle table entry (DAT_0804e2b8)
+ *   - Device handle table entry (sdcc_device_table)
  *   - Hotplug descriptor stub (dev[0x24]) for sdcc_write_data
  *
  * Must be called after sdcc_clock_init() and before mmc_open_device().
@@ -222,14 +222,14 @@ void sdcc_pre_init_slot(int slot)
   dev[DEV_HOTPLUG_DESC] = (int)hotplug_desc_stub;
 
   /* Register device in slot handle table */
-  DAT_0804e2b8[slot] = (uint)(int)dev;
+  sdcc_device_table[slot] = (uint)(int)dev;
 }
 
 /* orig: 0x08032b64 — init qtimer and enable global timer */
 static void sdcc_qtimer_init(void)
 {
   qtimer_init();
-  _DAT_004a1000 = 1;
+  mmio_qtimer = 1;
   return;
 }
 
@@ -240,7 +240,7 @@ static void sdcc_release_partition(int *entry)
   *entry = 0;
   entry[1] = 0;
   entry[2] = 0;
-  DAT_0804e2a8 = DAT_0804e2a8 + 1;
+  sdcc_free_slots = sdcc_free_slots + 1;
   return;
 }
 
@@ -259,7 +259,7 @@ void sdcc_clock_setup(int slot, uint *freq, int mode)
   if (mode == 2) {
     /* HC reset via GCC */
     *(uint *)(slot * 0x40 + 0x1842000) = 1;
-    thunk_FUN_080199b4(500);
+    delay_us(500);
     *(uint *)(slot * 0x40 + 0x1842000) = 0;
     return;
   }
@@ -655,8 +655,8 @@ int mmc_set_speed(int *dev)
   iVar2 = sdcc_send_cmd(dev,(uint *)cmd);
   if (iVar2 == 0) {
     dev[DEV_SECTOR_SIZE] = 0x200;
-    *(uint *)(DAT_0804e2c8[*dev] + 0x2c) =
-         *(uint *)(DAT_0804e2c8[*dev] + 0x2c) & 0xfffe000f | 0x2000;
+    *(uint *)(sdcc_mci_base[*dev] + 0x2c) =
+         *(uint *)(sdcc_mci_base[*dev] + 0x2c) & 0xfffe000f | 0x2000;
     sdcc_enable_clock(*dev);
   }
   cVar1 = (char)dev[2];
@@ -693,7 +693,7 @@ void mmc_finalize_init(int dev)
   iVar2 = *piVar1;
   if (*(char *)(dev + DEV_BYTE_INIT_PHASE) != '\0') {
     if ((char)piVar1[1] != '\0') {
-      *(uint *)DAT_0804e2c8[iVar2] = *(uint *)DAT_0804e2c8[iVar2] & 0xfffffffe;
+      *(uint *)sdcc_mci_base[iVar2] = *(uint *)sdcc_mci_base[iVar2] & 0xfffffffe;
       sdcc_enable_clock(iVar2);
       sdcc_enable_slot(iVar2,0);
       *(uint8_t *)(piVar1 + 1) = 0;
@@ -715,11 +715,11 @@ void mmc_release_slot(uint *handle)
   if (piVar1 != (int *)0x0) {
     if ((char)((int *)*piVar1)[2] == '\0') {
       iVar2 = *(int *)*piVar1;
-      for (piVar1 = (int *)&DAT_08059efc; piVar1 < partition_table_end; piVar1 = piVar1 + 3) {
+      for (piVar1 = (int *)&partition_table; piVar1 < partition_table_end; piVar1 = piVar1 + 3) {
         if (((int *)*piVar1 != (int *)0x0) && (*(int *)*piVar1 == iVar2)) {
           sdcc_release_partition(piVar1);
         }
-        if (DAT_0804e2a8 == 0x20) break;
+        if (sdcc_free_slots == 0x20) break;
       }
     }
     else {
@@ -744,22 +744,22 @@ char mmc_classify_error(int *handle)
   if (2 < uVar2) {
     return 0;
   }
-  *(uint *)DAT_0804e2c8[uVar2] = *(uint *)DAT_0804e2c8[uVar2] | 1;
+  *(uint *)sdcc_mci_base[uVar2] = *(uint *)sdcc_mci_base[uVar2] | 1;
   sdcc_enable_clock(uVar2);
   if (*(char *)(*handle + 0x8c) == '\0') {
-    *(uint *)(DAT_0804e2c8[uVar2] + 4) = *(uint *)(DAT_0804e2c8[uVar2] + 4) | 0x100;
+    *(uint *)(sdcc_mci_base[uVar2] + 4) = *(uint *)(sdcc_mci_base[uVar2] + 4) | 0x100;
     sdcc_enable_clock(uVar2);
     sdcc_set_flow_control(uVar2,0);
-    thunk_FUN_080199b4(1000);
+    delay_us(1000);
     sdcc_set_flow_control(uVar2,1);
-    thunk_FUN_080199b4(1000);
-    *(uint *)(DAT_0804e2c8[uVar2] + 4) =
-         *(uint *)(DAT_0804e2c8[uVar2] + 4) & 0xffff3fff | 0x8000;
+    delay_us(1000);
+    *(uint *)(sdcc_mci_base[uVar2] + 4) =
+         *(uint *)(sdcc_mci_base[uVar2] + 4) & 0xffff3fff | 0x8000;
     sdcc_enable_clock(uVar2);
   }
   else {
     sdcc_set_led(uVar2,0);
-    thunk_FUN_080199b4(1000);
+    delay_us(1000);
     sdcc_set_led(uVar2,1);
   }
   mmc_set_bus_width((uint *)*handle,0,0,0);
@@ -781,7 +781,7 @@ char mmc_classify_error(int *handle)
         return 0;
       }
       if ((int)cmd[3] < 0) break;  /* busy bit set = ready */
-      thunk_FUN_080199b4(50000);
+      delay_us(50000);
       uVar2 = uVar2 + 1;
       if (0x13 < uVar2) {
         return 0;
@@ -812,7 +812,7 @@ char mmc_classify_error(int *handle)
       uVar3 = 0x40ff8000;   /* SD 2.0: request HCS */
       break;
     }
-    thunk_FUN_080199b4(1000);
+    delay_us(1000);
     uVar2 = uVar2 + 1;
   } while (uVar2 < 3);
   uVar2 = 0;
@@ -840,7 +840,7 @@ char mmc_classify_error(int *handle)
       }
       return 1;     /* SD */
     }
-    thunk_FUN_080199b4(50000);
+    delay_us(50000);
     uVar2 = uVar2 + 1;
   } while (uVar2 < 0x14);
   return 0;
@@ -851,8 +851,8 @@ uint mmc_setup_partitions(int dev)
 {
   int *piVar1;
 
-  piVar1 = (int *)&DAT_08059efc;
-  if (DAT_0804e2a8 != 0x20) {
+  piVar1 = (int *)&partition_table;
+  if (sdcc_free_slots != 0x20) {
     for (; piVar1 < partition_table_end; piVar1 = piVar1 + 3) {
       if ((*piVar1 != 0) && (*piVar1 == dev)) {
         return 1;
@@ -868,10 +868,10 @@ int *mmc_alloc_handle(short slot, int flags)
   int iVar1;
   int *piVar2;
 
-  if (DAT_0804e2a8 < 1) {
+  if (sdcc_free_slots < 1) {
     return (int *)0x0;  /* no free partition slots */
   }
-  for (piVar2 = (int *)&DAT_08059efc; piVar2 < partition_table_end; piVar2 = piVar2 + 3) {
+  for (piVar2 = (int *)&partition_table; piVar2 < partition_table_end; piVar2 = piVar2 + 3) {
     if (*piVar2 == 0) goto LAB_08034cd8;
   }
   /* all entries occupied */
@@ -884,7 +884,7 @@ LAB_08034cd8:
     }
     *piVar2 = iVar1 + 0xc;
     piVar2[1] = flags;
-    DAT_0804e2a8 = DAT_0804e2a8 + -1;
+    sdcc_free_slots = sdcc_free_slots + -1;
   }
   return piVar2;
 }
@@ -926,24 +926,24 @@ uint mmc_init_card(int slot)
     local_28 = sdcc_get_max_clock(slot);
     sdcc_clock_setup(slot,&local_28,4);
     mmc_set_bus_width(piVar4,5,0,0);
-    thunk_FUN_080199b4(1000);
+    delay_us(1000);
     sdcc_init_bases();
-    *(uint *)(DAT_0804e2c8[slot] + 0xc) = 0;
+    *(uint *)(sdcc_mci_base[slot] + 0xc) = 0;
     sdcc_enable_clock(slot);
-    *(uint *)(DAT_0804e2c8[slot] + 0x2c) = 0;
+    *(uint *)(sdcc_mci_base[slot] + 0x2c) = 0;
     sdcc_enable_clock(slot);
-    *(uint *)(DAT_0804e2c8[slot] + 0x38) = 0x18007ff;
-    *(uint *)(DAT_0804e2c8[slot] + 4) = *(uint *)(DAT_0804e2c8[slot] + 4) | 0x200000;
-    *(uint *)(DAT_0804e2c8[slot] + 4) = *(uint *)(DAT_0804e2c8[slot] + 4) & 0xfffff3ff;
+    *(uint *)(sdcc_mci_base[slot] + 0x38) = 0x18007ff;
+    *(uint *)(sdcc_mci_base[slot] + 4) = *(uint *)(sdcc_mci_base[slot] + 4) | 0x200000;
+    *(uint *)(sdcc_mci_base[slot] + 4) = *(uint *)(sdcc_mci_base[slot] + 4) & 0xfffff3ff;
     sdcc_enable_clock(slot);
-    *(uint *)(DAT_0804e2c8[slot] + 0x38) = 0x400000;
-    *(uint *)(DAT_0804e2c8[slot] + 0x3c) = 0;
+    *(uint *)(sdcc_mci_base[slot] + 0x38) = 0x400000;
+    *(uint *)(sdcc_mci_base[slot] + 0x3c) = 0;
     *piVar4 = slot;
     *(uint8_t *)((int)piVar1 + SLOT_CTX_INIT_STATE) = 1;
     iVar2 = sdcc_get_adma_mode();
     piVar1[0x19] = 1;
     piVar1[0x25] = iVar2;
-    *(uint *)DAT_0804e2c8[slot] = *(uint *)DAT_0804e2c8[slot] | 1;
+    *(uint *)sdcc_mci_base[slot] = *(uint *)sdcc_mci_base[slot] | 1;
     sdcc_enable_clock(slot);
     sdcc_set_bus_width_bit(slot,1);
     sdcc_reset_data_line(slot,1);

@@ -63,15 +63,13 @@ static inline void InstructionSynchronizationBarrier(unsigned int opt) {
  *========================================================================*/
 
 /* --- SDCC/eMMC globals (defined in globals.c) --- */
-extern int  DAT_0804e2ac[2];    /* SDCC slot status table */
-extern uint DAT_0804e2b8[2];    /* SDCC device handle table */
-extern char DAT_0804e2c4;       /* SDCC bases initialized flag */
-extern uint DAT_0804e2c8[2];    /* SDCC register base table */
-extern uint DAT_0804e2d0[2];    /* SDCC DMA/FIFO base table [slot] */
-extern uint DAT_0804e2d8[2];    /* SDCC SDHCI host-controller base [slot] */
-extern uint DAT_0804e2e0[2];    /* SDCC SDHCI host-controller base (alt) [slot] */
-
-extern uint DAT_0805a8ac;       /* global context struct */
+extern int  sdcc_slot_status[2];    /* SDCC slot status table */
+extern uint sdcc_device_table[2];  /* SDCC device handle table */
+extern char sdcc_bases_inited;     /* SDCC bases initialized flag */
+extern uint sdcc_mci_base[2];      /* SDCC MCI core register base [slot] */
+extern uint sdcc_dma_base[2];      /* SDCC DMA/FIFO base table [slot] */
+extern uint sdcc_hc_base[2];       /* SDCC SDHCI host-controller base [slot] */
+extern uint sdcc_hc_base_alt[2];   /* SDCC SDHCI host-controller base (alt) [slot] */
 
 /*========================================================================
  * Forward declarations — organized by file / subsystem
@@ -213,7 +211,7 @@ typedef int   mmc_cmd_t;     /* word-indexed command struct (use as mmc_cmd_t[10
 #define DEV_WORD_PART_MASK     0x7C   /* uint32_t: bitmask of existing partitions */
 
 /* mmc_handle_t field indices (word offsets).
- * Handle is a 3-word (12-byte) struct from partition table at DAT_08059efc.
+ * Handle is a 3-word (12-byte) struct from partition table (partition_table[]).
  *   [0] = pointer to mmc_dev_t
  *   [1] = partition index (0-7, -1=user)
  *   [2] = open flags */
@@ -268,11 +266,8 @@ int  mmc_write_sectors(mmc_handle_t *handle, int sector, uint buf, int num_block
 uint mmc_get_capacity(mmc_handle_t *handle, uint *sectors, uint *part_type);
 uint mmc_is_partition_active(mmc_handle_t *handle);
 int  mmc_ensure_partition(mmc_handle_t *handle);
-/* ---- platform.c ---- */
-void *get_global_context();     /* 0x08007450 */
-
 /* ---- libc_impl.c ---- */
-void thunk_FUN_080199b4();      /* delay_us */
+void delay_us();
 void qtimer_init();             /* stub */
 
 /* end of firehose.h */

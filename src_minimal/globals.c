@@ -17,7 +17,7 @@
  * correct MMIO address. For now it's a placeholder — code that reads it
  * will get 0 (which is fine for non-timing-critical paths).
  *========================================================================*/
-volatile uint DAT_004a3000 __attribute__((section(".mmio_timer"))) = 0;
+volatile uint mmio_timer __attribute__((section(".mmio_timer"))) = 0;
 
 /*========================================================================
  * State variables — originally in .data / .bss
@@ -26,31 +26,28 @@ volatile uint DAT_004a3000 __attribute__((section(".mmio_timer"))) = 0;
  *========================================================================*/
 
 /* SDCC slot allocation counter — initial value 0x20 (32 max slots) */
-int DAT_0804e2a8 = 0x20;
+int sdcc_free_slots = 0x20;
 
 /* SDCC per-slot status table [2]: slot0=0x21, slot1=0x02 */
-int DAT_0804e2ac[2] = { 0x21, 0x02 };
+int sdcc_slot_status[2] = { 0x21, 0x02 };
 
 /* SDCC device handle table [2]: zero until populated by init */
-uint DAT_0804e2b8[2] = { 0, 0 };
+uint sdcc_device_table[2] = { 0, 0 };
 
 /* SDCC register bases initialized flag — starts uninitialized */
-char DAT_0804e2c4 = 0;
+char sdcc_bases_inited = 0;
 
 /* SDCC register base table [2]: filled at runtime by sdcc_init_bases() */
-uint DAT_0804e2c8[2] = { 0, 0 };
+uint sdcc_mci_base[2] = { 0, 0 };
 
 /* SDCC FIFO/HC base tables: filled at runtime by sdcc_init_bases().
  * Declared as uint[2] so (&arr)[slot] and arr[slot] index by 4 bytes (not 8). */
-uint DAT_0804e2d0[2] = { 0, 0 };
-uint DAT_0804e2d8[2] = { 0, 0 };
-uint DAT_0804e2e0[2] = { 0, 0 };
-
-/* Global context struct — referenced by get_global_context() */
-uint DAT_0805a8ac = 0;
+uint sdcc_dma_base[2] = { 0, 0 };
+uint sdcc_hc_base[2] = { 0, 0 };
+uint sdcc_hc_base_alt[2] = { 0, 0 };
 
 /* Partition table: 32 entries × 3 words */
-uint DAT_08059efc[96] = { 0 };
+uint partition_table[96] = { 0 };
 
 /*========================================================================
  * Slot context — always needed (both embedded and firehose modes).
