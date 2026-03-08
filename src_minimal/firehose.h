@@ -270,23 +270,23 @@ void sdcc_set_flow_control(int slot, int enable);
 void sdcc_set_bus_speed(int slot, int speed);
 
 /* ---- sdcc_helpers.c ---- */
-void adma_bounce_read();            /* 0x0800bbec: ADMA bounce read */
-undefined8 adma_bounce_write();      /* 0x0800bc20: ADMA bounce write */
-void sdcc_event_notify();            /* 0x080329f8: sdcc_event_notify */
-undefined4 sdcc_post_write_cleanup();      /* 0x08032d8c: sdcc_post_write_cleanup */
-int  sdcc_fifo_write();            /* 0x08034314: sdcc_fifo_write */
-undefined4 sdcc_dma_setup();      /* 0x080343c0: sdcc_dma_setup */
-undefined4 sdcc_wait_complete();      /* 0x0803456c: sdcc_wait_complete */
-int  mmc_switch_cmd6();            /* 0x08034a40: mmc_switch_cmd6 */
-undefined4 sdcc_setup_data_xfer();      /* 0x08034b88: sdcc_setup_data_xfer */
-undefined4 sdcc_adma_transfer();      /* 0x08034c14: sdcc_adma_transfer */
-undefined4 sdcc_adma_write();      /* 0x08034eaa: sdcc_adma_write */
-void sdcc_pre_cmd_hook();            /* 0x08034edc: sdcc_pre_cmd_hook */
-int  sdcc_pre_write_setup();            /* 0x08035040: sdcc_pre_write_setup */
-undefined4 sdcc_post_write_check();      /* 0x080350ee: sdcc_post_write_check */
-undefined4 sdcc_busy_wait();      /* 0x08035134: sdcc_busy_wait */
-undefined4 sdcc_pio_transfer();      /* 0x08035188: sdcc_pio_transfer */
-uint sdcc_get_card_status();    /* 0x08034f80: send CMD13, return state */
+void adma_bounce_read(int slot, int buf, int *remaining);
+undefined8 adma_bounce_write(int slot, int buf, int *remaining);
+void sdcc_event_notify(int flags);
+undefined4 sdcc_post_write_cleanup(int *dev, int need_busy, int need_stop);
+int  sdcc_fifo_write(int *dev, int cmd_config, undefined4 *buf, uint byte_count);
+undefined4 sdcc_dma_setup(int slot, int buf, uint byte_count);
+undefined4 sdcc_wait_complete(int slot, uint mask, uint *out_status);
+int  mmc_switch_cmd6(int *dev, undefined4 cmd6_arg);
+undefined4 sdcc_setup_data_xfer(int *dev, int *cmd);
+undefined4 sdcc_adma_transfer(int *dev, uint *buf, int byte_count);
+undefined4 sdcc_adma_write(int *dev, undefined4 *cmd);
+void sdcc_pre_cmd_hook(int *dev, int *cmd);
+int  sdcc_pre_write_setup(undefined4 *dev, int is_reliable, int num_blocks);
+undefined4 sdcc_post_write_check(undefined4 *dev);
+undefined4 sdcc_busy_wait(int *dev);
+undefined4 sdcc_pio_transfer(int *dev, byte *buf, int byte_count);
+uint sdcc_get_card_status(int *dev);
 
 /* ---- card_init.c ---- */
 void sdcc_clock_setup();            /* 0x08032a04: clock source setup */
