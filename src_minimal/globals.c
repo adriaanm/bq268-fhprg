@@ -199,3 +199,12 @@ uint DAT_0804d28e = 0;
 char LAB_08028888 = 0;
 
 #endif /* !MINIMAL_EMBEDDED_PAYLOAD */
+
+/*========================================================================
+ * Slot context — always needed (both embedded and firehose modes).
+ *
+ * 2 slots × 0xBC bytes each = 0x178 bytes total.
+ * In the original binary this lives at hardcoded 0x08059cc8.
+ * mmc_get_slot_context() returns &slot_contexts[slot * 0xBC/4].
+ *========================================================================*/
+uint slot_contexts[2 * (0xBC / 4)] = { 0 };

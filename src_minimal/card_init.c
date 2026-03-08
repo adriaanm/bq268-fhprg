@@ -428,13 +428,18 @@ static void mmc_calc_capacity(int dev, int c_size_mult, int read_bl_len, int c_s
 
 /* ---- Main card init functions ---- */
 
-/* orig: 0x08033ca0 mmc_get_slot_context — get per-slot context struct */
+/* Slot context array — allocated in globals.c (was hardcoded at 0x08059cc8
+ * in the original binary, but that address is outside our BSS). */
+extern uint slot_contexts[];
+
+/* orig: 0x08033ca0 mmc_get_slot_context — get per-slot context struct.
+ * Returns pointer to per-slot context (0xBC bytes each). */
 int mmc_get_slot_context(uint slot)
 {
   if (2 < slot) {
     return 0;
   }
-  return slot * 0xbc + 0x8059cc8;
+  return (int)((char *)slot_contexts + slot * 0xbc);
 }
 
 /* orig: 0x080345b8 mmc_config_bus — send CMD2 and parse CSD to get RCA */
