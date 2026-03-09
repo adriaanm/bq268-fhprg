@@ -1,11 +1,10 @@
 # Binaries
 *.bin
-restore_aboot_sector
-test_aboot_write
+*.mbn
 
 # Build artifacts
 tmp/
-src/fhprg.c
+src/target/
 
 # Python
 __pycache__/
@@ -23,5 +22,5 @@ __pycache__/
 .claude/
 MEMORY.md
 
-# Other project dirs
-client/
+# Archived files (not deleted, just not tracked)
+archive/

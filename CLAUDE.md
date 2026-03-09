@@ -4,60 +4,88 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Goal
 
-Create a **patched Qualcomm Firehose programmer** (`fhprg_peek.bin`, msm8909, ARM 32-bit) that can write the aboot partition. The current WP bypass patch (code cave at 0x0803dc8c) does not work — writes still don't persist due to hardware write protection (CMD28 WP groups). The approach now is to **fully decompile** the original binary via Ghidra into readable, correct C so we can understand the write path end-to-end and craft a working patch.
+Build a **minimal Qualcomm programmer** (msm8909, ARM 32-bit) that runs in EDL mode via Sahara protocol and provides a USB diagnostic console with eMMC read/write, verified flashing, and memory dump capabilities. The ultimate goal is to write the aboot partition, bypassing hardware write protection (CMD28 WP groups).
 
-Byte-for-byte reproduction of the original binary is **not a goal**. The original was compiled with ARM Compiler v5 (armcc/RVCT), which we don't have access to. Clang with `-mno-movt` gets literal pool loads right but register allocation and instruction scheduling will never match. Tweaking compiler flags (`-Oz`, `-Os`, `-O1`, `-O2`) does not meaningfully change match rates. The recompilation exists as a verification tool to confirm the decompiled C is functionally correct, not to produce a drop-in replacement.
+The programmer is written in Rust (no_std, bare metal ARM Thumb2) and loaded via PBL's Sahara/EDL mode. It inherits the PBL's USB session and page tables.
 
-The `aboot.bin` (Qualcomm LK bootloader) tooling in `tools/preprocess.py` and `src/aboot.ld` is from earlier work on the same infrastructure.
+## Archived Code
 
-## Minimal Programmer: Replicate the Original
+The `archive/` directory (not tracked in git) contains previous work:
+- `archive/src_fhprg/` — Decompiled original firehose programmer (Ghidra output, reference)
+- `archive/src_minimal/` — Previous C implementation of the minimal programmer
+- `archive/tools/` — Various analysis/comparison/emulation tools from the decompilation effort
+- `archive/client/` — Go-based firehose client
+- `archive/bins/` — Binary dumps (PBL, GPT, splash, patched programmers)
 
-The minimal programmer (`src_minimal/`) must be developed by **studying and replicating the original firehose programmer** (`src/fhprg/` decompiled source). The original is the only known-working reference for this SoC. Every hardware subsystem (USB, clocks, DDR, eMMC) should match the original's register sequences and init order for the subset of functionality we use.
-
-**Do not invent alternative approaches** (skipping init steps, inheriting PBL state instead of reinitializing, etc.) without explicit user approval. When something doesn't work, always check what the original does first.
+When debugging hardware issues, the decompiled original in `archive/src_fhprg/` remains the authoritative reference for how the original programmer drives this SoC.
 
 ## Workflow
 
-- **Commit regularly** — after each logical change (rename batch, tool fix, build fix, etc.), stage and commit. Don't let changes accumulate across multiple tasks.
-- **Embody what you learn in the source** — when analyzing a function (debugging, tracing, reviewing), always capture what you learned directly in the code: rename locals to meaningful names, update comments, fix misleading Ghidra artifacts. Local changes (variable names, comments, correcting a function's own name) are always welcome. Avoid changes that ripple through the codebase (renaming a widely-used extern, changing a struct layout) unless that's the task at hand.
-- **`memset_zero` / `memset` must use `sizeof(target)`** — never pass a hardcoded size larger than the actual variable. Ghidra often emits `memset_zero(local_68, 0x28)` where `local_68` is only `char[4]` — the 0x28 was the original contiguous struct size. Always fix the variable to match the size (e.g. `char buf[0x28]`) or use `sizeof(buf)`.
-- **DANGER: Ghidra `local_XX` names encode stack layout** — Ghidra's `local_40, local_3c, local_38, ...` names indicate specific stack offsets (FP-0x40, FP-0x3c, etc.). When multiple locals are passed as `&local_40` to a function that indexes them as an array (e.g. `cmd[0]`, `cmd[1]`, `cmd[9]`), they form a **contiguous struct on the stack with unnamed gaps**. Renaming them to separate variables (e.g. `cmd_num, cmd_arg, cmd_flags`) lets the compiler pack them differently, breaking the array layout. **Always use `int arr[N]` with explicit index assignments when locals are accessed as an array.**
-- **DANGER: Debug code in `src_minimal/` can break code layout** — adding static functions, string literals, or data tables (e.g. `dbg()`, `hex_chars[]`) to files like `emmc.c` shifts code/data placement enough to cause data aborts during eMMC init. The init path relies on data structures at fixed addresses in the `.data` blob; layout changes can misalign them. **Keep debug tracing in `main.c` only** (which is not part of the eMMC driver closure) or use LED-only debugging from `entry.S`.
+- **Commit regularly** — after each logical change, stage and commit. Don't let changes accumulate across multiple tasks.
+- **Embody what you learn in the source** — when analyzing or debugging, capture what you learned directly in the code: meaningful names, comments, corrected logic.
 
 ## Build Commands
 
 ```bash
-# Build minimal programmer ELF (MBN-wrapped for Sahara)
+# Build programmer ELF (MBN-wrapped for Sahara)
 make            # or: make elf
-
-# Build debug ELF with symbols (no MBN wrapping, for emulator)
-make debug-elf
 
 # Clean build outputs
 make clean
+
+# Flash programmer and open interactive console
+uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn
+
+# Verified flash a partition
+uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --flash-partition aboot tmp/aboot.bin
+
+# Dump memory region
+uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --dump-memory 0 10000 tmp/pbl.bin
 ```
 
 ## Architecture
 
 ### Key Files
 
-- `src_minimal/` — Minimal programmer source (C + assembly)
-- `src_minimal/globals.h` — Central header with type definitions and forward declarations
-- `src_minimal/entry.S` — Entry point, hardware init, exception vectors
-- `src_minimal/main.c` — Diagnostic console (USB command loop)
-- `src_minimal/emmc.c` — eMMC read/write/erase operations
-- `src_minimal/card_init.c` — eMMC card identification and initialization
-- `src_minimal/sdcc_helpers.c` — SDCC data transfer helpers (DMA, command dispatch)
-- `src_minimal/sdcc_regs.c` — SDCC controller MMIO register access
-- `src_minimal/usb.c` — USB bulk transport (inherits PBL enumeration)
-- `src_minimal/globals.c` — Global variable definitions
-- `src_minimal/minimal.ld` — Linker script
-- `src_minimal/address_map.txt` — Maps functions to original binary addresses for cross-referencing `src/fhprg/`
-- `src/fhprg/` — Decompiled original programmer (reference, not built)
+- `src/` — Rust programmer source
+  - `src/src/lib.rs` — Crate root (module declarations)
+  - `src/src/console.rs` — USB diagnostic console (command parser, GPT cache, verified flash)
+  - `src/src/emmc.rs` — eMMC state machine (card init, read, write)
+  - `src/src/sdcc.rs` — SDCC hardware driver (DMA, command dispatch)
+  - `src/src/usb.rs` — USB bulk transport (inherits PBL enumeration)
+  - `src/src/gpt.rs` — GPT partition table parser
+  - `src/src/sha256.rs` — SHA-256 for verified flash
+  - `src/src/platform.rs` — Platform init (clocks, DDR, GPIO/LED)
+  - `src/src/regs.rs` — SDCC register definitions
+  - `src/src/mmio.rs` — MMIO register access helpers
+  - `src/entry.S` — Entry point, hardware init, exception vectors
+  - `src/minimal.ld` — Linker script
+  - `src/Makefile` — Build: Rust staticlib + assembly → ELF → MBN
+- `tools/usb_diag.py` — Host-side USB tool (Sahara upload, interactive console, verified flash, memory dump)
+- `tools/mbn_wrap.py` — MBN hash table wrapper for Sahara ELF loading
+- `docs/` — Hardware documentation
+
+### Console Commands
+
+| Cmd | Description |
+|-----|-------------|
+| `r ADDR` | Read 32-bit word |
+| `w ADDR VAL` | Write 32-bit word |
+| `d ADDR LEN` | Hex dump memory |
+| `R ADDR LEN` | Raw memory dump (binary + SHA256, intercepted by Python for file save) |
+| `i` | System info (page tables, control registers) |
+| `t` | DDR test |
+| `e` | Init eMMC |
+| `c` | eMMC card status |
+| `s SECTOR` | Read eMMC sector |
+| `S SECTOR BYTE` | Write eMMC sector (fill byte) |
+| `G` | Read GPT partition table |
+| `F NAME` | Verified flash (GPT lookup, SHA256 upload check, write+readback verify) |
+| `F SECTOR COUNT` | Verified flash (manual sector address) |
 
 ### Compiler Settings
 
-Clang 19 cross-compiling for ARMv7-A Thumb2 mode with soft float. `-mno-movt` forces literal pool loads. `-std=gnu89` for K&R compatibility. GCC does not support `-mno-movt` for armv7-a, making Clang required.
+Rust nightly cross-compiling for `thumbv7a-none-eabi` (ARMv7-A Thumb2, soft float). Assembly compiled with arm-none-eabi-gcc. `-mno-movt` in Rust target spec forces literal pool loads.
 
 ### Documentation Index (`docs/`)
 
@@ -69,7 +97,17 @@ Clang 19 cross-compiling for ARMv7-A Thumb2 mode with soft float. `-mno-movt` fo
 | `ddr_init.md` | DDR initialization details |
 | `memory_layout.md` | Memory layout documentation |
 | `device_properties.md` | BQ268 device properties and hardware info |
+| `sahara_usb_handover.md` | USB session inheritance from PBL |
 | `emulating_firehose.md` | Notes on Unicorn emulation of the firehose programmer |
 | `partition3_restriction.md` | Partition 3 write restriction analysis |
 | `recompilation_plan.md` | Plan for fhprg recompilation and verification |
 | `printgpt.md` | GPT partition table dump |
+
+## Hardware Notes
+
+- **Boot chain**: PBL → SBL1 → aboot (LK) → kernel
+- **PBL**: 64KB mask ROM at 0x00000000, loads us in EDL mode via Sahara
+- **LEDs**: GPIO 68=red, 69=green, active-high, TLMM base 0x01000000
+- **DDR**: 533MHz, init via binary blob callbacks (ARM/Thumb mixed mode)
+- **eMMC**: SDCC1 controller at 0x07824000, SDHCI reset required before MCI mode
+- **USB**: Inherits PBL's enumeration, DMA must use DDR buffers (not OCIMEM)

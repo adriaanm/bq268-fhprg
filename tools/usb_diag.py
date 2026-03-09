@@ -25,6 +25,7 @@ import os
 import struct
 import time
 import argparse
+import hashlib
 import usb.core
 import usb.util
 
@@ -296,28 +297,72 @@ def send_command(dev, cmd):
     return read_response(dev)
 
 
-def write_image(dev, image_path, start_sector):
-    """Write a binary image to eMMC via bulk write command (W).
+def read_gpt(dev):
+    """Read GPT partition table from device.
 
-    1. Read file, pad to 512-byte boundary
-    2. Send 'W sector count' command
-    3. Wait for READY response
-    4. Send raw data in USB chunks
-    5. Wait for OK response
+    Sends 'G' command, parses response lines until 'END'.
+    Returns dict: { "aboot": (start_sector, count, attrs), ... }
+    attrs is 0 if not present in output.
     """
+    dev.write(EP_OUT, b"G\n")
+    time.sleep(0.1)
+    resp = read_response(dev, timeout=5000)
+    text = resp.decode("ascii", errors="replace")
+
+    partitions = {}
+    for line in text.strip().split("\n"):
+        line = line.strip()
+        if line == "END":
+            break
+        if line.startswith("ERR"):
+            raise RuntimeError(f"GPT read failed: {line}")
+        parts = line.split()
+        if len(parts) >= 3:
+            name = parts[0]
+            start = int(parts[1], 16)
+            sectors = int(parts[2], 16)
+            attrs = int(parts[3], 16) if len(parts) >= 4 else 0
+            partitions[name] = (start, sectors, attrs)
+    return partitions
+
+
+def flash_partition(dev, image_path, partition_name):
+    """Verified flash: upload image, SHA256 verify transfer, write+readback verify.
+
+    1. Read GPT to get partition start/size
+    2. Read binary, zero-pad to partition size
+    3. Send 'F name', wait for READY
+    4. Send raw data, wait for SHA256
+    5. Compare SHA256, send CONFIRM
+    6. Wait for DONE + readback SHA256
+    """
+    print(f"Reading GPT...")
+    gpt = read_gpt(dev)
+    if partition_name not in gpt:
+        raise RuntimeError(f"Partition '{partition_name}' not found. Available: {', '.join(sorted(gpt.keys()))}")
+
+    start, sectors, attrs = gpt[partition_name]
+    if attrs:
+        print(f"  GPT attrs: 0x{attrs:016x}")
+
+    total_bytes = sectors * 512
+    print(f"Partition '{partition_name}': start=0x{start:x}, sectors=0x{sectors:x} ({total_bytes} bytes)")
+
     with open(image_path, "rb") as f:
         data = f.read()
 
-    # Pad to 512-byte sector boundary
-    pad = (512 - (len(data) % 512)) % 512
-    if pad:
-        data += b"\x00" * pad
-    count = len(data) // 512
+    if len(data) > total_bytes:
+        raise RuntimeError(f"Image ({len(data)} bytes) exceeds partition size ({total_bytes} bytes)")
 
-    print(f"Writing {image_path}: {len(data)} bytes ({count} sectors) at sector 0x{start_sector:x}")
+    # Zero-pad to partition size
+    if len(data) < total_bytes:
+        data += b"\x00" * (total_bytes - len(data))
 
-    # Send W command
-    cmd = f"W {start_sector:x} {count:x}\n"
+    expected_hash = hashlib.sha256(data).hexdigest()
+    print(f"Image SHA256: {expected_hash}")
+
+    # Send F command
+    cmd = f"F {partition_name}\n"
     dev.write(EP_OUT, cmd.encode())
 
     # Wait for READY
@@ -336,17 +381,274 @@ def write_image(dev, image_path, start_sector):
         sent = end
     print(f"  Sent {sent} bytes")
 
-    # Wait for OK
+    # Wait for SHA256
     resp = read_response(dev, timeout=30000)
     resp_str = resp.decode("ascii", errors="replace").strip()
     print(f"  Device: {resp_str}")
-    if not resp_str.startswith("OK"):
+    if not resp_str.startswith("SHA256 "):
+        raise RuntimeError(f"Expected SHA256, got: {resp_str}")
+
+    device_hash = resp_str[7:71]
+    if device_hash != expected_hash:
+        print(f"  MISMATCH! Expected: {expected_hash}")
+        print(f"             Got:      {device_hash}")
+        dev.write(EP_OUT, b"ABORT\n")
+        raise RuntimeError("Upload SHA256 mismatch — data corrupted in transfer")
+
+    print(f"  Upload SHA256 verified OK")
+
+    # Send CONFIRM to trigger write + readback
+    dev.write(EP_OUT, b"CONFIRM\n")
+
+    # Wait for DONE + readback hash
+    resp = read_response(dev, timeout=60000)
+    resp_str = resp.decode("ascii", errors="replace").strip()
+    print(f"  Device: {resp_str}")
+
+    if resp_str.startswith("ERR"):
         raise RuntimeError(f"Write failed: {resp_str}")
-    print("Write complete.")
+    if not resp_str.startswith("DONE "):
+        raise RuntimeError(f"Expected DONE, got: {resp_str}")
+
+    readback_hash = resp_str[5:69]
+    if readback_hash != expected_hash:
+        print(f"  READBACK MISMATCH!")
+        print(f"    Expected: {expected_hash}")
+        print(f"    Got:      {readback_hash}")
+        raise RuntimeError("Readback SHA256 mismatch — write did not persist")
+
+    print(f"  Readback SHA256 verified OK")
+    print(f"Flash complete: {partition_name} written and verified.")
 
 
-def interactive_mode(dev, vid=DEVICE_VID, pid=DEVICE_PID):
-    """Interactive terminal mode."""
+def raw_read(dev, addr, length, output_path):
+    """Send R command, receive READY + binary data + SHA256, save to file.
+
+    The device sends READY\\n, then raw bytes, then SHA256 <hex>\\n
+    all back-to-back. We accumulate everything and split after.
+    """
+    print(f"  Dumping 0x{addr:x} + 0x{length:x} ({length} bytes) to {output_path}")
+
+    cmd = f"R {addr:x} {length:x}\n"
+    dev.write(EP_OUT, cmd.encode())
+    time.sleep(0.05)
+
+    # Accumulate: READY line + binary data + SHA256 line
+    buf = b""
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            chunk = bytes(dev.read(EP_IN, 16384, timeout=5000))
+            buf += chunk
+            # Check if we have READY\n + length bytes of data
+            nl = buf.find(b"\n")
+            if nl >= 0 and len(buf) >= nl + 1 + length:
+                # Got all data, try one more read for SHA line
+                try:
+                    buf += bytes(dev.read(EP_IN, 4096, timeout=500))
+                except usb.core.USBTimeoutError:
+                    pass
+                break
+        except usb.core.USBTimeoutError:
+            break
+
+    # Split at first newline → READY line
+    nl = buf.find(b"\n")
+    if nl < 0:
+        print(f"  No response from device")
+        return False
+
+    ready_line = buf[:nl].decode("ascii", errors="replace").strip()
+    print(f"  Device: {ready_line}")
+    if not ready_line.startswith("READY"):
+        return False
+
+    rest = buf[nl + 1:]
+    data = rest[:length]
+    trailing = rest[length:]
+
+    if len(data) < length:
+        print(f"  Short read: got {len(data)}/{length} bytes")
+
+    # Parse SHA256 from trailing bytes
+    sha_line = trailing.decode("ascii", errors="replace").strip()
+    if sha_line.startswith("SHA256 "):
+        device_hash = sha_line[7:71]
+        expected = hashlib.sha256(data).hexdigest()
+        if device_hash == expected:
+            print(f"  SHA256 OK: {device_hash}")
+        else:
+            print(f"  SHA256 MISMATCH! device={device_hash} local={expected}")
+    else:
+        print(f"  (no SHA256 received)")
+
+    with open(output_path, "wb") as f:
+        f.write(data)
+    print(f"  Saved {len(data)} bytes to {output_path}")
+    return True
+
+
+def dump_memory(dev, addr, length, output_path):
+    """CLI entry point for --dump-memory. Waits for device then calls raw_read."""
+    print(f"Dumping 0x{addr:x} + 0x{length:x} ({length} bytes) to {output_path}")
+
+    # Wait for device to be ready (programmer may still be booting)
+    for attempt in range(5):
+        try:
+            resp = send_command(dev, "")
+            if resp:
+                sys.stdout.write(resp.decode("ascii", errors="replace"))
+                sys.stdout.flush()
+            break
+        except usb.core.USBError:
+            print(f"  Device not ready, retrying ({attempt+1}/5)...")
+            time.sleep(1)
+
+    if not raw_read(dev, addr, length, output_path):
+        raise RuntimeError("Raw read failed")
+
+
+def handle_flash_interactive(dev, args_str, image_path):
+    """Handle an 'F' command in interactive mode using the pre-loaded image.
+
+    Sends the F command, then drives the READY→data→SHA256→CONFIRM→DONE
+    handshake using the image file. The user sees each step printed.
+    """
+    if not image_path:
+        print("[no --image specified, passing F command through raw]")
+        resp = send_command(dev, "F" + args_str)
+        if resp:
+            sys.stdout.write(resp.decode("ascii", errors="replace"))
+            sys.stdout.flush()
+        return
+
+    with open(image_path, "rb") as f:
+        image_data = f.read()
+
+    # Send F command to device
+    cmd = "F" + args_str
+    dev.write(EP_OUT, (cmd + "\n").encode())
+    time.sleep(0.05)
+
+    # Wait for READY (tells us sector + count)
+    resp = read_response(dev, timeout=5000)
+    resp_str = resp.decode("ascii", errors="replace").strip()
+    print(f"  Device: {resp_str}")
+
+    if resp_str.startswith("ERR"):
+        return
+    if not resp_str.startswith("READY"):
+        print(f"  Unexpected response (expected READY)")
+        return
+
+    # Parse READY sector count
+    parts = resp_str.split()
+    if len(parts) < 3:
+        print("  Malformed READY response")
+        return
+    sectors = int(parts[2], 16)
+    total_bytes = sectors * 512
+
+    # Pad/truncate image to partition size
+    data = image_data
+    if len(data) > total_bytes:
+        print(f"  WARNING: image ({len(data)} bytes) exceeds partition ({total_bytes} bytes), truncating")
+        data = data[:total_bytes]
+    if len(data) < total_bytes:
+        data += b"\x00" * (total_bytes - len(data))
+
+    expected_hash = hashlib.sha256(data).hexdigest()
+    print(f"  Image SHA256: {expected_hash}")
+    print(f"  Sending {len(data)} bytes...")
+
+    # Send raw data
+    chunk_size = 4096
+    sent = 0
+    while sent < len(data):
+        end = min(sent + chunk_size, len(data))
+        dev.write(EP_OUT, data[sent:end])
+        sent = end
+    print(f"  Sent {sent} bytes")
+
+    # Wait for SHA256
+    resp = read_response(dev, timeout=30000)
+    resp_str = resp.decode("ascii", errors="replace").strip()
+    print(f"  Device: {resp_str}")
+
+    if not resp_str.startswith("SHA256 "):
+        print(f"  Unexpected response (expected SHA256)")
+        return
+
+    device_hash = resp_str[7:71]
+    if device_hash != expected_hash:
+        print(f"  MISMATCH! Expected: {expected_hash}")
+        print(f"             Got:      {device_hash}")
+        print("  Sending ABORT")
+        dev.write(EP_OUT, b"ABORT\n")
+        resp = read_response(dev, timeout=2000)
+        if resp:
+            print(f"  Device: {resp.decode('ascii', errors='replace').strip()}")
+        return
+
+    print(f"  Upload SHA256 verified OK")
+    print(f"  Send CONFIRM to write, or type 'n' to abort: ", end="", flush=True)
+
+    try:
+        answer = input().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = "n"
+
+    if answer == "n":
+        dev.write(EP_OUT, b"ABORT\n")
+        resp = read_response(dev, timeout=2000)
+        if resp:
+            print(f"  Device: {resp.decode('ascii', errors='replace').strip()}")
+        return
+
+    dev.write(EP_OUT, b"CONFIRM\n")
+
+    # Wait for DONE + readback hash
+    resp = read_response(dev, timeout=60000)
+    resp_str = resp.decode("ascii", errors="replace").strip()
+    print(f"  Device: {resp_str}")
+
+    if resp_str.startswith("ERR"):
+        print(f"  Write failed!")
+        return
+    if not resp_str.startswith("DONE "):
+        print(f"  Unexpected response (expected DONE)")
+        return
+
+    readback_hash = resp_str[5:69]
+    if readback_hash != expected_hash:
+        print(f"  READBACK MISMATCH!")
+        print(f"    Expected: {expected_hash}")
+        print(f"    Got:      {readback_hash}")
+    else:
+        print(f"  Readback SHA256 verified OK — write successful")
+
+
+def handle_raw_read_interactive(dev, args_str):
+    """Handle an 'R addr len [file]' command in interactive mode."""
+    parts = args_str.strip().split()
+    if len(parts) < 2:
+        print("Usage: R ADDR LEN [FILE]")
+        return
+
+    addr = int(parts[0], 16)
+    length = int(parts[1], 16)
+    output_path = parts[2] if len(parts) >= 3 else f"tmp/dump_{addr:x}.bin"
+    raw_read(dev, addr, length, output_path)
+
+
+def interactive_mode(dev, vid=DEVICE_VID, pid=DEVICE_PID, image_path=None):
+    """Interactive terminal mode.
+
+    If image_path is set, 'F' commands are intercepted to handle the
+    verified flash handshake using that file. All other commands pass through.
+    """
+    if image_path:
+        print(f"[image loaded: {image_path}]")
     try:
         banner = read_response(dev, timeout=1000)
         if banner:
@@ -366,10 +668,16 @@ def interactive_mode(dev, vid=DEVICE_VID, pid=DEVICE_PID):
             break
 
         try:
-            resp = send_command(dev, line)
-            if resp:
-                sys.stdout.write(resp.decode("ascii", errors="replace"))
-                sys.stdout.flush()
+            stripped = line.strip()
+            if stripped.startswith("F") and (len(stripped) == 1 or stripped[1] == " "):
+                handle_flash_interactive(dev, stripped[1:], image_path)
+            elif stripped.startswith("R") and len(stripped) > 1 and stripped[1] == " ":
+                handle_raw_read_interactive(dev, stripped[2:])
+            else:
+                resp = send_command(dev, line)
+                if resp:
+                    sys.stdout.write(resp.decode("ascii", errors="replace"))
+                    sys.stdout.flush()
         except usb.core.USBError as e:
             print(f"[USB error: {e}]")
             try:
@@ -394,8 +702,12 @@ def main():
                         help="Upload programmer ELF via Sahara then connect")
     parser.add_argument("--sahara-timeout", type=int, default=10,
                         help="Sahara device discovery timeout (seconds)")
-    parser.add_argument("--write-aboot", metavar="FILE",
-                        help="Write binary image to aboot partition (sector 0x280C00)")
+    parser.add_argument("--flash-partition", nargs=2, metavar=("NAME", "FILE"),
+                        help="Verified flash: write FILE to partition NAME")
+    parser.add_argument("--image", metavar="FILE",
+                        help="Image file for interactive F commands")
+    parser.add_argument("--dump-memory", nargs=3, metavar=("ADDR", "LEN", "FILE"),
+                        help="Dump memory region to file (hex addr and len)")
     parser.add_argument("--install-udev", action="store_true",
                         help=f"Install udev rules to {UDEV_RULES_PATH} (needs sudo)")
     args = parser.parse_args()
@@ -458,20 +770,24 @@ def main():
     except (ValueError, usb.core.USBError):
         print("Connected (string descriptors unavailable)")
 
-    if args.write_aboot:
-        # Init eMMC first, then write
+    if args.dump_memory:
+        addr_str, len_str, out_file = args.dump_memory
+        dump_memory(dev, int(addr_str, 16), int(len_str, 16), out_file)
+    elif args.flash_partition:
+        part_name, image_file = args.flash_partition
+        # Init eMMC first
         print("Initializing eMMC...")
         resp = send_command(dev, "e")
         if resp:
             sys.stdout.write(resp.decode("ascii", errors="replace"))
             sys.stdout.flush()
-        write_image(dev, args.write_aboot, 0x280C00)
+        flash_partition(dev, image_file, part_name)
     elif args.command:
         resp = send_command(dev, args.command)
         if resp:
             sys.stdout.write(resp.decode("ascii", errors="replace"))
     else:
-        interactive_mode(dev, vid=vid, pid=pid)
+        interactive_mode(dev, vid=vid, pid=pid, image_path=args.image)
 
 
 if __name__ == "__main__":
