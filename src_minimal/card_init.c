@@ -225,13 +225,28 @@ void sdcc_pre_init_slot(int slot)
   MCI_REG(slot, MCI_INT_MASK0) = 0;
 
   /* 7. Power: set bit 0 only (original: line 2726).
-   *    The original does MCI_POWER |= 1, NOT POWER=0x03.
-   *    This matches PBL's state — no SW_RST, no power cycling. */
+   *    The original does MCI_POWER |= 1, NOT POWER=0x03. */
   MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 1;
   sdcc_enable_clock(slot);
 
-  /* 8. Init qtimer (original calls FUN_08032b64 at line 2705) */
-  sdcc_qtimer_init();
+  /* 8. Enable SDHCI mode (original: FUN_0800bc64(slot,1) at line 2728).
+   *    Sets MCI_HC_MODE bit 0.  On Qualcomm SDCC, MCI registers remain
+   *    functional even with SDHCI enabled — both interfaces share the
+   *    same command engine.  The SDHCI reset in step 9 is what actually
+   *    initializes the command engine. */
+  MCI_REG(slot, MCI_HC_MODE) = MCI_REG(slot, MCI_HC_MODE) | 1;
+
+  /* 9. SDHCI software reset (original: FUN_0800c154(slot,1) at line 2729).
+   *    Write 1 to SDHCI Software Reset register (SDHCI_BASE + 0x2F),
+   *    then poll until the bit self-clears (reset complete).
+   *    This initializes the SDCC command engine — essential even when
+   *    sending commands via MCI registers. */
+  {
+    int timeout = 100000;
+    HC_REG8(slot, 0x2f) = 1;
+    while (timeout-- > 0 && (HC_REG8(slot, 0x2f) & 1) != 0)
+      delay_us(1);
+  }
 
   /* --- Data structure setup --- */
 
