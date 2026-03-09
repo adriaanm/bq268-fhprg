@@ -59,7 +59,7 @@ uv run tools/usb_diag.py --flash target/bq268_edl_diag.mbn --flash-partition abo
 ## Provenance
 
 The eMMC driver was decompiled from the stock Qualcomm Firehose programmer
-binary using Ghidra, then manually cleaned up and rewritten in Rust. The DDR
+binary using Ghidra, then cleaned up and rewritten in Rust. The DDR
 initialization blob (`src/blobs/`) is extracted verbatim from the original
 binary. Register definitions are derived from the
 [Little Kernel](https://source.codeaurora.org/quic/la/kernel/lk/) source for
