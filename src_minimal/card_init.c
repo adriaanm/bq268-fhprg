@@ -142,82 +142,81 @@ void sdcc_clock_init(void)
   sdcc_enable_slot(0, 1);
 }
 
-/* sdcc_pre_init_slot — UNUSED, kept for reference.
+/* sdcc_pre_init_slot — initialize SDCC MCI controller and set up data structures.
  *
- * Previously assumed PBL had already initialized the eMMC, but in EDL mode
- * PBL loads the programmer over USB and never touches eMMC. The card is in
- * idle state and needs full init (CMD0→CMD1→CMD2→CMD3→CMD7→CMD16).
- * mmc_open_device → mmc_init_card now does this.
+ * In EDL mode, PBL loads the programmer over USB and never touches eMMC.
+ * We must initialize the MCI controller from scratch, following LK's
+ * mmc_boot_init() sequence (lk_src/platform/msm_shared/mmc.c).
  *
- * Original assumption: PBL has already initialized the eMMC and left it in transfer state.
- * mmc_init_card checks byte 0x15 of the slot context: if '\x01' (card
- * identified), it skips directly to return 1. But the slot context also
- * needs to have the device struct fields set up for subsequent functions
- * (mmc_alloc_handle, mmc_setup_partitions, etc.).
+ * MCI controller init (from LK):
+ *   1. Disable SDHCI mode (MCI_HC_MODE bit 0 = 0)
+ *   2. Software reset MCI core (MCI_POWER bit 7)
+ *   3. Configure clock to 400 kHz (already done by sdcc_clock_init)
+ *   4. Power on (MCI_POWER = 0x03)
+ *   5. Enable clock output (MCI_CLK bit 8)
  *
- * This function sets up:
- *   - SDCC register base addresses (sdcc_init_bases)
- *   - Slot context: init_state=1, slot number, self-pointer
- *   - Device struct: slot=0, card_type=6 (eMMC), sector_size=512
- *   - Device handle table entry (sdcc_device_table)
- *   - Hotplug descriptor stub (dev[0x24]) for sdcc_write_data
+ * Data structures: set up slot context with init_state=1 so mmc_init_card
+ * skips (its full path enables SDHCI mode which breaks MCI commands).
+ * Leave card_type=0 so mmc_open_device falls through to mmc_classify_error
+ * which does the full card identification (CMD0→CMD1→CMD2→CMD3→CMD7→CMD16).
+ *
+ * The hotplug descriptor pointer (dev+0x90) points to the slot context
+ * itself (ctx[0x27] = ctx), matching the original binary's convention.
+ * sdcc_write_data reads hotplug[0] as slot number (= ctx[0] = slot).
  *
  * Must be called after sdcc_clock_init() and before mmc_open_device().
- *
- * Slot context layout (0xBC bytes):
- *   +0x00 (word 0):  slot number
- *   +0x04 (word 1):  init phase (byte at +0x04)
- *   +0x0C (word 3):  device struct start (0x94 bytes)
- *     dev[0]  (+0x00): slot number
- *     dev[1]  (+0x04): cached partition (current)
- *     dev[2]  (+0x08): card type (byte: 6=eMMC)
- *     dev[DEV_SECTOR_SIZE]    (+0x24): sector size (0x200)
- *     dev[DEV_CUSTOM_SECTOR] (+0x58): custom sector mode flag (1=use sector size for byte counts)
- *     dev[0x24] (+0x90): hotplug descriptor ptr (used by sdcc_write_data)
- *   +0x15 (byte):    init_state (0=none, 1=identified, 2=ready)
- *   +0x9C (word 0x27): self-pointer (back-reference to context)
- *
- * Hotplug descriptor (pointed to by dev[0x24], byte offset 0x90):
- *   sdcc_write_data reads from this struct at several offsets:
- *     [0]   = slot number (used by sdcc_pio_transfer, sdcc_adma_transfer)
- *     +0xA4 = ADMA mode flag (0=disabled → use PIO path)
- *     +0xAC = ADMA transfer function pointer (unused when +0xA4=0)
- *     +0xB0 = ADMA completion callback (unused when +0xA4=0)
- *   With +0xA4=0, sdcc_write_data uses PIO for data transfer.
  */
-
-/* Hotplug descriptor stub — zeroed except [0]=slot.
- * Must be at least 0xB4 bytes (covers offset 0xB0). */
-static uint hotplug_desc_stub[0xB4 / 4];
-
 void sdcc_pre_init_slot(int slot)
 {
   int *ctx = (int *)mmc_get_slot_context(slot);
   mmc_dev_t *dev = (mmc_dev_t *)(ctx + 3);  /* device struct at context + 0x0C */
 
-  /* Set up SDCC register bases first */
+  /* Set up SDCC register bases */
   sdcc_init_bases();
+
+  /* --- MCI controller init (following LK mmc_boot_init) --- */
+
+  /* 1. Disable SDHCI mode — use MCI legacy mode for commands.
+   *    mmc_init_card's full path sets this to 1 (SDHCI mode) which
+   *    breaks our MCI-based command dispatch. */
+  MCI_REG(slot, MCI_HC_MODE) = MCI_REG(slot, MCI_HC_MODE) & ~1u;
+  sdcc_enable_clock(slot);
+
+  /* 2. Software reset MCI core (MCI_POWER bit 7 = CORE_SW_RST).
+   *    LK does this before any other MCI setup. */
+  MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 0x80;
+  sdcc_enable_clock(slot);
+
+  /* 3. Clear all pending status bits */
+  MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
+  MCI_REG(slot, MCI_INT_MASK0) = 0;
+
+  /* 4. Power on: MCI_POWER = 0x03 (PWR_ON | PWR_UP).
+   *    LK sets both bits; our old code only set bit 0. */
+  MCI_REG(slot, MCI_POWER) = 0x03;
+  sdcc_enable_clock(slot);
+
+  /* 5. Enable clock output to card (MCI_CLK bit 8 = MCI_CLK_ENABLE).
+   *    Also set flow control (bit 12) and feedback clock (bit 15). */
+  {
+    uint clk = MCI_REG(slot, MCI_CLK);
+    clk |= 0x100;     /* bit 8: CLK_ENABLE — clock output to card */
+    clk |= 0x8000;    /* bit 15: SELECT_IN feedback clock */
+    clk &= ~0xC00u;   /* bits 11:10: WIDEBUS = 00 (1-bit for init) */
+    MCI_REG(slot, MCI_CLK) = clk;
+    sdcc_enable_clock(slot);
+  }
+
+  /* --- Data structure setup --- */
 
   /* Slot context header */
   ctx[0] = slot;
-  *(char *)((char *)ctx + SLOT_CTX_INIT_STATE) = '\x01';  /* already identified */
-  ctx[SLOT_CTX_SELF_PTR] = (int)ctx;
+  *(char *)((char *)ctx + SLOT_CTX_INIT_STATE) = '\x01';  /* skip mmc_init_card */
+  ctx[SLOT_CTX_SELF_PTR] = (int)ctx;  /* hotplug desc = ctx itself */
 
-  /* Device struct — minimal fields for ext_csd and partition setup */
+  /* Device struct — minimal fields. card_type left as 0 so mmc_open_device
+   * falls through to mmc_classify_error for full card identification. */
   dev->slot = slot;
-  dev->cur_partition = 0;  /* user partition */
-  dev->card_type = 6;  /* eMMC */
-  dev->sector_size = 0x200;  /* 512 bytes */
-  dev->custom_sector = 1;  /* custom sector mode — use dev->sector_size for
-                   * byte count in transfers. Normally set by mmc_set_speed
-                   * after CMD16 SET_BLOCKLEN. Without this, sdcc_pre_write_setup
-                   * writes 1 (not 512)
-                   * to MCI_DATA_LENGTH register, causing all-zero reads. */
-
-  /* Hotplug descriptor stub — slot number at [0], ADMA disabled (+0xA4=0).
-   * sdcc_write_data dereferences dev->hotplug_desc for PIO/ADMA transfer config. */
-  hotplug_desc_stub[0] = slot;
-  dev->hotplug_desc = (uint)hotplug_desc_stub;
 
   /* Register device in slot handle table */
   sdcc_device_table[slot] = (uint)dev;

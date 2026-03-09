@@ -661,12 +661,12 @@ static void cmd_emmc_init(void)
         return;
     }
 
-    /* Let mmc_open_device → mmc_init_card do full card initialization.
-     * In EDL mode, PBL loads the programmer over USB and never touches
-     * eMMC — the card is in idle state and needs the full init sequence
-     * (CMD0→CMD1→CMD2→CMD3→CMD7→CMD16). */
+    /* Initialize MCI controller in legacy mode (not SDHCI).
+     * Sets init_state=1 so mmc_init_card skips its broken SDHCI path
+     * but still does card identification (CMD0→CMD1→CMD2→CMD3→CMD7). */
+    sdcc_pre_init_slot(0);
 
-    /* Call mmc_open_device which does full card init + partition setup */
+    /* Call mmc_open_device which does card init + partition setup */
     p = put_str(resp, p, "eMMC init: opening device...\r\n");
     usb_write(resp, p); p = 0;
 
