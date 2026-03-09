@@ -803,7 +803,35 @@ static void cmd_sector_read(const char *args)
         }
     }
 
+    /* Dump MCI register state before read */
+    {
+        volatile uint *mci = (volatile uint *)0x07824000;
+        p = put_str(resp, p, "MCI: PWR=");
+        p = put_hex32(resp, p, mci[0]);        /* MCI_POWER +0x00 */
+        p = put_str(resp, p, " CLK=");
+        p = put_hex32(resp, p, mci[1]);        /* MCI_CLK +0x04 */
+        p = put_str(resp, p, " CMD=");
+        p = put_hex32(resp, p, mci[3]);        /* MCI_CMD +0x0C */
+        p = put_str(resp, p, " STAT=");
+        p = put_hex32(resp, p, mci[0xD]);      /* MCI_STATUS +0x34 */
+        p = put_str(resp, p, " HC=");
+        p = put_hex32(resp, p, mci[0x1E]);     /* MCI_HC_MODE +0x78 */
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p); p = 0;
+    }
+
     ret = mmc_read_blocks(emmc_handle, sector, (unsigned int)sector_buf, 1);
+
+    /* Dump MCI status after read */
+    {
+        volatile uint *mci = (volatile uint *)0x07824000;
+        p = put_str(resp, p, "POST: STAT=");
+        p = put_hex32(resp, p, mci[0xD]);      /* MCI_STATUS +0x34 */
+        p = put_str(resp, p, " RESP0=");
+        p = put_hex32(resp, p, mci[5]);         /* MCI_RESP_0 +0x14 */
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p); p = 0;
+    }
 
     p = put_str(resp, p, "Read sector ");
     p = put_hex32(resp, p, sector);
