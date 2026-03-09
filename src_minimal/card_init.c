@@ -142,10 +142,14 @@ void sdcc_clock_init(void)
   sdcc_enable_slot(0, 1);
 }
 
-/* sdcc_pre_init_slot — pre-populate slot context so mmc_init_card skips
- * the full SDCC controller reinit.
+/* sdcc_pre_init_slot — UNUSED, kept for reference.
  *
- * PBL has already initialized the eMMC and left it in transfer state.
+ * Previously assumed PBL had already initialized the eMMC, but in EDL mode
+ * PBL loads the programmer over USB and never touches eMMC. The card is in
+ * idle state and needs full init (CMD0→CMD1→CMD2→CMD3→CMD7→CMD16).
+ * mmc_open_device → mmc_init_card now does this.
+ *
+ * Original assumption: PBL has already initialized the eMMC and left it in transfer state.
  * mmc_init_card checks byte 0x15 of the slot context: if '\x01' (card
  * identified), it skips directly to return 1. But the slot context also
  * needs to have the device struct fields set up for subsequent functions

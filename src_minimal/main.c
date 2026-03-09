@@ -661,11 +661,12 @@ static void cmd_emmc_init(void)
         return;
     }
 
-    /* Pre-populate slot context so mmc_init_card skips full re-init.
-     * PBL already initialized eMMC — we just need the data structures. */
-    sdcc_pre_init_slot(0);
+    /* Let mmc_open_device → mmc_init_card do full card initialization.
+     * In EDL mode, PBL loads the programmer over USB and never touches
+     * eMMC — the card is in idle state and needs the full init sequence
+     * (CMD0→CMD1→CMD2→CMD3→CMD7→CMD16). */
 
-    /* Call mmc_open_device which does ext_csd read + partition setup */
+    /* Call mmc_open_device which does full card init + partition setup */
     p = put_str(resp, p, "eMMC init: opening device...\r\n");
     usb_write(resp, p); p = 0;
 
