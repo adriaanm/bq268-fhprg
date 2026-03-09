@@ -174,83 +174,61 @@ void sdcc_pre_init_slot(int slot)
 
   /* --- MCI controller init ---
    *
-   * The original binary (FUN_08034704) always does SDHCI-mode init, but our
-   * command dispatch (sdcc_send_cmd → sdcc_pre_cmd_hook → sdcc_cleanup) uses
-   * MCI registers.  We follow LK's mmc_boot_init() for MCI-mode setup, plus
-   * the original's register writes that apply to both modes.
+   * Match the original binary's sequence (FUN_08034704 lines 2704-2727).
+   * The original does NOT do SW_RST or disable SDHCI mode.  It builds on
+   * whatever state PBL left — just clears CMD/DATA, configures MCI_CLK,
+   * and sets MCI_POWER bit 0.
+   *
+   * Previous approach (LK-based: SW_RST + POWER=0x03) was wrong — the
+   * SW_RST destroyed PBL's controller state, and the original never does it.
    */
 
-  /* 1. Disable SDHCI mode — use MCI legacy mode for commands */
-  MCI_REG(slot, MCI_HC_MODE) = MCI_REG(slot, MCI_HC_MODE) & ~1u;
-  sdcc_enable_clock(slot);
+  /* 1. TLMM/SDCC pad config (original: FUN_08032b0c).
+   *    PBL configured pads for SDCC1 when it loaded us, so this should
+   *    be redundant, but match the original for safety. */
+  {
+    volatile uint *pad0 = (volatile uint *)0x0110a000;
+    volatile uint *pad1 = (volatile uint *)0x01111000;
+    *pad0 = (*pad0 & 0x6000) + 0x1fdb;
+    *pad1 = *pad1 | 2;
+  }
 
-  /* 2. Software reset MCI core (MCI_POWER bit 7 = CORE_SW_RST).
-   *    Reset is asynchronous — sdcc_enable_clock returns immediately because
-   *    STATUS2 reads 0 during reset, so all subsequent register writes are
-   *    silently discarded.  LK has clock_init_mmc()/clock_config_mmc() between
-   *    SW_RST and POWER=0x03, providing ~1ms implicit delay.  We add an
-   *    explicit delay to let the reset complete before touching any registers. */
-  MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 0x80;
-  sdcc_enable_clock(slot);
-  delay_us(1000);  /* 1 ms — ensure SW_RST completes before further writes */
+  /* 2. Init qtimer (original: FUN_08032b64 at line 2705) */
+  sdcc_qtimer_init();
 
-  /* 2b. Re-enable GCC SDCC branch clocks after SW_RST.
-   *     LK does clock_init_mmc()/clock_config_mmc() between SW_RST and
-   *     POWER write — this re-enables the GCC branch clocks which may
-   *     have been gated by the core reset.  Toggle them here to match. */
-  REG32(SDCC1_APPS_CBCR) = CBCR_BRANCH_ENABLE_BIT;
-  while (REG32(SDCC1_APPS_CBCR) & CBCR_BRANCH_OFF_BIT)
-    ;
-  REG32(SDCC1_AHB_CBCR) = CBCR_BRANCH_ENABLE_BIT;
-  while (REG32(SDCC1_AHB_CBCR) & CBCR_BRANCH_OFF_BIT)
-    ;
-
-  /* 3. Clear command and data state machines (original does this at
-   *    FUN_08034704 lines 2711-2714 before any clock/status config) */
+  /* 3. Clear command and data state machines (original: lines 2711-2714) */
   MCI_REG(slot, MCI_CMD) = 0;
   sdcc_enable_clock(slot);
   MCI_REG(slot, MCI_DATA_CTL) = 0;
   sdcc_enable_clock(slot);
 
-  /* 4. Clear all pending status bits and disable interrupts */
+  /* 4. Clear all pending status bits (original: line 2715) */
   MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
-  MCI_REG(slot, MCI_INT_MASK0) = 0;
 
-  /* 5. Power sequence: OFF → UP → ON with delays.
-   *    Standard PL180 requires stepping through power states.
-   *    LK writes 0x03 directly, but has clock_init/config between
-   *    SW_RST and POWER (providing implicit ramp time).
-   *    Writing 0x03 directly after SW_RST reads back 0x01 (ramp incomplete).
-   *    Step through each state with delay to let voltage stabilize. */
-  MCI_REG(slot, MCI_POWER) = 0x00;   /* power off */
-  sdcc_enable_clock(slot);
-  delay_us(1000);
-  MCI_REG(slot, MCI_POWER) = 0x02;   /* power up (Vcc ramp) */
-  sdcc_enable_clock(slot);
-  delay_us(1000);
-  MCI_REG(slot, MCI_POWER) = 0x03;   /* power on (Vcc stable) */
-  sdcc_enable_clock(slot);
-  delay_us(1000);
-
-  /* 6. Configure MCI_CLK:
-   *    - bit 8:  CLK_ENABLE (clock output to card)
-   *    - bit 12: FLOW_ENA (hardware flow control, prevents FIFO overrun)
-   *    - bit 15: SELECT_IN feedback clock
-   *    - bit 21: Qualcomm vendor bit (original always sets this at line 2716)
-   *    - bits 11:10: WIDEBUS = 00 (1-bit for identification) */
+  /* 5. Configure MCI_CLK (original: lines 2716-2717):
+   *    - bit 21: Qualcomm vendor bit
+   *    - bits 11:10: WIDEBUS = 00 (1-bit for identification)
+   *    Also set bits needed for clock output (from LK's mmc_boot_mci_clk_enable): */
   {
     uint clk = MCI_REG(slot, MCI_CLK);
-    clk |= 0x100;      /* bit 8:  CLK_ENABLE */
-    clk |= 0x1000;     /* bit 12: FLOW_ENA (LK mmc_boot_mci_clk_enable) */
+    clk |= 0x100;      /* bit 8:  CLK_ENABLE (clock output to card) */
+    clk |= 0x1000;     /* bit 12: FLOW_ENA (hardware flow control) */
     clk |= 0x8000;     /* bit 15: SELECT_IN feedback clock */
-    clk |= 0x200000;   /* bit 21: vendor-specific (set by original at 0x08034704) */
-    clk &= ~0xC00u;    /* bits 11:10: WIDEBUS = 00 (1-bit) */
+    clk |= 0x200000;   /* bit 21: vendor-specific (original line 2716) */
+    clk &= ~0xC00u;    /* bits 11:10: WIDEBUS = 00 (original line 2717) */
     MCI_REG(slot, MCI_CLK) = clk;
     sdcc_enable_clock(slot);
   }
 
-  /* 7. Clear vendor status bit 22 (original does this at line 2719) */
+  /* 6. Clear vendor status bit 22 and disable interrupts (original: lines 2719-2720) */
   MCI_REG(slot, MCI_CLEAR) = 0x400000;
+  MCI_REG(slot, MCI_INT_MASK0) = 0;
+
+  /* 7. Power: set bit 0 only (original: line 2726).
+   *    The original does MCI_POWER |= 1, NOT POWER=0x03.
+   *    This matches PBL's state — no SW_RST, no power cycling. */
+  MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 1;
+  sdcc_enable_clock(slot);
 
   /* 8. Init qtimer (original calls FUN_08032b64 at line 2705) */
   sdcc_qtimer_init();
