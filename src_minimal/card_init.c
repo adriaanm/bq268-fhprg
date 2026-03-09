@@ -194,6 +194,17 @@ void sdcc_pre_init_slot(int slot)
   sdcc_enable_clock(slot);
   delay_us(1000);  /* 1 ms — ensure SW_RST completes before further writes */
 
+  /* 2b. Re-enable GCC SDCC branch clocks after SW_RST.
+   *     LK does clock_init_mmc()/clock_config_mmc() between SW_RST and
+   *     POWER write — this re-enables the GCC branch clocks which may
+   *     have been gated by the core reset.  Toggle them here to match. */
+  REG32(SDCC1_APPS_CBCR) = CBCR_BRANCH_ENABLE_BIT;
+  while (REG32(SDCC1_APPS_CBCR) & CBCR_BRANCH_OFF_BIT)
+    ;
+  REG32(SDCC1_AHB_CBCR) = CBCR_BRANCH_ENABLE_BIT;
+  while (REG32(SDCC1_AHB_CBCR) & CBCR_BRANCH_OFF_BIT)
+    ;
+
   /* 3. Clear command and data state machines (original does this at
    *    FUN_08034704 lines 2711-2714 before any clock/status config) */
   MCI_REG(slot, MCI_CMD) = 0;
@@ -205,9 +216,21 @@ void sdcc_pre_init_slot(int slot)
   MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
   MCI_REG(slot, MCI_INT_MASK0) = 0;
 
-  /* 5. Power on: MCI_POWER = 0x03 (PWR_ON | PWR_UP) */
-  MCI_REG(slot, MCI_POWER) = 0x03;
+  /* 5. Power sequence: OFF → UP → ON with delays.
+   *    Standard PL180 requires stepping through power states.
+   *    LK writes 0x03 directly, but has clock_init/config between
+   *    SW_RST and POWER (providing implicit ramp time).
+   *    Writing 0x03 directly after SW_RST reads back 0x01 (ramp incomplete).
+   *    Step through each state with delay to let voltage stabilize. */
+  MCI_REG(slot, MCI_POWER) = 0x00;   /* power off */
   sdcc_enable_clock(slot);
+  delay_us(1000);
+  MCI_REG(slot, MCI_POWER) = 0x02;   /* power up (Vcc ramp) */
+  sdcc_enable_clock(slot);
+  delay_us(1000);
+  MCI_REG(slot, MCI_POWER) = 0x03;   /* power on (Vcc stable) */
+  sdcc_enable_clock(slot);
+  delay_us(1000);
 
   /* 6. Configure MCI_CLK:
    *    - bit 8:  CLK_ENABLE (clock output to card)
