@@ -1,0 +1,17 @@
+{
+    "arch": "arm",
+    "data-layout": "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+    "emit-debug-gdb-scripts": false,
+    "env": "eabi",
+    "features": "+v7,+thumb2,+soft-float,-neon,-d32",
+    "linker": "arm-none-eabi-ld",
+    "linker-flavor": "gnu",
+    "llvm-target": "thumbv7a-none-eabi",
+    "max-atomic-width": 32,
+    "os": "none",
+    "panic-strategy": "abort",
+    "relocation-model": "static",
+    "target-pointer-width": 32,
+    "llvm-floatabi": "soft",
+    "vendor": "unknown"
+}
