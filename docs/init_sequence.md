@@ -297,27 +297,37 @@ The SDCC controller at `0x07824000` has two parallel register interfaces:
 - **MCI** (legacy PL180) at base+0x000 — selected by `MCI_HC_MODE` bit 0 = 0
 - **SDHCI** (standard host controller) at base+0x900 — selected by bit 0 = 1
 
-The **original** firehose programmer uses SDHCI mode: `mmc_init_card` (FUN_08034704)
-enables SDHCI via `sdcc_set_bus_width_bit(slot, 1)`, then all command dispatch goes
-through SDHCI registers (HC_CMD, HC_NRML_INT_STS, HC_RESP).
+The **original** firehose programmer (FUN_08034704) uses both interfaces:
+it enables SDHCI mode (`HC_MODE |= 1`), performs an SDHCI Software Reset
+(SDHCI+0x2F) to initialize the command engine, configures SDHCI vendor
+registers, then sends commands via MCI registers in `mmc_classify_error`.
 
-The **minimal** programmer uses MCI legacy mode: `sdcc_pre_init_slot` clears
-HC_MODE bit 0, following LK's `mmc_boot_init()`. Our command dispatch functions
-(`sdcc_pre_cmd_hook`, `sdcc_cleanup`, `sdcc_setup_data_xfer`) use MCI registers
+The **minimal** programmer uses the same approach: SDHCI reset for hardware
+init, then MCI mode for command dispatch.  Our `sdcc_pre_cmd_hook`,
+`sdcc_cleanup`, and `sdcc_setup_data_xfer` all use MCI registers
 (MCI_CMD, MCI_STATUS, MCI_RESP_0).
 
-MCI controller init sequence (in `sdcc_pre_init_slot`):
-1. Disable SDHCI mode (`MCI_HC_MODE &= ~1`)
-2. Software reset (`MCI_POWER |= 0x80`)
-3. Clear MCI_CMD and MCI_DATA_CTL
-4. Clear status, disable interrupts
-5. Power on (`MCI_POWER = 0x03`)
-6. Configure MCI_CLK: CLK_ENABLE(8), feedback(15), vendor bit(21)
-7. Clear vendor status bit 22
+SDCC init sequence (in `sdcc_pre_init_slot`):
+1. TLMM/SDCC pad config (0x0110a000, 0x01111000)
+2. Init qtimer
+3. Enable SDHCI mode (`MCI_HC_MODE |= 1`)
+4. SDHCI Software Reset (write 1 to SDHCI_BASE+0x2F, poll until clear)
+   — This properly initializes the command engine.
+   — WARNING: clears MCI registers (POWER, CLK, etc.) to defaults.
+5. Switch back to MCI mode (`MCI_HC_MODE &= ~1`)
+6. Clear MCI_CMD and MCI_DATA_CTL
+7. Clear status, disable interrupts
+8. Configure MCI_CLK: CLK_ENABLE(8), FLOW_ENA(12), feedback(15), vendor(21)
+9. MCI_POWER |= 1 (bit 0 only — matches original, NOT 0x03)
 
 `mmc_init_card` is bypassed via `init_state=1` — its SDHCI setup code has been
 removed from the minimal build. Card identification is handled by `mmc_classify_error`
 (CMD0→CMD1→CMD2→CMD3→CMD9→CMD7→CMD16), which uses MCI registers throughout.
+
+Key findings:
+- MCI-mode SW_RST (POWER bit 7) does NOT properly initialize the command engine.
+- MCI commands don't work with HC_MODE[0]=1 — CMD_ACTIVE stays stuck.
+- The SDHCI reset is essential even for MCI-mode operation (shared command engine).
 
 ## Summary: What Could Block the Minimal Programmer
 

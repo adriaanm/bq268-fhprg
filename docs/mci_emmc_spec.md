@@ -58,9 +58,12 @@ Base address: `0x07824000` (SDCC1). All offsets are from the MCI core base.
 | 6    | OPEN_DRAIN | Open-drain CMD line (for card identification) |
 | 7    | SW_RST     | Core software reset (QC extension) |
 
-**Power sequence**: Write 0x80 (SW_RST), wait, then write 0x03 (power-on).
+**Power sequence**: The original firehose programmer sets MCI_POWER |= 1 (bit 0
+only, NOT 0x03).  MCI-mode SW_RST (bit 7) does NOT properly initialize the
+command engine — use SDHCI Software Reset (SDHCI_BASE+0x2F) instead.
+Note: the SDHCI reset clears MCI_POWER to 0, so set bit 0 AFTER the reset.
 
-LK does NOT use OPEN_DRAIN. The original firehose sets bit 0 (OPEN_DRAIN) during
+LK does NOT use OPEN_DRAIN. The original firehose sets bit 0 during
 card identification, then clears it after CMD7 select.
 
 ### MCI_CLK (0x004)
@@ -201,32 +204,35 @@ Then `mmc_boot_mci_clk_enable()` (called before first command):
 
 ### Our Current Code (`sdcc_pre_init_slot`)
 
-Steps 1-4 match LK. Steps 5-6 done in entry.S (`sdcc_clock_init`).
-Then we deviate:
+We don't follow LK's MCI-mode init.  Instead, we match the original firehose
+programmer's approach: SDHCI reset for hardware init, then MCI mode for commands.
 
 ```
- MCI_CMD = 0                     — explicit CPSM clear (LK doesn't do this)
- MCI_DATA_CTL = 0                — explicit DPSM clear (LK doesn't do this)
- MCI_CLEAR = 0x18007FF           — clear all status (LK doesn't do this)
- MCI_INT_MASK0 = 0               — disable interrupts (LK doesn't do this)
- MCI_POWER = 0x03                — power on (matches LK)
- MCI_CLK = 0x208100              — CLK_ENABLE + FEEDBACK + vendor bit 21
-                                   (MISSING: FLOW_ENA bit 12!)
+ HC_MODE |= 1                    — enable SDHCI interface
+ SDHCI+0x2F = 1 (poll)           — SDHCI Software Reset (initializes command engine)
+ HC_MODE &= ~1                   — switch back to MCI mode for command dispatch
+ MCI_CMD = 0                     — clear CPSM
+ MCI_DATA_CTL = 0                — clear DPSM
+ MCI_CLEAR = 0x18007FF           — clear all status
+ MCI_CLK = 0x209100              — CLK_ENABLE + FLOW_ENA + FEEDBACK + vendor bit 21
+ MCI_INT_MASK0 = 0               — disable interrupts
+ MCI_POWER |= 1                  — bit 0 only (matches original, NOT 0x03)
 ```
 
-### What's Different (potential issues)
+### Key Design Decisions
 
-1. **Missing FLOW_ENA (bit 12)**: LK sets `MMC_BOOT_MCI_CLK_ENA_FLOW` (0x1000)
-   in `mmc_boot_mci_clk_enable()`. Our init never sets it. Without flow control,
-   FIFO overruns during data transfers can silently corrupt data.
+1. **SDHCI reset, not MCI SW_RST**: The MCI-mode software reset (POWER bit 7)
+   does not properly initialize the command engine.  The SDHCI Software Reset
+   at SDHCI_BASE+0x2F does.  Both interfaces share the same hardware.
 
-2. **Extra MCI_CMD/MCI_DATA_CTL clears**: Not harmful, but the SW_RST should
-   already reset these. These extra writes just add sdcc_enable_clock() delays.
+2. **MCI config after SDHCI reset**: The SDHCI reset clears MCI registers
+   (POWER, CLK, etc.) to defaults.  All MCI configuration must come after.
 
-3. **LK calls `clock_init_mmc()` between SW_RST and power-on**: This ensures
-   the GCC clocks are fully configured before the MCI core starts. Our SDCC
-   clock init happens earlier in entry.S, before the MCI controller is touched.
-   This should be equivalent since entry.S runs first.
+3. **HC_MODE must be cleared for MCI commands**: With HC_MODE[0]=1 (SDHCI),
+   MCI commands start (CMD_ACTIVE set) but never complete.  Must switch back
+   to MCI mode before sending commands through MCI registers.
+
+4. **FLOW_ENA (bit 12) is set**: Hardware flow control prevents FIFO overrun.
 
 ---
 

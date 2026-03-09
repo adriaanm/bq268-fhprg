@@ -77,13 +77,18 @@ register interfaces** for the same hardware, selected by `MCI_HC_MODE` bit 0:
 registers (HC_CMD, HC_NRML_INT_STS, HC_RESP). When bit 0 = 0, commands must go
 through MCI registers (MCI_CMD, MCI_STATUS, MCI_RESP_0).
 
-The **original firehose programmer** (FUN_08034704) always enables SDHCI mode.
-Its `sdcc_send_cmd` uses SDHCI registers for command dispatch.
+The **original firehose programmer** (FUN_08034704) enables SDHCI mode for
+hardware init (SDHCI Software Reset at +0x2F), then sends commands via MCI
+registers in `mmc_classify_error`.
 
-The **minimal programmer** uses MCI legacy mode because our decompiled command
-dispatch functions (`sdcc_pre_cmd_hook`, `sdcc_cleanup`, `sdcc_setup_data_xfer`)
-operate on MCI registers. `sdcc_pre_init_slot` explicitly clears HC_MODE bit 0
-and follows LK's `mmc_boot_init()` for MCI-mode controller setup.
+The **minimal programmer** uses the same approach: `sdcc_pre_init_slot` enables
+SDHCI mode, performs the SDHCI Software Reset to initialize the command engine,
+then switches back to MCI mode (`HC_MODE &= ~1`) for command dispatch.  Our
+decompiled command functions (`sdcc_pre_cmd_hook`, `sdcc_cleanup`,
+`sdcc_setup_data_xfer`) all operate on MCI registers.
+
+Note: the SDHCI Software Reset clears MCI registers (POWER, CLK, etc.) to
+defaults, so all MCI configuration must come **after** the reset.
 
 SDHCI-mode functions in `sdcc_regs.c` and `sdcc_helpers.c` are retained from the
 decompiled original but are clearly marked as unused. `mmc_init_card`'s SDHCI

@@ -139,24 +139,26 @@ void sdcc_clock_init(void)
   sdcc_enable_slot(0, 1);
 }
 
-/* sdcc_pre_init_slot — initialize SDCC MCI controller and set up data structures.
+/* sdcc_pre_init_slot — initialize SDCC controller and set up data structures.
  *
- * In EDL mode, PBL loads the programmer over USB and never touches eMMC.
- * We must initialize the MCI controller from scratch.
+ * In EDL mode, PBL loads the programmer over USB and never touches SDCC/eMMC.
+ * We must initialize the controller from power-on-reset state.
  *
- * The original binary (FUN_08034704 at 0x08034704) always does full SDHCI-mode
- * init — FUN_0803460c (the MCI-mode path) is dead code behind `if (true)`.
- * Our command dispatch uses MCI registers, so we follow LK's mmc_boot_init()
- * for MCI-mode setup, augmented with the original's register writes:
+ * The original binary (FUN_08034704) does: TLMM pad config → MCI register
+ * config → HC_MODE |= 1 → SDHCI Software Reset → SDHCI vendor config.
+ * Then mmc_classify_error reconfigures MCI_POWER/MCI_CLK before CMD0/CMD1.
  *
- *   1. Disable SDHCI mode (MCI_HC_MODE bit 0 = 0)
- *   2. Software reset (MCI_POWER bit 7)
- *   3. Clear MCI_CMD and MCI_DATA_CTL (original lines 2711-2714)
- *   4. Clear status, disable interrupts
- *   5. Power on (MCI_POWER = 0x03)
- *   6. Configure MCI_CLK: CLK_ENABLE(8), feedback(15), vendor bit(21)
- *   7. Clear vendor status bit 22
- *   8. Init qtimer
+ * Our sequence (reordered so MCI config survives the reset):
+ *   1. TLMM/SDCC pad config (original: FUN_08032b0c)
+ *   2. Init qtimer
+ *   3. HC_MODE |= 1 (enable SDHCI interface)
+ *   4. SDHCI Software Reset (SDHCI+0x2F) — initializes command engine
+ *      NOTE: this clears MCI registers (POWER, CLK, etc.) to defaults
+ *   5. HC_MODE &= ~1 (switch back to MCI for our command dispatch)
+ *   6. Clear MCI_CMD and MCI_DATA_CTL
+ *   7. Configure MCI_CLK: CLK_ENABLE(8), FLOW_ENA(12), feedback(15), vendor(21)
+ *   8. Clear status, disable interrupts
+ *   9. MCI_POWER |= 1 (bit 0 only, matching original)
  *
  * Sets init_state=1 so mmc_init_card skips its SDHCI path.
  * Leaves card_type=0 so mmc_open_device falls through to mmc_classify_error
@@ -174,17 +176,9 @@ void sdcc_pre_init_slot(int slot)
 
   /* --- SDCC controller init ---
    *
-   * Match the original binary's sequence (FUN_08034704 lines 2704-2735).
-   * PBL loads us via USB/Sahara — it never touches SDCC/eMMC, so we init
-   * from power-on-reset state.
-   *
-   * The original does:
-   *   1. TLMM pad config
-   *   2. MCI register config (gets wiped by step 4)
-   *   3. HC_MODE |= 1 (enable SDHCI)
-   *   4. SDHCI Software Reset (clears MCI registers!)
-   *   5. SDHCI vendor register config
-   *   6. mmc_classify_error reconfigures MCI before CMD0/CMD1
+   * Derived from the original binary (FUN_08034704 lines 2704-2735),
+   * reordered so MCI config comes after the SDHCI reset (which clears
+   * MCI registers).  See function header comment for full sequence.
    *
    * We reorder: do SDHCI reset first, then configure MCI registers,
    * so diagnostic CMD0/CMD1 work immediately after init.
