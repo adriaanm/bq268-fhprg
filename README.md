@@ -1,8 +1,7 @@
 # bq268-edl-diag
 
-**This is untested, work-in-progress research software.** It targets a single
-device (BQ268/ABBREE GP-268, MSM8909) and has never been validated outside of that
-context. Use at your own risk. The authors accept no liability for bricked
+This works on my particular device (BQ268/ABBREE GP-268, MSM8909), but has never been 
+validated outside of that context. The authors accept no liability for bricked
 devices, lost data, or any other outcome.
 
 ## What this is
