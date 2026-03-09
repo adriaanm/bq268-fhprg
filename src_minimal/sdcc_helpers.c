@@ -4,6 +4,11 @@
  * wrappers (in sdcc_regs.c). They handle data transfer setup, DMA
  * configuration, FIFO writes, busy-waits, and post-write cleanup.
  *
+ * All functions in the active path use MCI registers only (MCI legacy mode).
+ * Three SDHCI-mode functions (sdcc_fifo_write, sdcc_dma_setup,
+ * sdcc_wait_complete) are retained from the decompiled original but are
+ * never called — they are behind ADMA/SDHCI code paths we don't take.
+ *
  * Source: src/fhprg/fhprg_80327f8.c, src/fhprg/fhprg_8007b18.c
  *
  * Register bases (per slot, initialized by sdcc_init_bases):
@@ -248,7 +253,9 @@ uint sdcc_post_write_cleanup(mmc_dev_t *dev, int need_busy, int need_stop)
   return ret;
 }
 
-/* orig: 0x08034314 sdcc_fifo_write — transfer one or more blocks through
+/* SDHCI-mode only — NOT called in our MCI-mode active path.
+ *
+ * orig: 0x08034314 sdcc_fifo_write — transfer one or more blocks through
  * the SDHCI data buffer port (PIO via SDHCI, not via MCI FIFO).
  *
  * dev        — pointer to mmc_dev_t device struct; dev[0] = slot index
@@ -332,7 +339,9 @@ int sdcc_fifo_write(mmc_dev_t *dev, mmc_cmd_t *cmd, uint *buf, uint byte_count)
 static byte adma_desc_table[128 * 8]
     __attribute__((section(".ddr_bss"), aligned(32)));
 
-/* orig: 0x080343c0 sdcc_dma_setup — build an ADMA2 descriptor table for a
+/* SDHCI-mode only — NOT called in our MCI-mode active path.
+ *
+ * orig: 0x080343c0 sdcc_dma_setup — build an ADMA2 descriptor table for a
  * data transfer and program the SDHCI ADMA address registers.
  *
  * slot       — SDCC slot index (0 or 1)
@@ -402,7 +411,9 @@ uint sdcc_dma_setup(int slot, uint buf_phys, uint byte_count)
   return 0;
 }
 
-/* orig: 0x0803456c sdcc_wait_complete — poll SDHCI normal interrupt status
+/* SDHCI-mode only — NOT called in our MCI-mode active path.
+ *
+ * orig: 0x0803456c sdcc_wait_complete — poll SDHCI normal interrupt status
  * register (+0x30) for a completion or error condition.
  *
  * slot       — SDCC slot index (0 or 1)

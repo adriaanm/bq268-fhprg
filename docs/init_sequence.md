@@ -291,6 +291,34 @@ framework with RCG configuration, MND dividers, and branch enables.
 This configures SDCC1 at CXO rate (19.2 MHz) which is correct for initial
 eMMC enumeration. Higher speeds are configured later by the eMMC driver.
 
+## SDCC Register Architecture (MCI vs SDHCI)
+
+The SDCC controller at `0x07824000` has two parallel register interfaces:
+- **MCI** (legacy PL180) at base+0x000 — selected by `MCI_HC_MODE` bit 0 = 0
+- **SDHCI** (standard host controller) at base+0x900 — selected by bit 0 = 1
+
+The **original** firehose programmer uses SDHCI mode: `mmc_init_card` (FUN_08034704)
+enables SDHCI via `sdcc_set_bus_width_bit(slot, 1)`, then all command dispatch goes
+through SDHCI registers (HC_CMD, HC_NRML_INT_STS, HC_RESP).
+
+The **minimal** programmer uses MCI legacy mode: `sdcc_pre_init_slot` clears
+HC_MODE bit 0, following LK's `mmc_boot_init()`. Our command dispatch functions
+(`sdcc_pre_cmd_hook`, `sdcc_cleanup`, `sdcc_setup_data_xfer`) use MCI registers
+(MCI_CMD, MCI_STATUS, MCI_RESP_0).
+
+MCI controller init sequence (in `sdcc_pre_init_slot`):
+1. Disable SDHCI mode (`MCI_HC_MODE &= ~1`)
+2. Software reset (`MCI_POWER |= 0x80`)
+3. Clear MCI_CMD and MCI_DATA_CTL
+4. Clear status, disable interrupts
+5. Power on (`MCI_POWER = 0x03`)
+6. Configure MCI_CLK: CLK_ENABLE(8), feedback(15), vendor bit(21)
+7. Clear vendor status bit 22
+
+`mmc_init_card` is bypassed via `init_state=1` — its SDHCI setup code has been
+removed from the minimal build. Card identification is handled by `mmc_classify_error`
+(CMD0→CMD1→CMD2→CMD3→CMD9→CMD7→CMD16), which uses MCI registers throughout.
+
 ## Summary: What Could Block the Minimal Programmer
 
 If the minimal programmer gets stuck between DDR init and main():

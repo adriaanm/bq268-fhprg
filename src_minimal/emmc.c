@@ -1,11 +1,13 @@
-/* emmc.c — eMMC/SDCC driver layer.
+/* emmc.c — eMMC/SDCC driver layer (MCI legacy mode).
  *
- * This is the critical layer for understanding writes. The write path is:
- *   handle_program -> storage_write_sectors -> mmc_write_sectors ->
- *   sdcc_write_data -> sdcc_send_cmd
+ * All command dispatch and data transfer uses MCI registers exclusively
+ * (HC_MODE bit 0 = 0).  See sdcc_regs.c header for register architecture.
+ *
+ * Write path: mmc_write_sectors -> sdcc_write_data -> sdcc_send_cmd
+ * Read path:  mmc_read_blocks  -> sdcc_write_data -> sdcc_send_cmd
  *
  * SDCC = Secure Digital Card Controller (Qualcomm's SD/eMMC controller IP).
- * Commands follow the eMMC JEDEC spec (CMD0, CMD6, CMD24, CMD25, etc.).
+ * Commands follow the eMMC JEDEC spec (CMD0, CMD6, CMD17, CMD24, etc.).
  *
  * Source: src/fhprg/fhprg_80327f8.c
  */

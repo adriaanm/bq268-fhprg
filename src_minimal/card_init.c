@@ -99,12 +99,6 @@ static void sdcc_qtimer_init(void);
 
 /* ---- Simple utility functions ---- */
 
-/* orig: 0x08032acc — get ADMA transfer mode (always 0x20 = ADMA2) */
-static uint sdcc_get_adma_mode(void)
-{
-  return 0x20;
-}
-
 /* orig: 0x08032ad0 — get max clock speed for slot */
 static uint sdcc_get_max_clock(int slot)
 {
@@ -781,69 +775,31 @@ mmc_handle_t *mmc_alloc_handle(short slot, int partition_idx)
 }
 
 
-/* orig: 0x08034704 mmc_init_card — full card init with identification */
+/* orig: 0x08034704 mmc_init_card — card initialization entry point.
+ *
+ * Called by mmc_open_device.  In the original binary, this does full SDHCI-mode
+ * controller setup (HC_MODE=1, RESET_ALL, capabilities, interrupts, 8-bit bus).
+ * We bypass all of that via init_state=1 (set by sdcc_pre_init_slot), since our
+ * command dispatch uses MCI registers which require MCI legacy mode (HC_MODE=0).
+ *
+ * The full SDHCI init code from the original (FUN_08034704 lines 2696-2746) has
+ * been removed — see git history or src/fhprg/fhprg_80327f8.c for reference.
+ */
 uint mmc_init_card(int slot)
 {
-  uint max_clk = 0;
   int *ctx = (int *)mmc_get_slot_context(slot);
 
   if (ctx == NULL)
     return 0;
 
-  ctx[0x27] = (int)ctx;
-  mmc_dev_t *dev = (mmc_dev_t *)(ctx + 3);
-  bool identified = *(char *)((int)ctx + 0x15) == 1;
-  do {
-    if (identified) goto done;
-    identified = true;
-  } while (*(char *)((int)ctx + 0x15) == 2);
+  ctx[0x27] = (int)ctx;  /* self-pointer for hotplug descriptor */
 
-  if ((char)ctx[1] == 0) {
-    memset_zero(dev, 0x94);
-    dev->slot = slot;
-    ctx[0x27] = (int)ctx;
-    *ctx = slot;
-    *(uint8_t *)(ctx + 1) = 1;
-    *(uint8_t *)(ctx + 0x26) = 0;  /* init_flag = 0 (original: FUN_0803460c line 2638 writes 0, not 1) */
-  }
-  sdcc_enable_slot(slot, 1);
-  sdcc_qtimer_init();
-  max_clk = sdcc_get_max_clock(slot);
-  sdcc_clock_setup(slot, &max_clk, 4);
-  mmc_set_bus_width(dev, 5, 0, 0);
-  delay_us(1000);
-  sdcc_init_bases();
-  MCI_REG(slot, MCI_CMD) = 0;
-  sdcc_enable_clock(slot);
-  MCI_REG(slot, MCI_DATA_CTL) = 0;
-  sdcc_enable_clock(slot);
-  MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
-  MCI_REG(slot, MCI_CLK) = MCI_REG(slot, MCI_CLK) | 0x200000;
-  MCI_REG(slot, MCI_CLK) = MCI_REG(slot, MCI_CLK) & 0xfffff3ff;
-  sdcc_enable_clock(slot);
-  MCI_REG(slot, MCI_CLEAR) = 0x400000;
-  MCI_REG(slot, MCI_INT_MASK0) = 0;
-  dev->slot = slot;
-  *(uint8_t *)((int)ctx + SLOT_CTX_INIT_STATE) = 1;
-  int adma_mode = sdcc_get_adma_mode();
-  ctx[0x19] = 1;
-  ctx[0x25] = adma_mode;
-  MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 1;
-  sdcc_enable_clock(slot);
-  sdcc_set_bus_width_bit(slot, 1);
-  sdcc_reset_data_line(slot, 1);
-  sdcc_setup_caps(slot);
-  sdcc_read_caps(slot, (uint *)(ctx + 0x2d));
-  sdcc_set_int_enable(slot, 0x7ff003f, 0);
-  sdcc_set_int_signal(slot, 0x7ff003f, 1);
-  sdcc_clear_status(slot, 0x7ff003f);
-  *(byte *)((int)ctx + 0x99) = (byte)((uint)(ctx[0x2e] << 0x1d) >> 0x1f);
-  bool no_8bit = -1 < ctx[0x2d] << 0xc;
-  if (no_8bit)
-    *(uint8_t *)((int)ctx + 0x9a) = 0;
-  else
-    *(uint8_t *)((int)ctx + 0x9a) = 1;
-  sdcc_set_8bit_mode(slot, !no_8bit);
-done:
-  return 1;
+  /* sdcc_pre_init_slot sets init_state=1.  Return immediately. */
+  if (*(char *)((int)ctx + 0x15) == 1 || *(char *)((int)ctx + 0x15) == 2)
+    return 1;
+
+  /* init_state is 0 — should not happen if sdcc_pre_init_slot was called.
+   * Return failure rather than falling into SDHCI init that would break
+   * our MCI-mode command dispatch. */
+  return 0;
 }

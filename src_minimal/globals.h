@@ -99,13 +99,16 @@ extern uint sdcc_hc_base_alt[2];   /* SDCC SDHCI host-controller base (alt) [slo
 #define MCI_FIFO_COUNT  0x44
 #define MCI_VERSION     0x50
 #define MCI_STATUS2     0x6C
-#define MCI_HC_MODE     0x78
+#define MCI_HC_MODE     0x78   /* bit 0: SDHCI mode enable (1=SDHCI, 0=MCI legacy) */
 #define MCI_FIFO        0x80
 #define MCI_PLL_STATUS  0xDC
 #define MCI_PLL_DIVIDER 0xE4
 #define MCI_PLL_MODE    0xE8
 
-/* SDHCI HC register offsets (from sdcc_hc_base[slot]) */
+/* SDHCI HC register offsets (from sdcc_hc_base[slot]).
+ * NOT USED in the minimal programmer — we operate in MCI legacy mode
+ * (MCI_HC_MODE bit 0 = 0).  These definitions are retained for the
+ * decompiled reference code in mmc_init_card (which is bypassed). */
 #define HC_BLKSZ        0x04
 #define HC_BLK_CNT      0x06
 #define HC_ARGUMENT      0x08

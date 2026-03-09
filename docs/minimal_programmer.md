@@ -63,6 +63,32 @@ Address         Region              Size        Content
 0x80000000      DDR                 128 MB      Working memory (NOLOAD)
 ```
 
+### SDCC Register Architecture
+
+The Qualcomm SDCC (SD Card Controller) at `0x07824000` exposes **two parallel
+register interfaces** for the same hardware, selected by `MCI_HC_MODE` bit 0:
+
+| Interface | Base Address | HC_MODE bit 0 | Used by |
+|-----------|-------------|---------------|---------|
+| MCI (legacy PL180) | `0x07824000` (+0x000) | 0 | **Minimal programmer** |
+| SDHCI (standard) | `0x07824900` (+0x900) | 1 | Original firehose binary |
+
+**You cannot mix them** — when HC_MODE bit 0 = 1, commands must go through SDHCI
+registers (HC_CMD, HC_NRML_INT_STS, HC_RESP). When bit 0 = 0, commands must go
+through MCI registers (MCI_CMD, MCI_STATUS, MCI_RESP_0).
+
+The **original firehose programmer** (FUN_08034704) always enables SDHCI mode.
+Its `sdcc_send_cmd` uses SDHCI registers for command dispatch.
+
+The **minimal programmer** uses MCI legacy mode because our decompiled command
+dispatch functions (`sdcc_pre_cmd_hook`, `sdcc_cleanup`, `sdcc_setup_data_xfer`)
+operate on MCI registers. `sdcc_pre_init_slot` explicitly clears HC_MODE bit 0
+and follows LK's `mmc_boot_init()` for MCI-mode controller setup.
+
+SDHCI-mode functions in `sdcc_regs.c` and `sdcc_helpers.c` are retained from the
+decompiled original but are clearly marked as unused. `mmc_init_card`'s SDHCI
+setup is bypassed via `init_state=1`.
+
 ### PBL Page Table (TTBR0 = 0x00200000)
 
 L1 section descriptors dumped from hardware via diag console. PBL sets
@@ -133,10 +159,10 @@ See `docs/init_sequence.md` for full hardware init details.
 
 | File | Purpose |
 |------|---------|
-| `card_init.c` | eMMC card initialization (CMD0/1/2/3/7/8, bus width, speed) |
-| `emmc.c` | eMMC read/write/erase, **WP check removed** |
-| `sdcc_helpers.c` | SDCC controller helpers (clock config, reset, FIFO) |
-| `sdcc_regs.c` | SDCC register base address table |
+| `card_init.c` | MCI controller init, eMMC card identification (CMD0/1/2/3/7/8) |
+| `emmc.c` | eMMC read/write/erase via MCI registers, **WP check removed** |
+| `sdcc_helpers.c` | MCI data transfer (PIO FIFO read/write, command hooks) |
+| `sdcc_regs.c` | SDCC register access (MCI active path + SDHCI reference code) |
 | `storage.c` | Partition management, storage context |
 | `platform.c` | Platform/board detection stubs |
 | `globals.c` | Global variables |

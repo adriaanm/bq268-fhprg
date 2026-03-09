@@ -1,9 +1,18 @@
 /* sdcc_regs.c — SDCC controller MMIO register access wrappers.
  *
- * The Qualcomm SDCC controller exposes two distinct register windows per slot:
+ * The Qualcomm SDCC (SD Card Controller) exposes two distinct register
+ * interfaces per slot, selected by MCI_HC_MODE bit 0:
  *
- *   sdcc_mci_base[slot]  MCI core base  (slot 0 = 0x07824000, slot 1 = 0x07864000)
- *   sdcc_hc_base[slot]  SDHCI HC base  (slot 0 = 0x07824900, slot 1 = 0x07864900)
+ *   MCI (legacy)  sdcc_mci_base[slot]  (slot 0 = 0x07824000)  — HC_MODE bit 0 = 0
+ *   SDHCI         sdcc_hc_base[slot]   (slot 0 = 0x07824900)  — HC_MODE bit 0 = 1
+ *
+ * The minimal programmer uses MCI legacy mode exclusively.  All command
+ * dispatch (sdcc_pre_cmd_hook, sdcc_cleanup, sdcc_setup_data_xfer) and
+ * data transfer (sdcc_adma_transfer, sdcc_pio_transfer) use MCI registers.
+ *
+ * The original firehose programmer uses SDHCI mode.  The SDHCI functions
+ * below are retained from the decompiled code but are NOT called in our
+ * active path — mmc_init_card's SDHCI setup is bypassed via init_state=1.
  *
  * MCI core registers (offsets from sdcc_mci_base[slot]):
  *   +0x00  MCI_POWER
@@ -32,7 +41,7 @@
  *   +0x44  MCI_FIFO_COUNT
  *   +0x50  MCI_VERSION
  *   +0x6C  MCI_STATUS2          — bit 0: clock-stable / internal clock ready
- *   +0x78  MCI_HC_MODE          — bit 0: 8-bit bus width enable
+ *   +0x78  MCI_HC_MODE          — bit 0: SDHCI mode enable (1=SDHCI, 0=MCI legacy)
  *   +0x80  MCI_FIFO             — data FIFO
  *   +0xDC  (PLL status latch)
  *   +0xE4  (PLL divider latch)
@@ -213,6 +222,13 @@ void sdcc_enable_clock(int slot)
       return;
   }
 }
+
+/*========================================================================
+ * SDHCI-mode register functions (NOT used in our MCI-mode active path).
+ *
+ * These are retained from the decompiled original (which uses SDHCI mode)
+ * for reference and for mmc_init_card's bypassed SDHCI setup.
+ *========================================================================*/
 
 /* orig: 0x0800be44 sdcc_read_present — read NRML_INT_STS_REG (HC+0x30).
  *
@@ -805,26 +821,30 @@ void sdcc_set_voltage(int slot, uint8_t voltage)
        (HC_REG8(slot, HC_PWR_CTRL) & 0xf1) | voltage;
 }
 
+/*========================================================================
+ * MCI-mode register functions (used in our active path).
+ *========================================================================*/
+
 /* orig: 0x0800bc64 sdcc_set_bus_width_bit — set or clear bit 0 of MCI_HC_MODE (MCI+0x78).
  *
- * MCI_HC_MODE bit 0: bus-width override for the legacy MCI interface.
- *   0 = 1-bit bus width (legacy default)
- *   1 = 8-bit bus width (eMMC wide bus mode)
+ * MCI_HC_MODE bit 0 selects the active register interface:
+ *   0 = MCI legacy mode  (command dispatch via MCI_CMD/MCI_STATUS/MCI_RESP)
+ *   1 = SDHCI mode       (command dispatch via HC_CMD/HC_NRML_INT_STS/HC_RESP)
  *
- * This is distinct from sdcc_set_8bit_mode() which sets the SDHCI
- * HOST_CTRL1_REG bit — both registers must agree for correct operation.
+ * The original binary calls this with enable=1 during mmc_init_card to
+ * switch to SDHCI mode.  The minimal programmer keeps bit 0 = 0 (MCI mode)
+ * and never calls this function.
  *
- * MCI_HC_MODE = MCI core base + 0x78
+ * Despite its name, this function does NOT control bus width — bus width is
+ * set via MCI_CLK bits 11:10 (MCI mode) or HC_HOST_CTRL1 (SDHCI mode).
  */
 void sdcc_set_bus_width_bit(int slot, int enable)
 {
-  uint val = MCI_REG(slot, MCI_HC_MODE);  /* MCI_HC_MODE */
-  if (enable == 1) {
-    val = val | 1;           /* bit 0: 8-bit bus width */
-  }
-  else {
-    val = val & 0xfffffffe;  /* bit 0: 1-bit bus width */
-  }
+  uint val = MCI_REG(slot, MCI_HC_MODE);
+  if (enable == 1)
+    val = val | 1;           /* enable SDHCI mode */
+  else
+    val = val & 0xfffffffe;  /* enable MCI legacy mode */
   MCI_REG(slot, MCI_HC_MODE) = val;
 }
 
