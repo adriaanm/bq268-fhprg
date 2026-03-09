@@ -33,10 +33,10 @@ make clean      # Clean build artifacts
 
 ```bash
 # Upload programmer and open interactive console
-uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn
+uv run tools/usb_diag.py --flash target/bq268_edl_diag.mbn
 
 # Upload and flash a partition image (verified)
-uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --flash-partition aboot aboot.bin
+uv run tools/usb_diag.py --flash target/bq268_edl_diag.mbn --flash-partition aboot aboot.bin
 ```
 
 ## Console Commands

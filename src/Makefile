@@ -1,4 +1,4 @@
-# Makefile for Rust minimal programmer
+# Makefile for bq268-edl-diag
 #
 # Builds Rust staticlib + assembly, links into ELF, wraps with MBN.
 
@@ -9,18 +9,21 @@ OBJCOPY  = arm-none-eabi-objcopy
 # Use GCC to preprocess+assemble (entry.S includes msm8909.h)
 ASFLAGS  = -c -march=armv7-a -mthumb -mfloat-abi=soft -I ../archive/src_minimal
 
+# All build output goes to ../target
+export CARGO_TARGET_DIR := ../target
+OUTDIR   = ../target
+
 # Rust staticlib output
-RUST_LIB = target/thumbv7a-none-eabi/release/libbq268_edl_diag.a
+RUST_LIB = $(OUTDIR)/thumbv7a-none-eabi/release/libbq268_edl_diag.a
 
 # Assembly sources
 ASM_SRCS = entry.S ddr_blob.S ddr_config.S
-ASM_OBJS = $(addprefix tmp/,$(ASM_SRCS:.S=.o))
+ASM_OBJS = $(addprefix $(OUTDIR)/,$(ASM_SRCS:.S=.o))
 
 # Output
-OUTDIR   = tmp
-ELF      = $(OUTDIR)/minimal_rust.elf
-BIN      = $(OUTDIR)/minimal_rust.bin
-MBN      = $(OUTDIR)/minimal_rust.mbn
+ELF      = $(OUTDIR)/bq268_edl_diag.elf
+BIN      = $(OUTDIR)/bq268_edl_diag.bin
+MBN      = $(OUTDIR)/bq268_edl_diag.mbn
 
 LDSCRIPT = minimal.ld
 MBN_WRAP = ../tools/mbn_wrap.py
@@ -57,5 +60,5 @@ $(MBN): $(ELF)
 	python3 $(MBN_WRAP) $< $@
 
 clean:
-	rm -rf $(OUTDIR)
+	rm -f $(ASM_OBJS) $(ELF) $(BIN) $(MBN)
 	cargo clean

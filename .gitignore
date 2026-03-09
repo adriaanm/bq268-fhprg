@@ -3,8 +3,8 @@
 *.mbn
 
 # Build artifacts
+target/
 tmp/
-src/target/
 
 # Python
 __pycache__/

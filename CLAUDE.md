@@ -18,10 +18,10 @@ make            # Build MBN-wrapped ELF for Sahara upload
 make clean      # Clean build artifacts
 
 # Flash programmer and open interactive console
-uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn
+uv run tools/usb_diag.py --flash target/bq268_edl_diag.mbn
 
 # Verified flash a partition
-uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --flash-partition aboot aboot.bin
+uv run tools/usb_diag.py --flash target/bq268_edl_diag.mbn --flash-partition aboot aboot.bin
 ```
 
 ## Key Files
