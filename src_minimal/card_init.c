@@ -184,9 +184,15 @@ void sdcc_pre_init_slot(int slot)
   MCI_REG(slot, MCI_HC_MODE) = MCI_REG(slot, MCI_HC_MODE) & ~1u;
   sdcc_enable_clock(slot);
 
-  /* 2. Software reset MCI core (MCI_POWER bit 7 = CORE_SW_RST) */
+  /* 2. Software reset MCI core (MCI_POWER bit 7 = CORE_SW_RST).
+   *    Reset is asynchronous — sdcc_enable_clock returns immediately because
+   *    STATUS2 reads 0 during reset, so all subsequent register writes are
+   *    silently discarded.  LK has clock_init_mmc()/clock_config_mmc() between
+   *    SW_RST and POWER=0x03, providing ~1ms implicit delay.  We add an
+   *    explicit delay to let the reset complete before touching any registers. */
   MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 0x80;
   sdcc_enable_clock(slot);
+  delay_us(1000);  /* 1 ms — ensure SW_RST completes before further writes */
 
   /* 3. Clear command and data state machines (original does this at
    *    FUN_08034704 lines 2711-2714 before any clock/status config) */
