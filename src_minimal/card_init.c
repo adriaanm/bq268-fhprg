@@ -205,12 +205,14 @@ void sdcc_pre_init_slot(int slot)
 
   /* 6. Configure MCI_CLK:
    *    - bit 8:  CLK_ENABLE (clock output to card)
+   *    - bit 12: FLOW_ENA (hardware flow control, prevents FIFO overrun)
    *    - bit 15: SELECT_IN feedback clock
    *    - bit 21: Qualcomm vendor bit (original always sets this at line 2716)
    *    - bits 11:10: WIDEBUS = 00 (1-bit for identification) */
   {
     uint clk = MCI_REG(slot, MCI_CLK);
     clk |= 0x100;      /* bit 8:  CLK_ENABLE */
+    clk |= 0x1000;     /* bit 12: FLOW_ENA (LK mmc_boot_mci_clk_enable) */
     clk |= 0x8000;     /* bit 15: SELECT_IN feedback clock */
     clk |= 0x200000;   /* bit 21: vendor-specific (set by original at 0x08034704) */
     clk &= ~0xC00u;    /* bits 11:10: WIDEBUS = 00 (1-bit) */

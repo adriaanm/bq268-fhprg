@@ -533,13 +533,15 @@ static int sdcc_clock_init_verbose(void)
     DUMP_REG("AHB_CBCR ", SDCC1_AHB_CBCR);
 #undef DUMP_REG
 
-    /* Step 1: Write M/N/D for 400 KHz (CXO/12, M=1, N=4) */
+    /* Step 1: Write M/N/D for 400 KHz (CXO/12, M=1, N=4)
+     * From LK F() macro: m_val=M, n_val=~(N-M), d_val=~N
+     * M=1, N=4: n_val=~(4-1)=~3=0xFFFFFFFC, d_val=~4=0xFFFFFFFB */
     usb_write("[1] M...", 8);
     REG32(SDCC1_M) = 1;
     usb_write("ok N...", 7);
-    REG32(SDCC1_N) = 0xFFFFFFFD;
+    REG32(SDCC1_N) = 0xFFFFFFFC;  /* ~(N-M) = ~(4-1) = ~3 */
     usb_write("ok D...", 7);
-    REG32(SDCC1_D) = 0xFFFFFFFC;
+    REG32(SDCC1_D) = 0xFFFFFFFB;  /* ~N = ~4 */
     usb_write("ok\r\n", 4);
 
     /* Step 2: Write CFG_RCGR = 0x2017 (CXO src=0, div=12, dual-edge) */
@@ -665,6 +667,70 @@ static void cmd_emmc_init(void)
      * Sets init_state=1 so mmc_init_card skips its broken SDHCI path
      * but still does card identification (CMD0→CMD1→CMD2→CMD3→CMD7). */
     sdcc_pre_init_slot(0);
+
+    /* Diagnostic: dump MCI state after init */
+    p = put_str(resp, p, "MCI regs after init:\r\n");
+    usb_write(resp, p); p = 0;
+    p = put_str(resp, p, "  POWER=");
+    p = put_hex32(resp, p, MCI_REG(0, MCI_POWER));
+    p = put_str(resp, p, " CLK=");
+    p = put_hex32(resp, p, MCI_REG(0, MCI_CLK));
+    p = put_str(resp, p, " STATUS=");
+    p = put_hex32(resp, p, MCI_REG(0, MCI_STATUS));
+    p = put_str(resp, p, "\r\n  HC_MODE=");
+    p = put_hex32(resp, p, MCI_REG(0, MCI_HC_MODE));
+    p = put_str(resp, p, " CMD=");
+    p = put_hex32(resp, p, MCI_REG(0, MCI_CMD));
+    p = put_str(resp, p, " STATUS2=");
+    p = put_hex32(resp, p, MCI_REG(0, MCI_STATUS2));
+    p = put_str(resp, p, "\r\n");
+    usb_write(resp, p); p = 0;
+
+    /* Diagnostic: manual CMD0 test */
+    {
+        mmc_dev_t *dev = (mmc_dev_t *)((char *)mmc_get_slot_context(0) + 0xc);
+        mmc_cmd_t cmd;
+        int ret;
+
+        /* CMD0: GO_IDLE_STATE */
+        memset_zero(&cmd, sizeof(cmd));
+        ret = sdcc_send_cmd(dev, &cmd);
+        p = put_str(resp, p, "CMD0 ret=");
+        p = put_hex32(resp, p, (unsigned int)ret);
+        p = put_str(resp, p, " STATUS=");
+        p = put_hex32(resp, p, MCI_REG(0, MCI_STATUS));
+        p = put_str(resp, p, "\r\n");
+        usb_write(resp, p); p = 0;
+
+        /* CMD1: SEND_OP_COND (try 3 times) */
+        {
+            int i;
+            for (i = 0; i < 3; i++) {
+                memset_zero(&cmd, sizeof(cmd));
+                cmd.cmd_num = 1;
+                cmd.cmd_arg = 0x40ff8000;
+                cmd.resp_type = 1;
+                ret = sdcc_send_cmd(dev, &cmd);
+                p = put_str(resp, p, "CMD1[");
+                p = put_dec(resp, p, (unsigned int)i);
+                p = put_str(resp, p, "] ret=");
+                p = put_hex32(resp, p, (unsigned int)ret);
+                p = put_str(resp, p, " resp=");
+                p = put_hex32(resp, p, cmd.resp[0]);
+                p = put_str(resp, p, " st=");
+                p = put_hex32(resp, p, cmd.status);
+                p = put_str(resp, p, "\r\n");
+                usb_write(resp, p); p = 0;
+                if (ret != 0) break;
+                if ((int)cmd.resp[0] < 0) {
+                    p = put_str(resp, p, "CMD1 card ready!\r\n");
+                    usb_write(resp, p); p = 0;
+                    break;
+                }
+                delay_us(50000);
+            }
+        }
+    }
 
     /* Call mmc_open_device which does card init + partition setup */
     p = put_str(resp, p, "eMMC init: opening device...\r\n");
