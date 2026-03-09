@@ -94,6 +94,9 @@ extern int sdcc_free_slots;        /* free partition slot counter (init: 0x20) *
 /* QTimer MMIO at 0x004a1000 — mapped by linker script */
 volatile uint mmio_qtimer __attribute__((section(".mmio_qtimer"))) = 0;
 
+/* Forward declarations */
+static void sdcc_qtimer_init(void);
+
 /* ---- Simple utility functions ---- */
 
 /* orig: 0x08032acc — get ADMA transfer mode (always 0x20 = ADMA2) */
@@ -145,24 +148,25 @@ void sdcc_clock_init(void)
 /* sdcc_pre_init_slot — initialize SDCC MCI controller and set up data structures.
  *
  * In EDL mode, PBL loads the programmer over USB and never touches eMMC.
- * We must initialize the MCI controller from scratch, following LK's
- * mmc_boot_init() sequence (lk_src/platform/msm_shared/mmc.c).
+ * We must initialize the MCI controller from scratch.
  *
- * MCI controller init (from LK):
+ * The original binary (FUN_08034704 at 0x08034704) always does full SDHCI-mode
+ * init — FUN_0803460c (the MCI-mode path) is dead code behind `if (true)`.
+ * Our command dispatch uses MCI registers, so we follow LK's mmc_boot_init()
+ * for MCI-mode setup, augmented with the original's register writes:
+ *
  *   1. Disable SDHCI mode (MCI_HC_MODE bit 0 = 0)
- *   2. Software reset MCI core (MCI_POWER bit 7)
- *   3. Configure clock to 400 kHz (already done by sdcc_clock_init)
- *   4. Power on (MCI_POWER = 0x03)
- *   5. Enable clock output (MCI_CLK bit 8)
+ *   2. Software reset (MCI_POWER bit 7)
+ *   3. Clear MCI_CMD and MCI_DATA_CTL (original lines 2711-2714)
+ *   4. Clear status, disable interrupts
+ *   5. Power on (MCI_POWER = 0x03)
+ *   6. Configure MCI_CLK: CLK_ENABLE(8), feedback(15), vendor bit(21)
+ *   7. Clear vendor status bit 22
+ *   8. Init qtimer
  *
- * Data structures: set up slot context with init_state=1 so mmc_init_card
- * skips (its full path enables SDHCI mode which breaks MCI commands).
- * Leave card_type=0 so mmc_open_device falls through to mmc_classify_error
- * which does the full card identification (CMD0→CMD1→CMD2→CMD3→CMD7→CMD16).
- *
- * The hotplug descriptor pointer (dev+0x90) points to the slot context
- * itself (ctx[0x27] = ctx), matching the original binary's convention.
- * sdcc_write_data reads hotplug[0] as slot number (= ctx[0] = slot).
+ * Sets init_state=1 so mmc_init_card skips its SDHCI path.
+ * Leaves card_type=0 so mmc_open_device falls through to mmc_classify_error
+ * for full card identification (CMD0→CMD1→CMD2→CMD3→CMD7→CMD16).
  *
  * Must be called after sdcc_clock_init() and before mmc_open_device().
  */
@@ -174,48 +178,68 @@ void sdcc_pre_init_slot(int slot)
   /* Set up SDCC register bases */
   sdcc_init_bases();
 
-  /* --- MCI controller init (following LK mmc_boot_init) --- */
+  /* --- MCI controller init ---
+   *
+   * The original binary (FUN_08034704) always does SDHCI-mode init, but our
+   * command dispatch (sdcc_send_cmd → sdcc_pre_cmd_hook → sdcc_cleanup) uses
+   * MCI registers.  We follow LK's mmc_boot_init() for MCI-mode setup, plus
+   * the original's register writes that apply to both modes.
+   */
 
-  /* 1. Disable SDHCI mode — use MCI legacy mode for commands.
-   *    mmc_init_card's full path sets this to 1 (SDHCI mode) which
-   *    breaks our MCI-based command dispatch. */
+  /* 1. Disable SDHCI mode — use MCI legacy mode for commands */
   MCI_REG(slot, MCI_HC_MODE) = MCI_REG(slot, MCI_HC_MODE) & ~1u;
   sdcc_enable_clock(slot);
 
-  /* 2. Software reset MCI core (MCI_POWER bit 7 = CORE_SW_RST).
-   *    LK does this before any other MCI setup. */
+  /* 2. Software reset MCI core (MCI_POWER bit 7 = CORE_SW_RST) */
   MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 0x80;
   sdcc_enable_clock(slot);
 
-  /* 3. Clear all pending status bits */
+  /* 3. Clear command and data state machines (original does this at
+   *    FUN_08034704 lines 2711-2714 before any clock/status config) */
+  MCI_REG(slot, MCI_CMD) = 0;
+  sdcc_enable_clock(slot);
+  MCI_REG(slot, MCI_DATA_CTL) = 0;
+  sdcc_enable_clock(slot);
+
+  /* 4. Clear all pending status bits and disable interrupts */
   MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
   MCI_REG(slot, MCI_INT_MASK0) = 0;
 
-  /* 4. Power on: MCI_POWER = 0x03 (PWR_ON | PWR_UP).
-   *    LK sets both bits; our old code only set bit 0. */
+  /* 5. Power on: MCI_POWER = 0x03 (PWR_ON | PWR_UP) */
   MCI_REG(slot, MCI_POWER) = 0x03;
   sdcc_enable_clock(slot);
 
-  /* 5. Enable clock output to card (MCI_CLK bit 8 = MCI_CLK_ENABLE).
-   *    Also set flow control (bit 12) and feedback clock (bit 15). */
+  /* 6. Configure MCI_CLK:
+   *    - bit 8:  CLK_ENABLE (clock output to card)
+   *    - bit 15: SELECT_IN feedback clock
+   *    - bit 21: Qualcomm vendor bit (original always sets this at line 2716)
+   *    - bits 11:10: WIDEBUS = 00 (1-bit for identification) */
   {
     uint clk = MCI_REG(slot, MCI_CLK);
-    clk |= 0x100;     /* bit 8: CLK_ENABLE — clock output to card */
-    clk |= 0x8000;    /* bit 15: SELECT_IN feedback clock */
-    clk &= ~0xC00u;   /* bits 11:10: WIDEBUS = 00 (1-bit for init) */
+    clk |= 0x100;      /* bit 8:  CLK_ENABLE */
+    clk |= 0x8000;     /* bit 15: SELECT_IN feedback clock */
+    clk |= 0x200000;   /* bit 21: vendor-specific (set by original at 0x08034704) */
+    clk &= ~0xC00u;    /* bits 11:10: WIDEBUS = 00 (1-bit) */
     MCI_REG(slot, MCI_CLK) = clk;
     sdcc_enable_clock(slot);
   }
 
+  /* 7. Clear vendor status bit 22 (original does this at line 2719) */
+  MCI_REG(slot, MCI_CLEAR) = 0x400000;
+
+  /* 8. Init qtimer (original calls FUN_08032b64 at line 2705) */
+  sdcc_qtimer_init();
+
   /* --- Data structure setup --- */
 
-  /* Slot context header */
   ctx[0] = slot;
-  *(char *)((char *)ctx + SLOT_CTX_INIT_STATE) = '\x01';  /* skip mmc_init_card */
+  *(uint8_t *)(ctx + 1) = 1;  /* mark context as allocated (original line 2701) */
+  *(char *)((char *)ctx + SLOT_CTX_INIT_STATE) = '\x01';  /* skip mmc_init_card full path */
+  ctx[0x19] = 1;               /* flags (original line 2724) */
   ctx[SLOT_CTX_SELF_PTR] = (int)ctx;  /* hotplug desc = ctx itself */
 
-  /* Device struct — minimal fields. card_type left as 0 so mmc_open_device
-   * falls through to mmc_classify_error for full card identification. */
+  /* Device struct — card_type left as 0 so mmc_open_device falls through
+   * to mmc_classify_error for full card identification. */
   dev->slot = slot;
 
   /* Register device in slot handle table */
