@@ -216,6 +216,14 @@ void sdcc_pre_init_slot(int slot)
       delay_us(1);
   }
 
+  /* 4b. Switch back to MCI mode for command dispatch.
+   *     With HC_MODE[0]=1 (SDHCI), MCI commands don't clock out —
+   *     CMD_ACTIVE stays stuck.  The original keeps SDHCI enabled
+   *     but its command path may differ.  Our sdcc_send_cmd uses MCI
+   *     registers, so we need MCI mode active. */
+  MCI_REG(slot, MCI_HC_MODE) = MCI_REG(slot, MCI_HC_MODE) & ~1u;
+  sdcc_enable_clock(slot);
+
   /* 5. Clear command and data state machines (original: lines 2711-2714) */
   MCI_REG(slot, MCI_CMD) = 0;
   sdcc_enable_clock(slot);
