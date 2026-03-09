@@ -48,17 +48,17 @@ uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --dump-memory 0 10000 
 ### Key Files
 
 - `src/` — Rust programmer source
-  - `src/src/lib.rs` — Crate root (module declarations)
-  - `src/src/console.rs` — USB diagnostic console (command parser, GPT cache, verified flash)
-  - `src/src/emmc.rs` — eMMC state machine (card init, read, write)
-  - `src/src/sdcc.rs` — SDCC hardware driver (DMA, command dispatch)
-  - `src/src/usb.rs` — USB bulk transport (inherits PBL enumeration)
-  - `src/src/gpt.rs` — GPT partition table parser
-  - `src/src/sha256.rs` — SHA-256 for verified flash
-  - `src/src/platform.rs` — Platform init (clocks, DDR, GPIO/LED)
-  - `src/src/regs.rs` — SDCC register definitions
-  - `src/src/mmio.rs` — MMIO register access helpers
-  - `src/entry.S` — Entry point, hardware init, exception vectors
+  - `src/rust/lib.rs` — Crate root (module declarations)
+  - `src/rust/console.rs` — USB diagnostic console (command parser, GPT cache, verified flash)
+  - `src/rust/emmc.rs` — eMMC state machine (card init, read, write)
+  - `src/rust/sdcc.rs` — SDCC hardware driver (DMA, command dispatch)
+  - `src/rust/usb.rs` — USB bulk transport (inherits PBL enumeration)
+  - `src/rust/gpt.rs` — GPT partition table parser
+  - `src/rust/sha256.rs` — SHA-256 for verified flash
+  - `src/rust/platform.rs` — Platform init (clocks, DDR, GPIO/LED)
+  - `src/rust/regs.rs` — SDCC register definitions
+  - `src/rust/mmio.rs` — MMIO register access helpers
+  - `src/asm/entry.S` — Entry point, hardware init, exception vectors
   - `src/minimal.ld` — Linker script
   - `src/Makefile` — Build: Rust staticlib + assembly → ELF → MBN
 - `tools/usb_diag.py` — Host-side USB tool (Sahara upload, interactive console, verified flash, memory dump)

@@ -12,7 +12,7 @@ ASFLAGS  = -c -march=armv7-a -mthumb -mfloat-abi=soft -I ../archive/src_minimal
 # Rust staticlib output
 RUST_LIB = target/thumbv7a-none-eabi/release/libqc_firehose.a
 
-# Assembly sources (shared with src_minimal)
+# Assembly sources
 ASM_SRCS = entry.S ddr_blob.S ddr_config.S
 ASM_OBJS = $(addprefix tmp/,$(ASM_SRCS:.S=.o))
 
@@ -34,11 +34,11 @@ elf: $(ELF)
 # Build Rust staticlib
 rust: $(RUST_LIB)
 
-$(RUST_LIB): $(wildcard src/*.rs) Cargo.toml
+$(RUST_LIB): $(wildcard rust/*.rs) Cargo.toml
 	cargo +nightly build --release
 
 # Assemble .S files
-$(OUTDIR)/%.o: %.S | $(OUTDIR)
+$(OUTDIR)/%.o: asm/%.S | $(OUTDIR)
 	$(AS) $(ASFLAGS) -o $@ $<
 
 $(OUTDIR):
