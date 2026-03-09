@@ -172,20 +172,25 @@ void sdcc_pre_init_slot(int slot)
   /* Set up SDCC register bases */
   sdcc_init_bases();
 
-  /* --- MCI controller init ---
+  /* --- SDCC controller init ---
    *
-   * Match the original binary's sequence (FUN_08034704 lines 2704-2727).
-   * The original does NOT do SW_RST or disable SDHCI mode.  It builds on
-   * whatever state PBL left — just clears CMD/DATA, configures MCI_CLK,
-   * and sets MCI_POWER bit 0.
+   * Match the original binary's sequence (FUN_08034704 lines 2704-2735).
+   * PBL loads us via USB/Sahara — it never touches SDCC/eMMC, so we init
+   * from power-on-reset state.
    *
-   * Previous approach (LK-based: SW_RST + POWER=0x03) was wrong — the
-   * SW_RST destroyed PBL's controller state, and the original never does it.
+   * The original does:
+   *   1. TLMM pad config
+   *   2. MCI register config (gets wiped by step 4)
+   *   3. HC_MODE |= 1 (enable SDHCI)
+   *   4. SDHCI Software Reset (clears MCI registers!)
+   *   5. SDHCI vendor register config
+   *   6. mmc_classify_error reconfigures MCI before CMD0/CMD1
+   *
+   * We reorder: do SDHCI reset first, then configure MCI registers,
+   * so diagnostic CMD0/CMD1 work immediately after init.
    */
 
-  /* 1. TLMM/SDCC pad config (original: FUN_08032b0c).
-   *    PBL configured pads for SDCC1 when it loaded us, so this should
-   *    be redundant, but match the original for safety. */
+  /* 1. TLMM/SDCC pad config (original: FUN_08032b0c at line 2704). */
   {
     volatile uint *pad0 = (volatile uint *)0x0110a000;
     volatile uint *pad1 = (volatile uint *)0x01111000;
@@ -196,57 +201,54 @@ void sdcc_pre_init_slot(int slot)
   /* 2. Init qtimer (original: FUN_08032b64 at line 2705) */
   sdcc_qtimer_init();
 
-  /* 3. Clear command and data state machines (original: lines 2711-2714) */
-  MCI_REG(slot, MCI_CMD) = 0;
-  sdcc_enable_clock(slot);
-  MCI_REG(slot, MCI_DATA_CTL) = 0;
-  sdcc_enable_clock(slot);
-
-  /* 4. Clear all pending status bits (original: line 2715) */
-  MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
-
-  /* 5. Configure MCI_CLK (original: lines 2716-2717):
-   *    - bit 21: Qualcomm vendor bit
-   *    - bits 11:10: WIDEBUS = 00 (1-bit for identification)
-   *    Also set bits needed for clock output (from LK's mmc_boot_mci_clk_enable): */
-  {
-    uint clk = MCI_REG(slot, MCI_CLK);
-    clk |= 0x100;      /* bit 8:  CLK_ENABLE (clock output to card) */
-    clk |= 0x1000;     /* bit 12: FLOW_ENA (hardware flow control) */
-    clk |= 0x8000;     /* bit 15: SELECT_IN feedback clock */
-    clk |= 0x200000;   /* bit 21: vendor-specific (original line 2716) */
-    clk &= ~0xC00u;    /* bits 11:10: WIDEBUS = 00 (original line 2717) */
-    MCI_REG(slot, MCI_CLK) = clk;
-    sdcc_enable_clock(slot);
-  }
-
-  /* 6. Clear vendor status bit 22 and disable interrupts (original: lines 2719-2720) */
-  MCI_REG(slot, MCI_CLEAR) = 0x400000;
-  MCI_REG(slot, MCI_INT_MASK0) = 0;
-
-  /* 7. Power: set bit 0 only (original: line 2726).
-   *    The original does MCI_POWER |= 1, NOT POWER=0x03. */
-  MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 1;
-  sdcc_enable_clock(slot);
-
-  /* 8. Enable SDHCI mode (original: FUN_0800bc64(slot,1) at line 2728).
-   *    Sets MCI_HC_MODE bit 0.  On Qualcomm SDCC, MCI registers remain
-   *    functional even with SDHCI enabled — both interfaces share the
-   *    same command engine.  The SDHCI reset in step 9 is what actually
-   *    initializes the command engine. */
+  /* 3. Enable SDHCI mode (original: FUN_0800bc64(slot,1) at line 2728). */
   MCI_REG(slot, MCI_HC_MODE) = MCI_REG(slot, MCI_HC_MODE) | 1;
 
-  /* 9. SDHCI software reset (original: FUN_0800c154(slot,1) at line 2729).
+  /* 4. SDHCI software reset (original: FUN_0800c154(slot,1) at line 2729).
    *    Write 1 to SDHCI Software Reset register (SDHCI_BASE + 0x2F),
-   *    then poll until the bit self-clears (reset complete).
-   *    This initializes the SDCC command engine — essential even when
-   *    sending commands via MCI registers. */
+   *    poll until the bit self-clears.  This properly initializes the
+   *    SDCC command engine.  It also clears MCI registers (POWER, CLK,
+   *    etc.) to defaults — so all MCI config must come AFTER this. */
   {
     int timeout = 100000;
     HC_REG8(slot, 0x2f) = 1;
     while (timeout-- > 0 && (HC_REG8(slot, 0x2f) & 1) != 0)
       delay_us(1);
   }
+
+  /* 5. Clear command and data state machines (original: lines 2711-2714) */
+  MCI_REG(slot, MCI_CMD) = 0;
+  sdcc_enable_clock(slot);
+  MCI_REG(slot, MCI_DATA_CTL) = 0;
+  sdcc_enable_clock(slot);
+
+  /* 6. Clear all pending status bits (original: line 2715) */
+  MCI_REG(slot, MCI_CLEAR) = 0x18007ff;
+
+  /* 7. Configure MCI_CLK (original: lines 2716-2717 + mmc_classify_error):
+   *    - bit 8:  CLK_ENABLE (clock output to card)
+   *    - bit 12: FLOW_ENA (hardware flow control)
+   *    - bit 15: SELECT_IN feedback clock
+   *    - bit 21: Qualcomm vendor bit
+   *    - bits 11:10: WIDEBUS = 00 (1-bit for identification) */
+  {
+    uint clk = MCI_REG(slot, MCI_CLK);
+    clk |= 0x100;      /* bit 8:  CLK_ENABLE */
+    clk |= 0x1000;     /* bit 12: FLOW_ENA */
+    clk |= 0x8000;     /* bit 15: SELECT_IN feedback clock */
+    clk |= 0x200000;   /* bit 21: vendor-specific */
+    clk &= ~0xC00u;    /* bits 11:10: WIDEBUS = 00 */
+    MCI_REG(slot, MCI_CLK) = clk;
+    sdcc_enable_clock(slot);
+  }
+
+  /* 8. Clear vendor status bit 22, disable interrupts (original: lines 2719-2720) */
+  MCI_REG(slot, MCI_CLEAR) = 0x400000;
+  MCI_REG(slot, MCI_INT_MASK0) = 0;
+
+  /* 9. Power: set bit 0 (original: line 2726 + mmc_classify_error line 653). */
+  MCI_REG(slot, MCI_POWER) = MCI_REG(slot, MCI_POWER) | 1;
+  sdcc_enable_clock(slot);
 
   /* --- Data structure setup --- */
 
