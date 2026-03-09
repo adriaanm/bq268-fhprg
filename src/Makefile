@@ -10,7 +10,7 @@ OBJCOPY  = arm-none-eabi-objcopy
 ASFLAGS  = -c -march=armv7-a -mthumb -mfloat-abi=soft -I ../archive/src_minimal
 
 # Rust staticlib output
-RUST_LIB = target/thumbv7a-none-eabi/release/libqc_firehose.a
+RUST_LIB = target/thumbv7a-none-eabi/release/libbq268_edl_diag.a
 
 # Assembly sources
 ASM_SRCS = entry.S ddr_blob.S ddr_config.S

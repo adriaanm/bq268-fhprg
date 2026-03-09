@@ -1,45 +1,68 @@
-# qc_firehose
+# bq268-edl-diag
 
 **This is untested, work-in-progress research software.** It targets a single
-device (BQ Aquaris M5, MSM8909) and has never been validated outside of that
+device (BQ268/ABBREE GP-268, MSM8909) and has never been validated outside of that
 context. Use at your own risk. The authors accept no liability for bricked
 devices, lost data, or any other outcome.
 
 ## What this is
 
-A custom Qualcomm Firehose programmer for the MSM8909 SoC, built by
-decompiling the stock programmer in Ghidra and reimplementing the subset
-needed to read and write eMMC partitions over EDL (Emergency Download) mode.
+A bare-metal ARM diagnostic tool for the MSM8909 SoC, written in Rust
+(no_std). It is loaded via Qualcomm's EDL (Emergency Download) mode using the
+Sahara protocol and provides an interactive USB console for low-level hardware
+access: register peek/poke, memory dumps, eMMC read/write, GPT partition
+inspection, and verified partition flashing with SHA-256 checksums.
+
+The eMMC driver and hardware init sequences were reverse-engineered from the
+stock Qualcomm Firehose programmer binary using Ghidra. DDR initialization
+uses a binary blob extracted from the original.
 
 The project was built almost entirely with [Claude Code](https://claude.ai/code).
 
-### Minimal programmer (`src_minimal/`)
+## Building
 
-A bare-metal ARM program loaded by the SoC's Primary Boot Loader (PBL) via the
-Sahara protocol. It initializes DDR, clocks, eMMC, and USB, then speaks the
-Firehose XML protocol to accept read/write commands from the host.
+Requires: Rust nightly (`thumbv7a-none-eabi` target), `arm-none-eabi-gcc`,
+`arm-none-eabi-ld`.
 
 ```bash
-make minimal-elf    # produces tmp/minimal.elf (MBN-wrapped for Sahara)
+make            # Build MBN-wrapped ELF for Sahara upload
+make clean      # Clean build artifacts
 ```
 
-### Supporting tools (`tools/`)
+## Usage
 
-- `tools/usb_diag.py` — interactive USB console for the programmer's
-  diagnostic mode (register peek/poke, memory dump, DDR test)
-- `tools/mbn_wrap.py` — wraps a raw ELF into Qualcomm MBN format with hash
-  table segments for Sahara
-- `tools/fhprg_init_emu.py` — Unicorn-based emulator tracing the original
-  programmer's init sequence
-- `tools/ghidra_analyze_fhprg.py` — headless Ghidra decompilation pipeline
+```bash
+# Upload programmer and open interactive console
+uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn
+
+# Upload and flash a partition image (verified)
+uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --flash-partition aboot aboot.bin
+```
+
+## Console Commands
+
+| Cmd | Description |
+|-----|-------------|
+| `r ADDR` | Read 32-bit word |
+| `w ADDR VAL` | Write 32-bit word |
+| `d ADDR LEN` | Hex dump memory |
+| `R ADDR LEN` | Raw memory dump to file (binary + SHA-256) |
+| `i` | System info (page tables, control regs) |
+| `t` | DDR memory test |
+| `e` | Init eMMC |
+| `c` | eMMC card status |
+| `s SECTOR` | Read eMMC sector (hex dump) |
+| `S SECTOR BYTE` | Write eMMC sector (fill with byte) |
+| `G` | Read GPT partition table |
+| `F NAME` | Verified flash partition (GPT lookup + SHA-256) |
+| `F SECTOR COUNT` | Verified flash (manual hex sector + count) |
 
 ## Provenance
 
-The eMMC driver code in `src_minimal/` was decompiled from the stock Qualcomm
-Firehose programmer binary for the MSM8909 using Ghidra, then manually cleaned
-up and restructured. The DDR initialization blob (`src_minimal/ddr_blob.S`) is
-extracted verbatim from the original binary. Register definitions in
-`src_minimal/msm8909.h` are derived from the
+The eMMC driver was decompiled from the stock Qualcomm Firehose programmer
+binary using Ghidra, then manually cleaned up and rewritten in Rust. The DDR
+initialization blob (`src/blobs/`) is extracted verbatim from the original
+binary. Register definitions are derived from the
 [Little Kernel](https://source.codeaurora.org/quic/la/kernel/lk/) source for
 MSM8909.
 

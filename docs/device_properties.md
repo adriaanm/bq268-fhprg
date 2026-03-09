@@ -50,7 +50,6 @@ From `fastboot getvar all` (source of truth):
 | `variant` | `MTP eMMC` |
 | `version` | `0.5` |
 | `max-download-size` | `0xfa00000` (~250 MB) |
-| `serialno` | `2a1ae0f` |
 | `version-baseband` | (empty) |
 | `version-bootloader` | (empty) |
 
@@ -104,10 +103,3 @@ The device uses the `by-name` partition naming scheme.
 *   **`persist.sys.usb.config=diag,serial_smd,rmnet_qti_bam,adb`** — Qualcomm diagnostic interface (`diag`) enabled by default on USB, useful for low-level debugging.
 *   **`ro.build.flavor=msm8909go-user`** — Confirms msm8909 Go (Android Go) variant.
 
-## Sources
-
-| File | Description |
-|------|-------------|
-| `backups/original_props` | Live `adb shell getprop` dump from device |
-| `backups/build.prop` | `/system/build.prop` extracted via EDL |
-| `backups/prop.default` | Boot image default properties extracted via EDL |

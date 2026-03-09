@@ -2,106 +2,53 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Goal
+## Project Overview
 
-Build a **minimal Qualcomm programmer** (msm8909, ARM 32-bit) that runs in EDL mode via Sahara protocol and provides a USB diagnostic console with eMMC read/write, verified flashing, and memory dump capabilities. The ultimate goal is to write the aboot partition, bypassing hardware write protection (CMD28 WP groups).
-
-The programmer is written in Rust (no_std, bare metal ARM Thumb2) and loaded via PBL's Sahara/EDL mode. It inherits the PBL's USB session and page tables.
-
-## Archived Code
-
-The `archive/` directory (not tracked in git) contains previous work:
-- `archive/src_fhprg/` — Decompiled original firehose programmer (Ghidra output, reference)
-- `archive/src_minimal/` — Previous C implementation of the minimal programmer
-- `archive/tools/` — Various analysis/comparison/emulation tools from the decompilation effort
-- `archive/client/` — Go-based firehose client
-- `archive/bins/` — Binary dumps (PBL, GPT, splash, patched programmers)
-
-When debugging hardware issues, the decompiled original in `archive/src_fhprg/` remains the authoritative reference for how the original programmer drives this SoC.
+**bq268-edl-diag** — a bare-metal Rust diagnostic tool for the MSM8909 SoC (BQ268/ABBREE GP-268). Loaded via PBL's Sahara/EDL mode, it provides a USB console for register access, memory dumps, eMMC read/write, and verified partition flashing. Hardware init sequences were reverse-engineered from the stock Qualcomm Firehose programmer.
 
 ## Workflow
 
-- **Commit regularly** — after each logical change, stage and commit. Don't let changes accumulate across multiple tasks.
+- **Commit regularly** — after each logical change, stage and commit.
 - **Embody what you learn in the source** — when analyzing or debugging, capture what you learned directly in the code: meaningful names, comments, corrected logic.
 
 ## Build Commands
 
 ```bash
-# Build programmer ELF (MBN-wrapped for Sahara)
-make            # or: make elf
-
-# Clean build outputs
-make clean
+make            # Build MBN-wrapped ELF for Sahara upload
+make clean      # Clean build artifacts
 
 # Flash programmer and open interactive console
 uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn
 
 # Verified flash a partition
-uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --flash-partition aboot tmp/aboot.bin
-
-# Dump memory region
-uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --dump-memory 0 10000 tmp/pbl.bin
+uv run tools/usb_diag.py --flash src/tmp/minimal_rust.mbn --flash-partition aboot aboot.bin
 ```
 
-## Architecture
+## Key Files
 
-### Key Files
-
-- `src/` — Rust programmer source
-  - `src/rust/lib.rs` — Crate root (module declarations)
-  - `src/rust/console.rs` — USB diagnostic console (command parser, GPT cache, verified flash)
-  - `src/rust/emmc.rs` — eMMC state machine (card init, read, write)
-  - `src/rust/sdcc.rs` — SDCC hardware driver (DMA, command dispatch)
-  - `src/rust/usb.rs` — USB bulk transport (inherits PBL enumeration)
-  - `src/rust/gpt.rs` — GPT partition table parser
-  - `src/rust/sha256.rs` — SHA-256 for verified flash
-  - `src/rust/platform.rs` — Platform init (clocks, DDR, GPIO/LED)
-  - `src/rust/regs.rs` — SDCC register definitions
-  - `src/rust/mmio.rs` — MMIO register access helpers
-  - `src/asm/entry.S` — Entry point, hardware init, exception vectors
-  - `src/minimal.ld` — Linker script
-  - `src/Makefile` — Build: Rust staticlib + assembly → ELF → MBN
-- `tools/usb_diag.py` — Host-side USB tool (Sahara upload, interactive console, verified flash, memory dump)
+- `src/rust/` — Rust source (no_std staticlib)
+  - `console.rs` — USB command parser, GPT cache, verified flash (`G`, `F`, `R` commands)
+  - `emmc.rs` — eMMC state machine (card init, sector read/write)
+  - `sdcc.rs` — SDCC hardware driver (DMA, command dispatch)
+  - `usb.rs` — USB bulk transport (inherits PBL enumeration)
+  - `gpt.rs` — GPT partition table parser
+  - `sha256.rs` — SHA-256 for verified flash
+  - `platform.rs` — Platform init (clocks, DDR, GPIO/LED)
+  - `regs.rs` — SDCC register definitions
+  - `mmio.rs` — MMIO register access helpers
+  - `lib.rs` — Crate root
+- `src/asm/` — ARM assembly
+  - `entry.S` — Entry point, hardware init, exception vectors, DDR blob callbacks
+  - `ddr_blob.S` / `ddr_config.S` — DDR binary blob includes
+- `src/blobs/` — DDR binary blobs extracted from original programmer
+- `src/minimal.ld` — Linker script
+- `src/Makefile` — Build: Rust staticlib + assembly → ELF → MBN
+- `tools/usb_diag.py` — Host-side USB tool (Sahara upload, interactive console, verified flash)
 - `tools/mbn_wrap.py` — MBN hash table wrapper for Sahara ELF loading
-- `docs/` — Hardware documentation
 
-### Console Commands
+## Compiler Settings
 
-| Cmd | Description |
-|-----|-------------|
-| `r ADDR` | Read 32-bit word |
-| `w ADDR VAL` | Write 32-bit word |
-| `d ADDR LEN` | Hex dump memory |
-| `R ADDR LEN` | Raw memory dump (binary + SHA256, intercepted by Python for file save) |
-| `i` | System info (page tables, control registers) |
-| `t` | DDR test |
-| `e` | Init eMMC |
-| `c` | eMMC card status |
-| `s SECTOR` | Read eMMC sector |
-| `S SECTOR BYTE` | Write eMMC sector (fill byte) |
-| `G` | Read GPT partition table |
-| `F NAME` | Verified flash (GPT lookup, SHA256 upload check, write+readback verify) |
-| `F SECTOR COUNT` | Verified flash (manual sector address) |
-
-### Compiler Settings
-
-Rust nightly cross-compiling for `thumbv7a-none-eabi` (ARMv7-A Thumb2, soft float). Assembly compiled with arm-none-eabi-gcc. `-mno-movt` in Rust target spec forces literal pool loads.
-
-### Documentation Index (`docs/`)
-
-| File | Content |
-|------|---------|
-| `init_sequence.md` | Full hardware init spec: DDR init, clock config, original vs minimal comparison |
-| `led_checkpoints.md` | LED checkpoint map for entry.S debugging, exception handler patterns |
-| `minimal_programmer.md` | Unified minimal programmer doc: status, architecture, USB, function mapping, build |
-| `ddr_init.md` | DDR initialization details |
-| `memory_layout.md` | Memory layout documentation |
-| `device_properties.md` | BQ268 device properties and hardware info |
-| `sahara_usb_handover.md` | USB session inheritance from PBL |
-| `emulating_firehose.md` | Notes on Unicorn emulation of the firehose programmer |
-| `partition3_restriction.md` | Partition 3 write restriction analysis |
-| `recompilation_plan.md` | Plan for fhprg recompilation and verification |
-| `printgpt.md` | GPT partition table dump |
+Rust nightly cross-compiling for `thumbv7a-none-eabi` (ARMv7-A Thumb2, soft float). Assembly compiled with `arm-none-eabi-gcc`. `-mno-movt` in the Rust target spec forces literal pool loads.
 
 ## Hardware Notes
 
@@ -111,3 +58,16 @@ Rust nightly cross-compiling for `thumbv7a-none-eabi` (ARMv7-A Thumb2, soft floa
 - **DDR**: 533MHz, init via binary blob callbacks (ARM/Thumb mixed mode)
 - **eMMC**: SDCC1 controller at 0x07824000, SDHCI reset required before MCI mode
 - **USB**: Inherits PBL's enumeration, DMA must use DDR buffers (not OCIMEM)
+
+## Documentation (`docs/`)
+
+| File | Content |
+|------|---------|
+| `init_sequence.md` | Full hardware init spec: DDR init, clock config |
+| `led_checkpoints.md` | LED checkpoint map for entry.S debugging |
+| `minimal_programmer.md` | Programmer architecture, USB protocol, function mapping |
+| `ddr_init.md` | DDR initialization details |
+| `memory_layout.md` | Memory layout documentation |
+| `device_properties.md` | BQ268 device properties and hardware info |
+| `sahara_usb_handover.md` | USB session inheritance from PBL |
+| `printgpt.md` | GPT partition table dump |

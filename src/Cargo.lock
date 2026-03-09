@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "qc-firehose"
+name = "bq268-edl-diag"
 version = "0.1.0"
